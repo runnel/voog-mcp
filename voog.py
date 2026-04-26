@@ -31,6 +31,7 @@ Kasutus:
   python3 voog.py page-set-layout <page-id> <layout-id>  # reassign layout
   python3 voog.py page-delete <id> [--force]    # kustuta leht (küsib kinnitust)
   python3 voog.py pages-pull                    # salvesta pages.json (struktuur, ei sisaldu sisu)
+
   python3 voog.py redirects                     # kõik ümbersuunamised
   python3 voog.py redirect-add <allikas> <siht> [301|302|307|410]  # lisa ümbersuunamine
       Näide: python3 voog.py redirect-add /en/products/vana /en/products/uus 301
@@ -688,6 +689,9 @@ def pages_snapshot(output_dir):
 def layout_rename(layout_id, new_title):
     """Nimeta layout ümber API-s + lokaalses manifestis + failsüsteemis. Säilitab id."""
     layout_id = int(layout_id)
+    if "/" in new_title or "\\" in new_title or new_title.startswith("."):
+        print(f"❌ Layout title ei tohi sisaldada '/' ega '\\' ega alata punktiga: {new_title!r}")
+        sys.exit(1)
 
     # 1. API call — PUT /layouts/{id} {"title": new_title}
     print(f"PUT /layouts/{layout_id} title=\"{new_title}\"...")
@@ -730,15 +734,20 @@ def layout_rename(layout_id, new_title):
 
 
 def page_set_hidden(page_ids, hidden):
-    """Bulk toggle hidden flag paljudele lehtedele."""
+    """Bulk toggle hidden flag paljudele lehtedele. Exitib != 0 kui mõni ebaõnnestus."""
     flag = "🔒 hidden" if hidden else "👁  visible"
     print(f"Lülitan {len(page_ids)} lehte: {flag}")
+    fail_count = 0
     for pid in page_ids:
         try:
             api_put(f"/pages/{pid}", {"hidden": bool(hidden)})
             print(f"  ✓ {pid}")
         except Exception as e:
             print(f"  ✗ {pid}: {e}")
+            fail_count += 1
+    if fail_count:
+        print(f"⚠ {fail_count}/{len(page_ids)} ebaõnnestus")
+        sys.exit(1)
 
 
 def page_set_layout(page_id, layout_id):
@@ -762,8 +771,12 @@ def page_delete(page_id, force=False):
         if input().strip().lower() not in ("j", "y", "yes", "jah"):
             print("Katkestatud.")
             return
-    api_delete(f"/pages/{page_id}")
-    print(f"  ✓ page {page_id} kustutatud")
+    try:
+        api_delete(f"/pages/{page_id}")
+        print(f"  ✓ page {page_id} kustutatud")
+    except Exception as e:
+        print(f"  ✗ page {page_id} kustutamine ebaõnnestus: {e}")
+        sys.exit(1)
 
 
 def pages_pull():
