@@ -26,6 +26,7 @@ Kasutus:
   python3 voog.py pages                         # kõik lehed (id, path, title, hidden, layout)
   python3 voog.py page <id>                     # ühe lehe täisinfo
   python3 voog.py pages-snapshot <dir>          # backup kõik lehed + contents JSON-i
+  python3 voog.py layout-rename <id> <uus>      # nimeta layout ümber, säilita id
   python3 voog.py redirects                     # kõik ümbersuunamised
   python3 voog.py redirect-add <allikas> <siht> [301|302|307|410]  # lisa ümbersuunamine
       Näide: python3 voog.py redirect-add /en/products/vana /en/products/uus 301
@@ -673,6 +674,50 @@ def pages_snapshot(output_dir):
     print(f"✅ Snapshot: {output_dir}")
 
 
+def layout_rename(layout_id, new_title):
+    """Nimeta layout ümber API-s + lokaalses manifestis + failsüsteemis. Säilitab id."""
+    layout_id = int(layout_id)
+
+    # 1. API call — PUT /layouts/{id} {"title": new_title}
+    print(f"PUT /layouts/{layout_id} title=\"{new_title}\"...")
+    api_put(f"/layouts/{layout_id}", {"title": new_title})
+
+    # 2. Find old path in manifest
+    manifest_path = LOCAL_DIR / "manifest.json"
+    if not manifest_path.exists():
+        print("⚠ manifest.json puudub — fail- ja manifest-uuendus jäeti vahele.")
+        return
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    old_path = None
+    folder = None
+    for path, info in manifest.items():
+        if info.get("id") == layout_id and info.get("type") == "layout":
+            old_path = path
+            folder = path.split("/", 1)[0]  # "layouts" or "components"
+            break
+
+    if old_path is None:
+        print(f"⚠ Layout id {layout_id} manifestist ei leitud — ainult API uuendati.")
+        return
+
+    new_path = f"{folder}/{new_title}.tpl"
+
+    # 3. Rename file on disk
+    old_file = LOCAL_DIR / old_path
+    new_file = LOCAL_DIR / new_path
+    if old_file.exists():
+        new_file.parent.mkdir(parents=True, exist_ok=True)
+        old_file.rename(new_file)
+        print(f"  ✓ {old_path} → {new_path}")
+
+    # 4. Update manifest
+    info = manifest.pop(old_path)
+    manifest[new_path] = info
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"  ✓ manifest.json uuendatud")
+
+
 # --- Serve (lokaalne proxy) ---
 
 # JS/CSS failid, mida proxy asendab kohalike versioonidega.
@@ -961,6 +1006,11 @@ def main():
             print("Kasutus: python3 voog.py pages-snapshot <output-dir>")
             sys.exit(1)
         pages_snapshot(sys.argv[2])
+    elif cmd == "layout-rename":
+        if len(sys.argv) < 4:
+            print("Kasutus: python3 voog.py layout-rename <id> <uus-tiitel>")
+            sys.exit(1)
+        layout_rename(sys.argv[2], sys.argv[3])
     else:
         print(f"❌ Tundmatu käsk: {cmd}")
         print(__doc__)

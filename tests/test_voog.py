@@ -102,5 +102,37 @@ class TestPagesSnapshot(unittest.TestCase):
             self.assertTrue((Path(tmpdir) / "page_200_contents.json").exists())
 
 
+class TestLayoutRename(unittest.TestCase):
+    def test_layout_rename_calls_api_and_updates_manifest_and_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            (tmpdir / "layouts").mkdir()
+            old_file = tmpdir / "layouts" / "Front page.tpl"
+            old_file.write_text("<html>Front page</html>", encoding="utf-8")
+
+            manifest = {
+                "layouts/Front page.tpl": {"id": 977702, "type": "layout"},
+            }
+            (tmpdir / "manifest.json").write_text(json_mod.dumps(manifest), encoding="utf-8")
+
+            with patch.object(voog, "LOCAL_DIR", tmpdir):
+                with patch.object(voog, "api_put") as mock_put:
+                    mock_put.return_value = {"id": 977702, "title": "old-Front page"}
+                    voog.layout_rename(977702, "old-Front page")
+
+            # API called
+            mock_put.assert_called_once_with(
+                "/layouts/977702", {"title": "old-Front page"}
+            )
+            # File renamed
+            self.assertFalse(old_file.exists())
+            self.assertTrue((tmpdir / "layouts" / "old-Front page.tpl").exists())
+            # Manifest updated
+            new_manifest = json_mod.loads((tmpdir / "manifest.json").read_text())
+            self.assertNotIn("layouts/Front page.tpl", new_manifest)
+            self.assertIn("layouts/old-Front page.tpl", new_manifest)
+            self.assertEqual(new_manifest["layouts/old-Front page.tpl"]["id"], 977702)
+
+
 if __name__ == "__main__":
     unittest.main()
