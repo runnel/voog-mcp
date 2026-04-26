@@ -29,6 +29,7 @@ Kasutus:
   python3 voog.py layout-rename <id> <uus>      # nimeta layout ümber, säilita id
   python3 voog.py page-set-hidden <id>... true|false  # bulk hidden toggle
   python3 voog.py page-set-layout <page-id> <layout-id>  # reassign layout
+  python3 voog.py page-delete <id> [--force]    # kustuta leht (küsib kinnitust)
   python3 voog.py redirects                     # kõik ümbersuunamised
   python3 voog.py redirect-add <allikas> <siht> [301|302|307|410]  # lisa ümbersuunamine
       Näide: python3 voog.py redirect-add /en/products/vana /en/products/uus 301
@@ -172,6 +173,13 @@ def api_post(path, data, base=None):
     req = urllib.request.Request(url, data=payload, headers=HEADERS, method="POST")
     with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read())
+
+def api_delete(path, base=None):
+    url = f"{base or BASE_URL}{path}"
+    req = urllib.request.Request(url, headers=HEADERS, method="DELETE")
+    with urllib.request.urlopen(req) as resp:
+        body = resp.read()
+        return json.loads(body) if body else None
 
 def api_get_all(path, base=None):
     """Laeb kõik lehed (pagination)."""
@@ -740,6 +748,23 @@ def page_set_layout(page_id, layout_id):
     print(f"  ✓ page {page_id} → layout {layout_id}")
 
 
+def page_delete(page_id, force=False):
+    """Kustutab lehe (irreversibel). force=True skipib kinnituse."""
+    if not force:
+        # Näita lehe info enne kustutamist
+        try:
+            p = api_get(f"/pages/{page_id}")
+            print(f"⚠ Kustutan: id={page_id} title=\"{p.get('title')}\" path=/{p.get('path') or ''}")
+        except Exception:
+            print(f"⚠ Kustutan: id={page_id} (info'i ei saadud)")
+        print("Kinnitad? (j/e) ", end="", flush=True)
+        if input().strip().lower() not in ("j", "y", "yes", "jah"):
+            print("Katkestatud.")
+            return
+    api_delete(f"/pages/{page_id}")
+    print(f"  ✓ page {page_id} kustutatud")
+
+
 # --- Serve (lokaalne proxy) ---
 
 # JS/CSS failid, mida proxy asendab kohalike versioonidega.
@@ -1048,6 +1073,12 @@ def main():
             print("Kasutus: python3 voog.py page-set-layout <page-id> <layout-id>")
             sys.exit(1)
         page_set_layout(sys.argv[2], sys.argv[3])
+    elif cmd == "page-delete":
+        if len(sys.argv) < 3:
+            print("Kasutus: python3 voog.py page-delete <id> [--force]")
+            sys.exit(1)
+        force = "--force" in sys.argv
+        page_delete(sys.argv[2], force=force)
     else:
         print(f"❌ Tundmatu käsk: {cmd}")
         print(__doc__)

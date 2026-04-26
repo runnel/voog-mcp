@@ -160,5 +160,27 @@ class TestPageSetLayout(unittest.TestCase):
             mock_put.assert_called_once_with("/pages/152377", {"layout_id": 977702})
 
 
+class TestPageDelete(unittest.TestCase):
+    def test_page_delete_with_force_calls_api_without_prompt(self):
+        with patch.object(voog, "api_delete") as mock_del:
+            mock_del.return_value = None
+            voog.page_delete("123", force=True)
+            mock_del.assert_called_once_with("/pages/123")
+
+    def test_page_delete_without_force_prompts_user(self):
+        with patch.object(voog, "api_delete") as mock_del:
+            with patch.object(voog, "api_get", return_value={"title": "Test", "path": "test"}):
+                with patch("builtins.input", return_value="j"):
+                    voog.page_delete("123", force=False)
+                    mock_del.assert_called_once_with("/pages/123")
+
+    def test_page_delete_aborts_if_user_says_no(self):
+        with patch.object(voog, "api_delete") as mock_del:
+            with patch.object(voog, "api_get", return_value={"title": "Test", "path": "test"}):
+                with patch("builtins.input", return_value="e"):
+                    voog.page_delete("123", force=False)
+                    mock_del.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
