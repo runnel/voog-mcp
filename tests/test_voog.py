@@ -182,5 +182,25 @@ class TestPageDelete(unittest.TestCase):
                     mock_del.assert_not_called()
 
 
+class TestPagesPull(unittest.TestCase):
+    def test_pages_pull_writes_simplified_pages_json(self):
+        fake_pages = [
+            {"id": 100, "path": "foo", "title": "Foo", "hidden": False,
+             "layout_id": 1, "parent_id": None, "language": {"code": "et"}},
+            {"id": 200, "path": "bar", "title": "Bar", "hidden": True,
+             "layout_id": 2, "parent_id": 100, "language": {"code": "et"}},
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(voog, "LOCAL_DIR", Path(tmpdir)):
+                with patch.object(voog, "api_get_all", return_value=fake_pages):
+                    voog.pages_pull()
+
+            saved = json_mod.loads((Path(tmpdir) / "pages.json").read_text())
+            self.assertEqual(len(saved), 2)
+            self.assertEqual(saved[0]["id"], 100)
+            self.assertEqual(saved[0]["language_code"], "et")
+            self.assertIn("layout_id", saved[0])
+
+
 if __name__ == "__main__":
     unittest.main()

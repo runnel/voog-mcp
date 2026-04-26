@@ -30,6 +30,7 @@ Kasutus:
   python3 voog.py page-set-hidden <id>... true|false  # bulk hidden toggle
   python3 voog.py page-set-layout <page-id> <layout-id>  # reassign layout
   python3 voog.py page-delete <id> [--force]    # kustuta leht (küsib kinnitust)
+  python3 voog.py pages-pull                    # salvesta pages.json (struktuur, ei sisaldu sisu)
   python3 voog.py redirects                     # kõik ümbersuunamised
   python3 voog.py redirect-add <allikas> <siht> [301|302|307|410]  # lisa ümbersuunamine
       Näide: python3 voog.py redirect-add /en/products/vana /en/products/uus 301
@@ -765,6 +766,30 @@ def page_delete(page_id, force=False):
     print(f"  ✓ page {page_id} kustutatud")
 
 
+def pages_pull():
+    """Salvestab lokaalseks lihtsustatud pages.json — struktuur ilma sisuta."""
+    pages = api_get_all("/pages")
+    simplified = []
+    for p in pages:
+        lang = p.get("language") or {}
+        layout = p.get("layout") or {}
+        simplified.append({
+            "id": p.get("id"),
+            "path": p.get("path"),
+            "title": p.get("title"),
+            "hidden": p.get("hidden"),
+            "layout_id": p.get("layout_id") or layout.get("id"),
+            "layout_name": p.get("layout_name") or p.get("layout_title") or layout.get("title"),
+            "content_type": p.get("content_type"),
+            "parent_id": p.get("parent_id"),
+            "language_code": lang.get("code"),
+            "public_url": p.get("public_url"),
+        })
+    pages_path = LOCAL_DIR / "pages.json"
+    pages_path.write_text(json.dumps(simplified, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"✓ pages.json salvestatud ({len(simplified)} lehte)")
+
+
 # --- Serve (lokaalne proxy) ---
 
 # JS/CSS failid, mida proxy asendab kohalike versioonidega.
@@ -1079,6 +1104,8 @@ def main():
             sys.exit(1)
         force = "--force" in sys.argv
         page_delete(sys.argv[2], force=force)
+    elif cmd == "pages-pull":
+        pages_pull()
     else:
         print(f"❌ Tundmatu käsk: {cmd}")
         print(__doc__)
