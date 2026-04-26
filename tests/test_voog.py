@@ -1,6 +1,8 @@
 """Unit tests for voog.py with mocked HTTP calls."""
 import os
 import sys
+import json as json_mod
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -67,6 +69,37 @@ class TestPageGet(unittest.TestCase):
                 self.assertIn("977702", output)
                 self.assertIn("blog", output)
                 self.assertIn("et", output)
+
+
+class TestPagesSnapshot(unittest.TestCase):
+    def test_snapshot_writes_pages_index_and_contents(self):
+        fake_pages = [
+            {"id": 100, "path": "foo", "title": "Foo"},
+            {"id": 200, "path": "bar", "title": "Bar"},
+        ]
+        fake_contents = [
+            {"id": 1, "name": "body", "content_type": "text"},
+        ]
+
+        def mock_api_get(path, *args, **kwargs):
+            if path.endswith("/contents"):
+                return fake_contents
+            return {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.object(voog, "api_get_all", return_value=fake_pages):
+                with patch.object(voog, "api_get", side_effect=mock_api_get):
+                    voog.pages_snapshot(tmpdir)
+
+            snap_path = Path(tmpdir) / "pages.json"
+            self.assertTrue(snap_path.exists())
+            saved = json_mod.loads(snap_path.read_text())
+            self.assertEqual(len(saved), 2)
+            self.assertEqual(saved[0]["id"], 100)
+
+            # Contents per page saved separately
+            self.assertTrue((Path(tmpdir) / "page_100_contents.json").exists())
+            self.assertTrue((Path(tmpdir) / "page_200_contents.json").exists())
 
 
 if __name__ == "__main__":

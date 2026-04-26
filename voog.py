@@ -25,6 +25,7 @@ Kasutus:
 
   python3 voog.py pages                         # kõik lehed (id, path, title, hidden, layout)
   python3 voog.py page <id>                     # ühe lehe täisinfo
+  python3 voog.py pages-snapshot <dir>          # backup kõik lehed + contents JSON-i
   python3 voog.py redirects                     # kõik ümbersuunamised
   python3 voog.py redirect-add <allikas> <siht> [301|302|307|410]  # lisa ümbersuunamine
       Näide: python3 voog.py redirect-add /en/products/vana /en/products/uus 301
@@ -647,6 +648,31 @@ def page_get(page_id):
     print(f"  public_url  : {p.get('public_url')}")
 
 
+def pages_snapshot(output_dir):
+    """Backuppib kõik lehed + nende contents'i JSON-i kettale."""
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    pages = api_get_all("/pages")
+    pages_path = out / "pages.json"
+    pages_path.write_text(json.dumps(pages, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"✓ pages.json: {len(pages)} lehte")
+
+    for p in pages:
+        pid = p.get("id")
+        if not pid:
+            continue
+        try:
+            contents = api_get(f"/pages/{pid}/contents")
+        except Exception as e:
+            print(f"  ⚠ Page {pid} contents ebaõnnestus: {e}")
+            continue
+        contents_path = out / f"page_{pid}_contents.json"
+        contents_path.write_text(json.dumps(contents, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    print(f"✅ Snapshot: {output_dir}")
+
+
 # --- Serve (lokaalne proxy) ---
 
 # JS/CSS failid, mida proxy asendab kohalike versioonidega.
@@ -930,6 +956,11 @@ def main():
             print("Kasutus: python3 voog.py page <id>")
             sys.exit(1)
         page_get(sys.argv[2])
+    elif cmd == "pages-snapshot":
+        if len(sys.argv) < 3:
+            print("Kasutus: python3 voog.py pages-snapshot <output-dir>")
+            sys.exit(1)
+        pages_snapshot(sys.argv[2])
     else:
         print(f"❌ Tundmatu käsk: {cmd}")
         print(__doc__)
