@@ -24,6 +24,7 @@ Kasutus:
       Esimene pilt = põhipilt (tootelistingus), ülejäänud = galerii
 
   python3 voog.py pages                         # kõik lehed (id, path, title, hidden, layout)
+  python3 voog.py page <id>                     # ühe lehe täisinfo
   python3 voog.py redirects                     # kõik ümbersuunamised
   python3 voog.py redirect-add <allikas> <siht> [301|302|307|410]  # lisa ümbersuunamine
       Näide: python3 voog.py redirect-add /en/products/vana /en/products/uus 301
@@ -627,6 +628,25 @@ def pages_list():
         print(f"  {hidden} {pid:>8} | /{path:<40} | {title:<40} | layout={layout}")
 
 
+def page_get(page_id):
+    """Näitab ühe lehe täisinfot."""
+    p = api_get(f"/pages/{page_id}")
+    print(f"📄 Page id={p.get('id')}")
+    print(f"  title       : {p.get('title')}")
+    print(f"  path        : /{p.get('path') or ''}")
+    print(f"  hidden      : {p.get('hidden')}")
+    print(f"  layout_id   : {p.get('layout_id')}")
+    layout = p.get("layout_name") or p.get("layout_title") or (p.get("layout") or {}).get("title") or "?"
+    print(f"  layout_name : {layout}")
+    print(f"  content_type: {p.get('content_type')}")
+    lang = p.get("language") or {}
+    print(f"  language    : {lang.get('code')} (id {lang.get('id')})")
+    print(f"  parent_id   : {p.get('parent_id')}")
+    print(f"  created_at  : {p.get('created_at')}")
+    print(f"  updated_at  : {p.get('updated_at')}")
+    print(f"  public_url  : {p.get('public_url')}")
+
+
 # --- Serve (lokaalne proxy) ---
 
 # JS/CSS failid, mida proxy asendab kohalike versioonidega.
@@ -905,6 +925,11 @@ def main():
         redirect_add(sys.argv[2], sys.argv[3], rtype)
     elif cmd == "pages":
         pages_list()
+    elif cmd == "page":
+        if len(sys.argv) < 3:
+            print("Kasutus: python3 voog.py page <id>")
+            sys.exit(1)
+        page_get(sys.argv[2])
     else:
         print(f"❌ Tundmatu käsk: {cmd}")
         print(__doc__)

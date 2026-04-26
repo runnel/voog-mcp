@@ -45,5 +45,29 @@ class TestPagesList(unittest.TestCase):
                 self.assertIn("hidden", output.lower())
 
 
+class TestPageGet(unittest.TestCase):
+    def test_page_get_calls_api_and_prints_details(self):
+        fake_page = {
+            "id": 152377,
+            "path": "",
+            "title": "Foto",
+            "hidden": False,
+            "layout_id": 977702,
+            "layout_name": "Front page",
+            "content_type": "blog",
+            "language": {"code": "et", "id": 6580},
+            "parent_id": None,
+        }
+        with patch.object(voog, "api_get", return_value=fake_page) as mock_api:
+            with patch("builtins.print") as mock_print:
+                voog.page_get("152377")
+                mock_api.assert_called_once_with("/pages/152377")
+                output = "\n".join(str(c.args[0]) for c in mock_print.call_args_list)
+                self.assertIn("Foto", output)
+                self.assertIn("977702", output)
+                self.assertIn("blog", output)
+                self.assertIn("et", output)
+
+
 if __name__ == "__main__":
     unittest.main()
