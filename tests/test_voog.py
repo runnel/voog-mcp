@@ -31,7 +31,7 @@ class TestModuleImport(unittest.TestCase):
 
 class TestPagesList(unittest.TestCase):
     def test_pages_list_calls_api_and_prints_each(self):
-        """pages_list() should call /pages?per_page=250 and print each page."""
+        """pages_list() should call /pages and print each page."""
         fake_pages = [
             {"id": 152377, "path": "", "title": "Foto", "hidden": False, "layout_name": "Front page"},
             {"id": 1523073, "path": "foto", "title": "Blog", "hidden": True, "layout_name": "Blog & news"},
@@ -132,6 +132,26 @@ class TestLayoutRename(unittest.TestCase):
             self.assertNotIn("layouts/Front page.tpl", new_manifest)
             self.assertIn("layouts/old-Front page.tpl", new_manifest)
             self.assertEqual(new_manifest["layouts/old-Front page.tpl"]["id"], 977702)
+
+
+class TestLayoutRenameValidation(unittest.TestCase):
+    def test_rejects_slash_in_title(self):
+        with self.assertRaises(SystemExit):
+            with patch.object(voog, "api_put") as mock_put:
+                voog.layout_rename(977702, "foo/bar")
+            mock_put.assert_not_called()
+
+    def test_rejects_backslash_in_title(self):
+        with self.assertRaises(SystemExit):
+            with patch.object(voog, "api_put") as mock_put:
+                voog.layout_rename(977702, "foo\\bar")
+            mock_put.assert_not_called()
+
+    def test_rejects_dot_prefix(self):
+        with self.assertRaises(SystemExit):
+            with patch.object(voog, "api_put") as mock_put:
+                voog.layout_rename(977702, ".hidden")
+            mock_put.assert_not_called()
 
 
 class TestPageSetHidden(unittest.TestCase):
