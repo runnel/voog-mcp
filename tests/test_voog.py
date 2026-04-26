@@ -202,5 +202,50 @@ class TestPagesPull(unittest.TestCase):
             self.assertIn("layout_id", saved[0])
 
 
+class TestEcommerceWrapper(unittest.TestCase):
+    def setUp(self):
+        # Save original module-level globals so tests don't leak state
+        self._orig_base = voog.BASE_URL
+        self._orig_ecommerce = voog.ECOMMERCE_URL
+
+    def tearDown(self):
+        voog.BASE_URL = self._orig_base
+        voog.ECOMMERCE_URL = self._orig_ecommerce
+
+    def test_products_list_uses_ecommerce_base(self):
+        """products_list() must call api_get with base=ECOMMERCE_URL."""
+        voog.ECOMMERCE_URL = "https://runnel.ee/admin/api/ecommerce/v1"
+        voog.BASE_URL = "https://runnel.ee/admin/api"
+
+        fake_products = [{"id": 1, "name": "Test", "slug": "test", "status": "live"}]
+        with patch.object(voog, "api_get", return_value=fake_products) as mock_api:
+            with patch("builtins.print"):
+                voog.products_list()
+            # Verify base keyword argument was ECOMMERCE_URL on first call
+            call_kwargs = mock_api.call_args.kwargs
+            self.assertEqual(call_kwargs.get("base"), voog.ECOMMERCE_URL)
+
+    def test_product_get_uses_ecommerce_base(self):
+        """product_get() must call api_get with base=ECOMMERCE_URL."""
+        voog.ECOMMERCE_URL = "https://runnel.ee/admin/api/ecommerce/v1"
+        fake_product = {"id": 247217, "name": "Kass", "slug": "kass", "sku": "", "status": "live", "translations": {}}
+        with patch.object(voog, "api_get", return_value=fake_product) as mock_api:
+            with patch("builtins.print"):
+                voog.product_get("247217")
+            call_kwargs = mock_api.call_args.kwargs
+            self.assertEqual(call_kwargs.get("base"), voog.ECOMMERCE_URL)
+
+    def test_product_update_uses_ecommerce_base(self):
+        """product_update() must call api_put and api_get with base=ECOMMERCE_URL."""
+        voog.ECOMMERCE_URL = "https://runnel.ee/admin/api/ecommerce/v1"
+        fake_result = {"id": 1, "name": "Uus nimi", "slug": "uus-nimi", "translations": {}}
+        with patch.object(voog, "api_put", return_value=fake_result) as mock_put:
+            with patch.object(voog, "api_get", return_value=fake_result):
+                with patch("builtins.print"):
+                    voog.product_update("1", [("name-et", "Uus nimi")])
+                put_kwargs = mock_put.call_args.kwargs
+                self.assertEqual(put_kwargs.get("base"), voog.ECOMMERCE_URL)
+
+
 if __name__ == "__main__":
     unittest.main()
