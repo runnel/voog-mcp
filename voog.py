@@ -94,15 +94,22 @@ def load_site_config():
         sys.exit(1)
     return cfg
 
-# Help-käsu puhul ei nõua config-faili (et `python3 voog.py help` töötaks ükskõik kus).
-_HELP_CMDS = {"help", "-h", "--help"}
-_cmd_arg = sys.argv[1] if len(sys.argv) > 1 else "help"
+# --- Globals (lazy initialized by init_site()) ---
+SITE_CONFIG = None
+HOST = ""
+API_KEY = ""
+BASE_URL = ""
+ECOMMERCE_URL = ""
+HEADERS = {}
 
-if _cmd_arg in _HELP_CMDS:
-    SITE_CONFIG = None
-    HOST = ""
-    API_KEY = ""
-else:
+_HELP_CMDS = {"help", "-h", "--help"}
+
+
+def init_site():
+    """Lazy-load site config and global URLs/headers. Idempotent."""
+    global SITE_CONFIG, HOST, API_KEY, BASE_URL, ECOMMERCE_URL, HEADERS
+    if SITE_CONFIG is not None:
+        return  # already initialized
     SITE_CONFIG = load_site_config()
     HOST = SITE_CONFIG["host"]
     API_KEY = ENV.get(SITE_CONFIG["api_key_env"], "")
@@ -112,15 +119,14 @@ else:
             f"   voog-site.json viitab sellele, aga väärtus on tühi või puudub.\n"
         )
         sys.exit(1)
-
-BASE_URL = f"https://{HOST}/admin/api"
-ECOMMERCE_URL = f"https://{HOST}/admin/api/ecommerce/v1"
-HEADERS = {
-    "X-API-Token": API_KEY,
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-    "User-Agent": "Mozilla/5.0 voog.py/1.0",
-}
+    BASE_URL = f"https://{HOST}/admin/api"
+    ECOMMERCE_URL = f"https://{HOST}/admin/api/ecommerce/v1"
+    HEADERS.update({
+        "X-API-Token": API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 voog.py/1.0",
+    })
 
 # Kohalikud failid — alati TÖÖKAUSTAS (cwd), mitte voog.py asukohas.
 # See tagab, et iga saidikaust haldab oma faile eraldi.
@@ -819,9 +825,13 @@ def serve(port=8080):
 
 # --- Main ---
 
-if __name__ == "__main__":
-    # API_KEY ja config valideerimine on juba tehtud ülal load_site_config'is
+def main():
+    """Parse argv, dispatch to command. Side effect: loads site config (except for help)."""
     cmd = sys.argv[1] if len(sys.argv) > 1 else "help"
+    if cmd in _HELP_CMDS:
+        print(__doc__)
+        return
+    init_site()
 
     if cmd == "pull":
         pull()
@@ -870,4 +880,10 @@ if __name__ == "__main__":
         rtype = sys.argv[4] if len(sys.argv) > 4 else 301
         redirect_add(sys.argv[2], sys.argv[3], rtype)
     else:
+        print(f"❌ Tundmatu käsk: {cmd}")
         print(__doc__)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
