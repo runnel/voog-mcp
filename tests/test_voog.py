@@ -135,21 +135,24 @@ class TestLayoutRename(unittest.TestCase):
 
 
 class TestLayoutRenameValidation(unittest.TestCase):
+    # NB: patch wraps assertRaises so assert_not_called runs *after* SystemExit
+    # is caught but *before* the patch is torn down — otherwise the assertion
+    # is unreachable and the test gives false confidence.
     def test_rejects_slash_in_title(self):
-        with self.assertRaises(SystemExit):
-            with patch.object(voog, "api_put") as mock_put:
+        with patch.object(voog, "api_put") as mock_put:
+            with self.assertRaises(SystemExit):
                 voog.layout_rename(977702, "foo/bar")
             mock_put.assert_not_called()
 
     def test_rejects_backslash_in_title(self):
-        with self.assertRaises(SystemExit):
-            with patch.object(voog, "api_put") as mock_put:
+        with patch.object(voog, "api_put") as mock_put:
+            with self.assertRaises(SystemExit):
                 voog.layout_rename(977702, "foo\\bar")
             mock_put.assert_not_called()
 
     def test_rejects_dot_prefix(self):
-        with self.assertRaises(SystemExit):
-            with patch.object(voog, "api_put") as mock_put:
+        with patch.object(voog, "api_put") as mock_put:
+            with self.assertRaises(SystemExit):
                 voog.layout_rename(977702, ".hidden")
             mock_put.assert_not_called()
 
