@@ -27,5 +27,23 @@ class TestModuleImport(unittest.TestCase):
                 self.assertTrue(mock_print.called)
 
 
+class TestPagesList(unittest.TestCase):
+    def test_pages_list_calls_api_and_prints_each(self):
+        """pages_list() should call /pages?per_page=250 and print each page."""
+        fake_pages = [
+            {"id": 152377, "path": "", "title": "Foto", "hidden": False, "layout_name": "Front page"},
+            {"id": 1523073, "path": "foto", "title": "Blog", "hidden": True, "layout_name": "Blog & news"},
+        ]
+        with patch.object(voog, "api_get_all", return_value=fake_pages) as mock_api:
+            with patch("builtins.print") as mock_print:
+                voog.pages_list()
+                mock_api.assert_called_once_with("/pages")
+                output = "\n".join(str(c.args[0]) for c in mock_print.call_args_list)
+                self.assertIn("152377", output)
+                self.assertIn("Foto", output)
+                self.assertIn("1523073", output)
+                self.assertIn("hidden", output.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

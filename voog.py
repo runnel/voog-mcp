@@ -23,6 +23,7 @@ Kasutus:
       Mitu pilti: python3 voog.py product-image 3077700 pilt1.jpg pilt2.jpg
       Esimene pilt = põhipilt (tootelistingus), ülejäänud = galerii
 
+  python3 voog.py pages                         # kõik lehed (id, path, title, hidden, layout)
   python3 voog.py redirects                     # kõik ümbersuunamised
   python3 voog.py redirect-add <allikas> <siht> [301|302|307|410]  # lisa ümbersuunamine
       Näide: python3 voog.py redirect-add /en/products/vana /en/products/uus 301
@@ -605,6 +606,27 @@ def redirect_add(source, destination, redirect_type=301):
     print(f"   ID: {result.get('id')}")
 
 
+# --- Pages ---
+
+def pages_list():
+    """Listib kõik lehed: id, path, title, hidden, layout."""
+    pages = api_get_all("/pages")
+    print(f"📄 {len(pages)} lehte:")
+    for p in sorted(pages, key=lambda x: x.get("path") or ""):
+        pid = p.get("id")
+        path = p.get("path") or "/"
+        title = (p.get("title") or "").strip()[:40]
+        hidden = "🔒 hidden" if p.get("hidden") else "        "
+        layout_obj = p.get("layout") or {}
+        layout = (
+            p.get("layout_name")
+            or p.get("layout_title")
+            or (layout_obj.get("title") if isinstance(layout_obj, dict) else None)
+            or "?"
+        )
+        print(f"  {hidden} {pid:>8} | /{path:<40} | {title:<40} | layout={layout}")
+
+
 # --- Serve (lokaalne proxy) ---
 
 # JS/CSS failid, mida proxy asendab kohalike versioonidega.
@@ -881,6 +903,8 @@ def main():
             sys.exit(1)
         rtype = sys.argv[4] if len(sys.argv) > 4 else 301
         redirect_add(sys.argv[2], sys.argv[3], rtype)
+    elif cmd == "pages":
+        pages_list()
     else:
         print(f"❌ Tundmatu käsk: {cmd}")
         print(__doc__)
