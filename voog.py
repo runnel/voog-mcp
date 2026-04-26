@@ -107,7 +107,7 @@ _HELP_CMDS = {"help", "-h", "--help"}
 
 def init_site():
     """Lazy-load site config and global URLs/headers. Idempotent."""
-    global SITE_CONFIG, HOST, API_KEY, BASE_URL, ECOMMERCE_URL, HEADERS
+    global SITE_CONFIG, HOST, API_KEY, BASE_URL, ECOMMERCE_URL
     if SITE_CONFIG is not None:
         return  # already initialized
     SITE_CONFIG = load_site_config()
@@ -121,6 +121,8 @@ def init_site():
         sys.exit(1)
     BASE_URL = f"https://{HOST}/admin/api"
     ECOMMERCE_URL = f"https://{HOST}/admin/api/ecommerce/v1"
+    # HEADERS is mutated in place (update) — callers hold a reference to the
+    # same dict object, so we must not rebind the name.
     HEADERS.update({
         "X-API-Token": API_KEY,
         "Content-Type": "application/json",
