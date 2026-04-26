@@ -152,5 +152,13 @@ class TestPageSetHidden(unittest.TestCase):
             mock_put.assert_called_once_with("/pages/100", {"hidden": False})
 
 
+class TestPageSetLayout(unittest.TestCase):
+    def test_page_set_layout_calls_put_with_layout_id(self):
+        with patch.object(voog, "api_put") as mock_put:
+            mock_put.return_value = {}
+            voog.page_set_layout("152377", "977702")
+            mock_put.assert_called_once_with("/pages/152377", {"layout_id": 977702})
+
+
 if __name__ == "__main__":
     unittest.main()

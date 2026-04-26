@@ -28,6 +28,7 @@ Kasutus:
   python3 voog.py pages-snapshot <dir>          # backup kõik lehed + contents JSON-i
   python3 voog.py layout-rename <id> <uus>      # nimeta layout ümber, säilita id
   python3 voog.py page-set-hidden <id>... true|false  # bulk hidden toggle
+  python3 voog.py page-set-layout <page-id> <layout-id>  # reassign layout
   python3 voog.py redirects                     # kõik ümbersuunamised
   python3 voog.py redirect-add <allikas> <siht> [301|302|307|410]  # lisa ümbersuunamine
       Näide: python3 voog.py redirect-add /en/products/vana /en/products/uus 301
@@ -731,6 +732,14 @@ def page_set_hidden(page_ids, hidden):
             print(f"  ✗ {pid}: {e}")
 
 
+def page_set_layout(page_id, layout_id):
+    """Muudab lehe layout_id'd."""
+    layout_id = int(layout_id)
+    print(f"PUT /pages/{page_id} layout_id={layout_id}...")
+    api_put(f"/pages/{page_id}", {"layout_id": layout_id})
+    print(f"  ✓ page {page_id} → layout {layout_id}")
+
+
 # --- Serve (lokaalne proxy) ---
 
 # JS/CSS failid, mida proxy asendab kohalike versioonidega.
@@ -1034,6 +1043,11 @@ def main():
             sys.exit(1)
         ids = sys.argv[2:-1]
         page_set_hidden(ids, last == "true")
+    elif cmd == "page-set-layout":
+        if len(sys.argv) < 4:
+            print("Kasutus: python3 voog.py page-set-layout <page-id> <layout-id>")
+            sys.exit(1)
+        page_set_layout(sys.argv[2], sys.argv[3])
     else:
         print(f"❌ Tundmatu käsk: {cmd}")
         print(__doc__)
