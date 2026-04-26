@@ -23,6 +23,14 @@ Kasutus:
       Mitu pilti: python3 voog.py product-image 3077700 pilt1.jpg pilt2.jpg
       Esimene pilt = põhipilt (tootelistingus), ülejäänud = galerii
 
+  python3 voog.py pages                         # kõik lehed (id, path, title, hidden, layout)
+  python3 voog.py page <id>                     # ühe lehe täisinfo
+  python3 voog.py pages-snapshot <dir>          # backup kõik lehed + contents JSON-i
+  python3 voog.py layout-rename <id> <uus>      # nimeta layout ümber, säilita id
+  python3 voog.py page-set-hidden <id>... true|false  # bulk hidden toggle
+  python3 voog.py page-set-layout <page-id> <layout-id>  # reassign layout
+  python3 voog.py page-delete <id> [--force]    # kustuta leht (küsib kinnitust)
+  python3 voog.py pages-pull                    # salvesta pages.json (struktuur, ei sisaldu sisu)
   python3 voog.py redirects                     # kõik ümbersuunamised
   python3 voog.py redirect-add <allikas> <siht> [301|302|307|410]  # lisa ümbersuunamine
       Näide: python3 voog.py redirect-add /en/products/vana /en/products/uus 301
@@ -94,15 +102,22 @@ def load_site_config():
         sys.exit(1)
     return cfg
 
-# Help-käsu puhul ei nõua config-faili (et `python3 voog.py help` töötaks ükskõik kus).
-_HELP_CMDS = {"help", "-h", "--help"}
-_cmd_arg = sys.argv[1] if len(sys.argv) > 1 else "help"
+# --- Globals (lazy initialized by init_site()) ---
+SITE_CONFIG = None
+HOST = ""
+API_KEY = ""
+BASE_URL = ""
+ECOMMERCE_URL = ""
+HEADERS = {}
 
-if _cmd_arg in _HELP_CMDS:
-    SITE_CONFIG = None
-    HOST = ""
-    API_KEY = ""
-else:
+_HELP_CMDS = {"help", "-h", "--help"}
+
+
+def init_site():
+    """Lazy-load site config and global URLs/headers. Idempotent."""
+    global SITE_CONFIG, HOST, API_KEY, BASE_URL, ECOMMERCE_URL
+    if SITE_CONFIG is not None:
+        return  # already initialized
     SITE_CONFIG = load_site_config()
     HOST = SITE_CONFIG["host"]
     API_KEY = ENV.get(SITE_CONFIG["api_key_env"], "")
@@ -112,15 +127,16 @@ else:
             f"   voog-site.json viitab sellele, aga väärtus on tühi või puudub.\n"
         )
         sys.exit(1)
-
-BASE_URL = f"https://{HOST}/admin/api"
-ECOMMERCE_URL = f"https://{HOST}/admin/api/ecommerce/v1"
-HEADERS = {
-    "X-API-Token": API_KEY,
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-    "User-Agent": "Mozilla/5.0 voog.py/1.0",
-}
+    BASE_URL = f"https://{HOST}/admin/api"
+    ECOMMERCE_URL = f"https://{HOST}/admin/api/ecommerce/v1"
+    # HEADERS is mutated in place (update) — callers hold a reference to the
+    # same dict object, so we must not rebind the name.
+    HEADERS.update({
+        "X-API-Token": API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 voog.py/1.0",
+    })
 
 # Kohalikud failid — alati TÖÖKAUSTAS (cwd), mitte voog.py asukohas.
 # See tagab, et iga saidikaust haldab oma faile eraldi.
@@ -158,6 +174,13 @@ def api_post(path, data, base=None):
     req = urllib.request.Request(url, data=payload, headers=HEADERS, method="POST")
     with urllib.request.urlopen(req) as resp:
         return json.loads(resp.read())
+
+def api_delete(path, base=None):
+    url = f"{base or BASE_URL}{path}"
+    req = urllib.request.Request(url, headers=HEADERS, method="DELETE")
+    with urllib.request.urlopen(req) as resp:
+        body = resp.read()
+        return json.loads(body) if body else None
 
 def api_get_all(path, base=None):
     """Laeb kõik lehed (pagination)."""
@@ -597,6 +620,176 @@ def redirect_add(source, destination, redirect_type=301):
     print(f"   ID: {result.get('id')}")
 
 
+# --- Pages ---
+
+def pages_list():
+    """Listib kõik lehed: id, path, title, hidden, layout."""
+    pages = api_get_all("/pages")
+    print(f"📄 {len(pages)} lehte:")
+    for p in sorted(pages, key=lambda x: x.get("path") or ""):
+        pid = p.get("id")
+        path = p.get("path") or "/"
+        title = (p.get("title") or "").strip()[:40]
+        hidden = "🔒 hidden" if p.get("hidden") else "        "
+        layout_obj = p.get("layout") or {}
+        layout = (
+            p.get("layout_name")
+            or p.get("layout_title")
+            or (layout_obj.get("title") if isinstance(layout_obj, dict) else None)
+            or "?"
+        )
+        print(f"  {hidden} {pid:>8} | /{path:<40} | {title:<40} | layout={layout}")
+
+
+def page_get(page_id):
+    """Näitab ühe lehe täisinfot."""
+    p = api_get(f"/pages/{page_id}")
+    print(f"📄 Page id={p.get('id')}")
+    print(f"  title       : {p.get('title')}")
+    print(f"  path        : /{p.get('path') or ''}")
+    print(f"  hidden      : {p.get('hidden')}")
+    print(f"  layout_id   : {p.get('layout_id')}")
+    layout = p.get("layout_name") or p.get("layout_title") or (p.get("layout") or {}).get("title") or "?"
+    print(f"  layout_name : {layout}")
+    print(f"  content_type: {p.get('content_type')}")
+    lang = p.get("language") or {}
+    print(f"  language    : {lang.get('code')} (id {lang.get('id')})")
+    print(f"  parent_id   : {p.get('parent_id')}")
+    print(f"  created_at  : {p.get('created_at')}")
+    print(f"  updated_at  : {p.get('updated_at')}")
+    print(f"  public_url  : {p.get('public_url')}")
+
+
+def pages_snapshot(output_dir):
+    """Backuppib kõik lehed + nende contents'i JSON-i kettale."""
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    pages = api_get_all("/pages")
+    pages_path = out / "pages.json"
+    pages_path.write_text(json.dumps(pages, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"✓ pages.json: {len(pages)} lehte")
+
+    for p in pages:
+        pid = p.get("id")
+        if not pid:
+            continue
+        try:
+            contents = api_get(f"/pages/{pid}/contents")
+        except Exception as e:
+            print(f"  ⚠ Page {pid} contents ebaõnnestus: {e}")
+            continue
+        contents_path = out / f"page_{pid}_contents.json"
+        contents_path.write_text(json.dumps(contents, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    print(f"✅ Snapshot: {output_dir}")
+
+
+def layout_rename(layout_id, new_title):
+    """Nimeta layout ümber API-s + lokaalses manifestis + failsüsteemis. Säilitab id."""
+    layout_id = int(layout_id)
+
+    # 1. API call — PUT /layouts/{id} {"title": new_title}
+    print(f"PUT /layouts/{layout_id} title=\"{new_title}\"...")
+    api_put(f"/layouts/{layout_id}", {"title": new_title})
+
+    # 2. Find old path in manifest
+    manifest_path = LOCAL_DIR / "manifest.json"
+    if not manifest_path.exists():
+        print("⚠ manifest.json puudub — fail- ja manifest-uuendus jäeti vahele.")
+        return
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    old_path = None
+    folder = None
+    for path, info in manifest.items():
+        if info.get("id") == layout_id and info.get("type") == "layout":
+            old_path = path
+            folder = path.split("/", 1)[0]  # "layouts" or "components"
+            break
+
+    if old_path is None:
+        print(f"⚠ Layout id {layout_id} manifestist ei leitud — ainult API uuendati.")
+        return
+
+    new_path = f"{folder}/{new_title}.tpl"
+
+    # 3. Rename file on disk
+    old_file = LOCAL_DIR / old_path
+    new_file = LOCAL_DIR / new_path
+    if old_file.exists():
+        new_file.parent.mkdir(parents=True, exist_ok=True)
+        old_file.rename(new_file)
+        print(f"  ✓ {old_path} → {new_path}")
+
+    # 4. Update manifest
+    info = manifest.pop(old_path)
+    manifest[new_path] = info
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"  ✓ manifest.json uuendatud")
+
+
+def page_set_hidden(page_ids, hidden):
+    """Bulk toggle hidden flag paljudele lehtedele."""
+    flag = "🔒 hidden" if hidden else "👁  visible"
+    print(f"Lülitan {len(page_ids)} lehte: {flag}")
+    for pid in page_ids:
+        try:
+            api_put(f"/pages/{pid}", {"hidden": bool(hidden)})
+            print(f"  ✓ {pid}")
+        except Exception as e:
+            print(f"  ✗ {pid}: {e}")
+
+
+def page_set_layout(page_id, layout_id):
+    """Muudab lehe layout_id'd."""
+    layout_id = int(layout_id)
+    print(f"PUT /pages/{page_id} layout_id={layout_id}...")
+    api_put(f"/pages/{page_id}", {"layout_id": layout_id})
+    print(f"  ✓ page {page_id} → layout {layout_id}")
+
+
+def page_delete(page_id, force=False):
+    """Kustutab lehe (irreversibel). force=True skipib kinnituse."""
+    if not force:
+        # Näita lehe info enne kustutamist
+        try:
+            p = api_get(f"/pages/{page_id}")
+            print(f"⚠ Kustutan: id={page_id} title=\"{p.get('title')}\" path=/{p.get('path') or ''}")
+        except Exception:
+            print(f"⚠ Kustutan: id={page_id} (info'i ei saadud)")
+        print("Kinnitad? (j/e) ", end="", flush=True)
+        if input().strip().lower() not in ("j", "y", "yes", "jah"):
+            print("Katkestatud.")
+            return
+    api_delete(f"/pages/{page_id}")
+    print(f"  ✓ page {page_id} kustutatud")
+
+
+def pages_pull():
+    """Salvestab lokaalseks lihtsustatud pages.json — struktuur ilma sisuta."""
+    pages = api_get_all("/pages")
+    simplified = []
+    for p in pages:
+        lang = p.get("language") or {}
+        layout = p.get("layout") or {}
+        simplified.append({
+            "id": p.get("id"),
+            "path": p.get("path"),
+            "title": p.get("title"),
+            "hidden": p.get("hidden"),
+            "layout_id": p.get("layout_id") or layout.get("id"),
+            "layout_name": p.get("layout_name") or p.get("layout_title") or layout.get("title"),
+            "content_type": p.get("content_type"),
+            "parent_id": p.get("parent_id"),
+            "language_code": lang.get("code"),
+            "public_url": p.get("public_url"),
+        })
+    pages_path = LOCAL_DIR / "pages.json"
+    pages_path.write_text(json.dumps(simplified, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"✓ pages.json salvestatud ({len(simplified)} lehte)")
+
+
 # --- Serve (lokaalne proxy) ---
 
 # JS/CSS failid, mida proxy asendab kohalike versioonidega.
@@ -819,9 +1012,13 @@ def serve(port=8080):
 
 # --- Main ---
 
-if __name__ == "__main__":
-    # API_KEY ja config valideerimine on juba tehtud ülal load_site_config'is
+def main():
+    """Parse argv, dispatch to command. Side effect: loads site config (except for help)."""
     cmd = sys.argv[1] if len(sys.argv) > 1 else "help"
+    if cmd in _HELP_CMDS:
+        print(__doc__)
+        return
+    init_site()
 
     if cmd == "pull":
         pull()
@@ -869,5 +1066,51 @@ if __name__ == "__main__":
             sys.exit(1)
         rtype = sys.argv[4] if len(sys.argv) > 4 else 301
         redirect_add(sys.argv[2], sys.argv[3], rtype)
+    elif cmd == "pages":
+        pages_list()
+    elif cmd == "page":
+        if len(sys.argv) < 3:
+            print("Kasutus: python3 voog.py page <id>")
+            sys.exit(1)
+        page_get(sys.argv[2])
+    elif cmd == "pages-snapshot":
+        if len(sys.argv) < 3:
+            print("Kasutus: python3 voog.py pages-snapshot <output-dir>")
+            sys.exit(1)
+        pages_snapshot(sys.argv[2])
+    elif cmd == "layout-rename":
+        if len(sys.argv) < 4:
+            print("Kasutus: python3 voog.py layout-rename <id> <uus-tiitel>")
+            sys.exit(1)
+        layout_rename(sys.argv[2], sys.argv[3])
+    elif cmd == "page-set-hidden":
+        if len(sys.argv) < 4:
+            print("Kasutus: python3 voog.py page-set-hidden <id> [<id>...] true|false")
+            sys.exit(1)
+        last = sys.argv[-1].lower()
+        if last not in ("true", "false"):
+            print("Viimane argument peab olema 'true' või 'false'")
+            sys.exit(1)
+        ids = sys.argv[2:-1]
+        page_set_hidden(ids, last == "true")
+    elif cmd == "page-set-layout":
+        if len(sys.argv) < 4:
+            print("Kasutus: python3 voog.py page-set-layout <page-id> <layout-id>")
+            sys.exit(1)
+        page_set_layout(sys.argv[2], sys.argv[3])
+    elif cmd == "page-delete":
+        if len(sys.argv) < 3:
+            print("Kasutus: python3 voog.py page-delete <id> [--force]")
+            sys.exit(1)
+        force = "--force" in sys.argv
+        page_delete(sys.argv[2], force=force)
+    elif cmd == "pages-pull":
+        pages_pull()
     else:
+        print(f"❌ Tundmatu käsk: {cmd}")
         print(__doc__)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
