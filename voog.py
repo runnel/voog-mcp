@@ -1,0 +1,873 @@
+#!/usr/bin/env python3
+"""
+Voog Kit — lihtne asendus voog-kit tööriistale.
+Kasutus:
+  python3 voog.py pull                          # laeb kõik mallifailid alla
+  python3 voog.py push <fail> [fail2] [...]     # laeb faili(d) üles
+  python3 voog.py push                          # laeb KÕIK failid üles (küsib kinnitust)
+  python3 voog.py list                          # näitab kõiki faile
+
+  python3 voog.py serve [--port 8080]           # lokaalne proxy server (JS/CSS testimiseks)
+      Proxib live-saidi HTML-i, asendab JS/CSS failid kohalike versioonidega.
+      Ava http://localhost:8080 ja muuda kohalikke faile — refresh näitab muudatusi.
+
+  python3 voog.py products                      # kõik tooted (id, nimi, slug)
+  python3 voog.py product <id>                  # ühe toote täisinfo koos tõlgetega
+  python3 voog.py product <id> <väli> <väärtus> # uuenda toote välja
+      Väljad: name-et, name-en, slug-et, slug-en
+      Näide:  python3 voog.py product 2961057 name-en "Trippelgänger"
+      Mitu korraga: python3 voog.py product 2961057 name-et "Trippelgänger" name-en "Trippelgänger" slug-et "trippelganger" slug-en "trippelganger"
+
+  python3 voog.py product-image <id> <fail> [fail2 ...]  # vahetab toote pildid
+      Näide:  python3 voog.py product-image 3077700 kott.jpg
+      Mitu pilti: python3 voog.py product-image 3077700 pilt1.jpg pilt2.jpg
+      Esimene pilt = põhipilt (tootelistingus), ülejäänud = galerii
+
+  python3 voog.py redirects                     # kõik ümbersuunamised
+  python3 voog.py redirect-add <allikas> <siht> [301|302|307|410]  # lisa ümbersuunamine
+      Näide: python3 voog.py redirect-add /en/products/vana /en/products/uus 301
+
+Seadistus:
+  - .env fail (Claude/.env) sisaldab API võtmeid (nt VOOG_API_KEY, RUNNEL_VOOG_API_KEY)
+  - Iga saidikaust peab sisaldama voog-site.json faili kujul:
+      {"host": "stellasoomlais.com", "api_key_env": "VOOG_API_KEY"}
+  - voog.py loeb voog-site.json praegusest töökaustast (cwd) ja keeldub
+    töötamast kui see fail puudub. See on turvameede saitide segiajamise vältimiseks.
+"""
+
+import sys
+import json
+import re
+import ssl
+import urllib.request
+import urllib.error
+import urllib.parse
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
+
+# --- Seadistus ---
+
+def load_env():
+    """Otsi .env voog.py kõrvalt, siis töökaustast, siis parent'idest üles."""
+    env = {}
+    candidates = [Path(__file__).resolve().parent / ".env", Path.cwd() / ".env"]
+    p = Path.cwd().resolve()
+    for _ in range(6):  # otsime kuni 6 taset üles
+        candidates.append(p / ".env")
+        if p.parent == p:
+            break
+        p = p.parent
+    seen = set()
+    for env_path in candidates:
+        env_path = env_path.resolve()
+        if env_path in seen or not env_path.exists():
+            continue
+        seen.add(env_path)
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if line and "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                env.setdefault(k.strip(), v.strip())
+        break  # esimese leitud .env piisab
+    return env
+
+ENV = load_env()
+
+# Per-saidi konfiguratsioon (turvameede saitide segiajamise vältimiseks).
+# Vajalik fail: voog-site.json praeguses töökaustas (cwd), formaat:
+#   {"host": "stellasoomlais.com", "api_key_env": "VOOG_API_KEY"}
+# voog.py keeldub töötamast kui voog-site.json puudub — see hoiab ära olukorra,
+# kus Runneli kaustast jooksutatud käsk satuks Stella saidile (või vastupidi).
+def load_site_config():
+    config_path = Path.cwd() / "voog-site.json"
+    if not config_path.exists():
+        sys.stderr.write(
+            f"❌ voog-site.json puudub praeguses kaustas: {Path.cwd()}\n"
+            "   See fail tagab, et voog.py ei aja saiti segamini (nt Stella vs Runnel).\n"
+            "   Liigu õigesse saidikausta (nt cd Claude/stellasoomlais-voog) või loo fail kujul:\n"
+            '   {"host": "<domeen>", "api_key_env": "<env-muutuja-nimi>"}\n'
+        )
+        sys.exit(1)
+    cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    if not cfg.get("host") or not cfg.get("api_key_env"):
+        sys.stderr.write("❌ voog-site.json peab sisaldama 'host' ja 'api_key_env' välju.\n")
+        sys.exit(1)
+    return cfg
+
+# Help-käsu puhul ei nõua config-faili (et `python3 voog.py help` töötaks ükskõik kus).
+_HELP_CMDS = {"help", "-h", "--help"}
+_cmd_arg = sys.argv[1] if len(sys.argv) > 1 else "help"
+
+if _cmd_arg in _HELP_CMDS:
+    SITE_CONFIG = None
+    HOST = ""
+    API_KEY = ""
+else:
+    SITE_CONFIG = load_site_config()
+    HOST = SITE_CONFIG["host"]
+    API_KEY = ENV.get(SITE_CONFIG["api_key_env"], "")
+    if not API_KEY:
+        sys.stderr.write(
+            f"❌ Env muutuja '{SITE_CONFIG['api_key_env']}' puudub Claude/.env failist.\n"
+            f"   voog-site.json viitab sellele, aga väärtus on tühi või puudub.\n"
+        )
+        sys.exit(1)
+
+BASE_URL = f"https://{HOST}/admin/api"
+ECOMMERCE_URL = f"https://{HOST}/admin/api/ecommerce/v1"
+HEADERS = {
+    "X-API-Token": API_KEY,
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "User-Agent": "Mozilla/5.0 voog.py/1.0",
+}
+
+# Kohalikud failid — alati TÖÖKAUSTAS (cwd), mitte voog.py asukohas.
+# See tagab, et iga saidikaust haldab oma faile eraldi.
+LOCAL_DIR = Path.cwd()
+
+ASSET_TYPE_TO_FOLDER = {
+    "stylesheet": "stylesheets",
+    "javascript": "javascripts",
+    "image": "images",
+    "font": "assets",
+    "unknown": "assets",
+}
+
+# --- API abifunktsioonid ---
+
+def api_get(path, params=None, base=None):
+    url = f"{base or BASE_URL}{path}"
+    if params:
+        query = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items())
+        url += f"?{query}"
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
+
+def api_put(path, data=None, base=None):
+    url = f"{base or BASE_URL}{path}"
+    payload = json.dumps(data).encode() if data is not None else None
+    req = urllib.request.Request(url, data=payload, headers=HEADERS, method="PUT")
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
+
+def api_post(path, data, base=None):
+    url = f"{base or BASE_URL}{path}"
+    payload = json.dumps(data).encode()
+    req = urllib.request.Request(url, data=payload, headers=HEADERS, method="POST")
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
+
+def api_get_all(path, base=None):
+    """Laeb kõik lehed (pagination)."""
+    results = []
+    page = 1
+    while True:
+        data = api_get(path, {"per_page": 100, "page": page}, base=base)
+        if not data:
+            break
+        results.extend(data)
+        if len(data) < 100:
+            break
+        page += 1
+    return results
+
+# --- Pull ---
+
+def pull():
+    print(f"Ühendun: {HOST}")
+    LOCAL_DIR.mkdir(exist_ok=True)
+
+    # 1. Layoutid (mallid)
+    print("\n📄 Laen layoutid...")
+    layouts = api_get_all("/layouts")
+    layouts_dir = LOCAL_DIR / "layouts"
+    layouts_dir.mkdir(exist_ok=True)
+
+    manifest = {}
+
+    for layout in layouts:
+        folder = "components" if layout.get("component") else "layouts"
+        folder_path = LOCAL_DIR / folder
+        folder_path.mkdir(exist_ok=True)
+
+        filename = f"{layout['title']}.tpl"
+        filepath = folder_path / filename
+        # /layouts list endpoint ei tagasta body välja — päritse üksikult
+        detail = api_get(f"/layouts/{layout['id']}")
+        body = detail.get("body", "") or ""
+        filepath.write_text(body, encoding="utf-8")
+
+        manifest[str(filepath.relative_to(LOCAL_DIR))] = {
+            "id": layout["id"],
+            "type": "layout",
+            "updated_at": layout.get("updated_at", ""),
+        }
+        print(f"  ✓ {folder}/{filename}")
+
+    # 2. Layout assets (CSS, JS, pildid, fondid)
+    print("\n🎨 Laen layout assets...")
+    assets = api_get_all("/layout_assets")
+
+    for asset in assets:
+        asset_type = asset.get("asset_type", "unknown")
+        folder_name = ASSET_TYPE_TO_FOLDER.get(asset_type, "assets")
+        folder_path = LOCAL_DIR / folder_name
+        folder_path.mkdir(exist_ok=True)
+
+        filename = asset["filename"]
+        filepath = folder_path / filename
+
+        if asset.get("editable", False) or asset_type in ("stylesheet", "javascript"):
+            # Tekstifail — sisu on API-s
+            asset_detail = api_get(f"/layout_assets/{asset['id']}")
+            content = asset_detail.get("data", "") or ""
+            filepath.write_text(content, encoding="utf-8")
+        else:
+            # Binaarfail (pilt, font) — laeme public URL-ilt
+            public_url = asset.get("public_url", "")
+            if public_url:
+                try:
+                    with urllib.request.urlopen(public_url) as resp:
+                        filepath.write_bytes(resp.read())
+                except Exception as e:
+                    print(f"  ⚠ Ei saanud laadida {filename}: {e}")
+                    continue
+
+        manifest[str(filepath.relative_to(LOCAL_DIR))] = {
+            "id": asset["id"],
+            "type": "layout_asset",
+            "asset_type": asset_type,
+            "updated_at": asset.get("updated_at", ""),
+        }
+        print(f"  ✓ {folder_name}/{filename}")
+
+    # 3. site.data varukoopia (ei ole template'i osa, elab ainult API-s)
+    print("\n💾 Salvestan site.data varukoopia...")
+    try:
+        site_resp = api_get("/site")
+        site_data = site_resp.get("data", {})
+        sitedata_path = LOCAL_DIR / "site-data.json"
+        sitedata_path.write_text(json.dumps(site_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"  ✓ site-data.json ({len(site_data)} võtit)")
+    except Exception as e:
+        print(f"  ⚠ site.data varukoopia ebaõnnestus: {e}")
+
+    # Salvesta manifest
+    manifest_path = LOCAL_DIR / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"\n✅ Kõik failid salvestatud: {LOCAL_DIR}")
+    print(f"   Layoutid: {sum(1 for v in manifest.values() if v['type'] == 'layout')}")
+    print(f"   Assets:   {sum(1 for v in manifest.values() if v['type'] == 'layout_asset')}")
+
+# --- Push ---
+
+def push(target_files=None):
+    manifest_path = LOCAL_DIR / "manifest.json"
+    if not manifest_path.exists():
+        print("❌ manifest.json puudub. Käivita esmalt: python3 voog.py pull")
+        sys.exit(1)
+
+    manifest = json.loads(manifest_path.read_text())
+
+    if target_files:
+        files_to_push = {}
+        not_found = []
+        for target_file in target_files:
+            rel_path = str(Path(target_file).relative_to(LOCAL_DIR)) if Path(target_file).is_absolute() else target_file
+            if rel_path in manifest:
+                files_to_push[rel_path] = manifest[rel_path]
+            else:
+                not_found.append(rel_path)
+        if not_found:
+            for nf in not_found:
+                print(f"❌ Faili ei leitud manifestis: {nf}")
+            if not files_to_push:
+                sys.exit(1)
+            # Osaline match — küsi kinnitust
+            print(f"Jätkan {len(files_to_push)} failiga? (j/e) ", end="", flush=True)
+            if input().strip().lower() not in ("j", "y", "yes", "jah"):
+                print("Katkestatud.")
+                return
+    else:
+        # Kõik failid — küsi kinnitust
+        text_files = [p for p in manifest if Path(p).suffix.lower() not in
+                      {'.woff', '.woff2', '.ttf', '.otf', '.eot',
+                       '.jpg', '.jpeg', '.png', '.gif', '.webp', '.ico'}]
+        print(f"⚠ Pushid KÕIK {len(text_files)} tekstifaili. Oled kindel? (j/e) ", end="", flush=True)
+        if input().strip().lower() not in ("j", "y", "yes", "jah"):
+            print("Katkestatud.")
+            return
+        files_to_push = manifest
+
+    # ⚠️ VoogStyle hoiatus: template-cs-*.tpl failide pushimine resetib
+    # Voog'i salvestatud disainiredaktori kohandused tagasi template'i
+    # vaikeväärtustele. Veendu enne pushimist, et vaikeväärtused vastavad
+    # soovitud live-välimusele. Vt site-data.json õigete väärtuste jaoks.
+    voogstyle_files = [p for p in files_to_push if "template-cs-" in p]
+    if voogstyle_files:
+        print(f"  ⚠ VoogStyle failid: {', '.join(voogstyle_files)}")
+        print(f"    Push RESETIB salvestatud kohandused! Kontrolli vaikeväärtusi.")
+
+    print(f"Laen üles {len(files_to_push)} faili...")
+
+    BINARY_EXTS = {'.woff', '.woff2', '.ttf', '.otf', '.eot',
+                   '.jpg', '.jpeg', '.png', '.gif', '.webp', '.ico'}
+
+    ok_count = 0
+    fail_count = 0
+
+    for rel_path, info in files_to_push.items():
+        filepath = LOCAL_DIR / rel_path
+        if not filepath.exists():
+            print(f"  ⚠ Fail puudub: {rel_path}")
+            continue
+
+        if filepath.suffix.lower() in BINARY_EXTS:
+            print(f"  — {rel_path} (binaarne, jätan vahele)")
+            continue
+
+        try:
+            content = filepath.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            print(f"  — {rel_path} (binaarne, jätan vahele)")
+            continue
+        file_id = info["id"]
+        file_type = info["type"]
+
+        try:
+            if file_id is None and file_type == "layout_asset":
+                # New asset — create via POST
+                asset_type = info.get("asset_type", "javascript")
+                filename = rel_path.split("/")[-1]
+                result = api_post("/layout_assets", {
+                    "filename": filename,
+                    "asset_type": asset_type,
+                    "data": content,
+                })
+                # Update manifest with new ID
+                new_id = result.get("id")
+                if new_id:
+                    info["id"] = new_id
+                    manifest[rel_path]["id"] = new_id
+                    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+                print(f"  ✓ {rel_path} (uus, id:{new_id})")
+                ok_count += 1
+            elif file_type == "layout":
+                api_put(f"/layouts/{file_id}", {"body": content})
+                print(f"  ✓ {rel_path}")
+                ok_count += 1
+            elif file_type == "layout_asset":
+                api_put(f"/layout_assets/{file_id}", {"data": content})
+                print(f"  ✓ {rel_path}")
+                ok_count += 1
+        except Exception as e:
+            print(f"  ❌ {rel_path}: {e}")
+            fail_count += 1
+
+    if fail_count:
+        print(f"⚠ Valmis: {ok_count} õnnestus, {fail_count} ebaõnnestus")
+        sys.exit(1)
+    else:
+        print(f"✅ Valmis! ({ok_count} faili)")
+
+# --- List ---
+
+def list_files():
+    manifest_path = LOCAL_DIR / "manifest.json"
+    if not manifest_path.exists():
+        print("❌ manifest.json puudub. Käivita esmalt: python3 voog.py pull")
+        return
+    manifest = json.loads(manifest_path.read_text())
+    print(f"Kokku {len(manifest)} faili:\n")
+    for path in sorted(manifest.keys()):
+        info = manifest[path]
+        print(f"  {path}  (id:{info['id']})")
+
+# --- Tooted ---
+
+def products_list():
+    """Kõik tooted lühidalt."""
+    page = 1
+    all_products = []
+    while True:
+        data = api_get("/products", {"per_page": 100, "page": page, "include": "translations"}, base=ECOMMERCE_URL)
+        if not data:
+            break
+        batch = data if isinstance(data, list) else data.get("products", [])
+        if not batch:
+            break
+        all_products.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+
+    print(f"{'ID':<12} {'Slug':<40} {'Nimi'}")
+    print("-" * 80)
+    for p in all_products:
+        pid = str(p.get("id", ""))
+        slug = p.get("slug", "") or ""
+        name = p.get("name", "") or ""
+        # Eemalda zero-width characters printimiseks
+        name_clean = name.replace("\ufeff", "").replace("\u200b", "")
+        print(f"{pid:<12} {slug:<40} {name_clean}")
+    print(f"\nKokku: {len(all_products)} toodet")
+
+
+def product_get(product_id):
+    """Ühe toote täisinfo koos tõlgetega."""
+    p = api_get(f"/products/{product_id}", {"include": "translations"}, base=ECOMMERCE_URL)
+    print(f"ID:     {p.get('id')}")
+    print(f"Nimi:   {repr(p.get('name', ''))}")
+    print(f"Slug:   {p.get('slug', '')}")
+    print(f"SKU:    {p.get('sku', '')}")
+    print(f"Staatus: {p.get('status', '')}")
+    tr = p.get("translations") or {}
+    if tr:
+        print("\nTõlked:")
+        for field, langs in tr.items():
+            if field in ("name", "slug"):
+                print(f"  {field}:")
+                if isinstance(langs, dict):
+                    for lang, val in langs.items():
+                        val_clean = (val or "").replace("\ufeff", "").replace("\u200b", "")
+                        print(f"    {lang}: {repr(val_clean)}")
+
+
+def product_update(product_id, pairs):
+    """
+    Uuenda toote välju.
+    pairs = [("name-et", "Trippelgänger"), ("slug-en", "trippelganger"), ...]
+    """
+    translations = {"name": {}, "slug": {}}
+
+    for key, val in pairs:
+        if "-" not in key:
+            print(f"❌ Tundmatu väli: {key}. Kasuta kujul: name-et, name-en, slug-et, slug-en")
+            return
+        field, lang = key.split("-", 1)
+        if field not in ("name", "slug"):
+            print(f"❌ Tundmatu väli: {field}. Lubatud: name, slug")
+            return
+        translations[field][lang] = val
+
+    # Eemalda tühjad
+    translations = {k: v for k, v in translations.items() if v}
+
+    payload = {"product": {"translations": translations}}
+    result = api_put(f"/products/{product_id}", payload, base=ECOMMERCE_URL)
+
+    print(f"✅ Uuendatud:")
+    print(f"   Nimi:  {repr(result.get('name', ''))}")
+    print(f"   Slug:  {result.get('slug', '')}")
+    # Kontrolli tõlked
+    updated = api_get(f"/products/{product_id}", {"include": "translations"}, base=ECOMMERCE_URL)
+    tr = updated.get("translations") or {}
+    for field in ("name", "slug"):
+        if field in tr:
+            vals = tr[field]
+            print(f"   {field}: " + ", ".join(f"{l}={repr(v)}" for l, v in (vals or {}).items()))
+
+
+# --- Toote pildid ---
+
+CONTENT_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+def upload_asset(filepath):
+    """Laeb pildi üles Voog asseti kaudu (3-sammuline protsess).
+    Tagastab asset dict {id, url, width, height}."""
+    filepath = Path(filepath)
+    if not filepath.exists():
+        raise FileNotFoundError(f"Faili ei leitud: {filepath}")
+
+    filename = filepath.name
+    ext = filepath.suffix.lower()
+    content_type = CONTENT_TYPES.get(ext)
+    if not content_type:
+        raise ValueError(f"Toetamata failitüüp: {ext}. Lubatud: {', '.join(CONTENT_TYPES)}")
+
+    size = filepath.stat().st_size
+
+    # 1. Loo asset kirje
+    asset = api_post("/assets", {
+        "filename": filename,
+        "content_type": content_type,
+        "size": size,
+    })
+    asset_id = asset["id"]
+    upload_url = asset["upload_url"]
+
+    # 2. Lae fail S3-sse (raw binary PUT, mitte JSON)
+    file_data = filepath.read_bytes()
+    req = urllib.request.Request(upload_url, data=file_data, method="PUT")
+    req.add_header("Content-Type", content_type)
+    req.add_header("x-amz-acl", "public-read")
+    with urllib.request.urlopen(req) as resp:
+        if resp.status not in (200, 201):
+            raise RuntimeError(f"S3 upload ebaõnnestus: HTTP {resp.status}")
+
+    # 3. Kinnita asset
+    confirmed = api_put(f"/assets/{asset_id}/confirm")
+
+    return {
+        "id": asset_id,
+        "url": confirmed.get("public_url", ""),
+        "width": confirmed.get("width"),
+        "height": confirmed.get("height"),
+    }
+
+
+def product_set_images(product_id, filepaths):
+    """Vahetab toote pildid. Esimene pilt = põhipilt, ülejäänud = galerii."""
+    # Kontrolli toodet
+    prod = api_get(f"/products/{product_id}", base=ECOMMERCE_URL)
+    print(f"Toode: {prod['name']} (id:{product_id})")
+    old_ids = prod.get("asset_ids", [])
+    if old_ids:
+        print(f"  Vanad pildid: {old_ids}")
+
+    asset_ids = []
+    for fp in filepaths:
+        path = Path(fp)
+        print(f"  Laen üles: {path.name}...", end="", flush=True)
+        asset = upload_asset(path)
+        asset_ids.append(asset["id"])
+        dims = f"{asset['width']}x{asset['height']}" if asset['width'] else "töötlemisel"
+        print(f" ✓ (id:{asset['id']}, {dims})")
+
+    # Uuenda toodet
+    result = api_put(f"/products/{product_id}", {
+        "image_id": asset_ids[0],
+        "asset_ids": asset_ids,
+    }, base=ECOMMERCE_URL)
+
+    img = result.get("image", {})
+    dims = f"{img['width']}x{img['height']}" if img.get("width") else "töötlemisel"
+    print(f"\n✅ Pildid uuendatud!")
+    print(f"   Põhipilt: id:{asset_ids[0]} ({dims})")
+    print(f"   Kokku pilte: {len(asset_ids)}")
+    print(f"   Asset ID-d: {result.get('asset_ids', [])}")
+
+
+# --- Ümbersuunamised ---
+
+def redirects_list():
+    """Kõik redirect reeglid."""
+    rules = api_get_all("/redirect_rules")
+    if not rules:
+        print("Ümbersuunamisi ei leitud.")
+        return
+    print(f"{'ID':<10} {'Tüüp':<6} {'Allikas':<55} Siht")
+    print("-" * 110)
+    for r in sorted(rules, key=lambda x: x.get("source", "")):
+        rid = str(r.get("id", ""))
+        rtype = str(r.get("redirect_type", ""))
+        src = r.get("source", "")
+        dst = r.get("destination", "")
+        active = "" if r.get("active", True) else " [INACTIVE]"
+        print(f"{rid:<10} {rtype:<6} {src:<55} {dst}{active}")
+    print(f"\nKokku: {len(rules)} reeglit")
+
+
+def redirect_add(source, destination, redirect_type=301):
+    """Lisa uus redirect reegel."""
+    try:
+        rtype = int(redirect_type)
+    except ValueError:
+        print(f"❌ Vigane redirect tüüp: {redirect_type}. Kasuta: 301, 302, 307 või 410")
+        return
+
+    result = api_post("/redirect_rules", {
+        "redirect_rule": {
+            "source": source,
+            "destination": destination,
+            "redirect_type": rtype,
+            "active": True,
+        }
+    })
+    print(f"✅ Lisatud: {source} → {destination} ({rtype})")
+    print(f"   ID: {result.get('id')}")
+
+
+# --- Serve (lokaalne proxy) ---
+
+# JS/CSS failid, mida proxy asendab kohalike versioonidega.
+# Võti: failinimi (URL-ist leitav), väärtus: kohalik tee LOCAL_DIR suhtes.
+LOCAL_ASSETS = {
+    # JS
+    "application.min.js": "javascripts/application.min.js",
+    "application.js": "javascripts/application.js",
+    "editmode.min.js": "javascripts/editmode.min.js",
+    "editmode.js": "javascripts/editmode.js",
+    "cart.js": "javascripts/cart.js",
+    "tracking.js": "javascripts/tracking.js",
+    "sold-out-notify.js": "javascripts/sold-out-notify.js",
+    "stella-id.js": "javascripts/stella-id.js",
+    "search-drawer.js": "javascripts/search-drawer.js",
+    "newsletter-drawer.js": "javascripts/newsletter-drawer.js",
+    "empty-cart.js": "javascripts/empty-cart.js",
+    "buy-together.js": "javascripts/buy-together.js",
+    "additional-editmode.js": "javascripts/additional-editmode.js",
+    "custom-buy-button-manager.min.js": "javascripts/custom-buy-button-manager.min.js",
+    "custom-buy-button-manager.js": "javascripts/custom-buy-button-manager.js",
+    # CSS
+    "main.min.css": "stylesheets/main.min.css",
+    "main.css": "stylesheets/main.css",
+    "additional.css": "stylesheets/additional.css",
+    "cart.css": "stylesheets/cart.css",
+    "stella-id.css": "stylesheets/stella-id.css",
+}
+
+# Regex: leiab src="...filename.js?v=..." ja href="...filename.css?v=..." HTML-ist.
+# Asendab tuntud failinimed kohalike /_local/ versioonidega.
+def _build_asset_pattern():
+    names = "|".join(re.escape(n) for n in LOCAL_ASSETS)
+    return re.compile(
+        r'((?:src|href)\s*=\s*["\'])'  # group 1: atribuut + avav jutumärk
+        r'[^"\']*?'                      # path enne failinime
+        r'(' + names + r')'              # group 2: failinimi
+        r'(?:\?[^"\']*)?'               # valikuline ?v=... parameeter
+        r'(["\'])',                       # group 3: sulgev jutumärk
+        re.IGNORECASE,
+    )
+
+_ASSET_RE = _build_asset_pattern()
+
+
+def _fetch_live(path):
+    """Laeb lehe live-saidilt. Tagastab (status, content_type, body_bytes)."""
+    url = f"https://{HOST}{path}"
+    req = urllib.request.Request(url)
+    req.add_header("User-Agent", "Mozilla/5.0 voog.py-serve/1.0")
+    req.add_header("Accept", "text/html,application/xhtml+xml,*/*")
+    # Voog võib SSL sertifikaadi osas olla range — kasuta vaikimisi konteksti
+    ctx = ssl.create_default_context()
+    try:
+        with urllib.request.urlopen(req, context=ctx) as resp:
+            ct = resp.headers.get("Content-Type", "text/html")
+            body = resp.read()
+            return (resp.status, ct, body)
+    except urllib.error.HTTPError as e:
+        body = e.read() if hasattr(e, "read") else b""
+        ct = e.headers.get("Content-Type", "text/html") if hasattr(e, "headers") else "text/html"
+        return (e.code, ct, body)
+
+
+def _inject_local_assets(html_bytes):
+    """Asendab HTML-is tuntud JS/CSS URL-id kohalike /_local/ versioonidega."""
+    try:
+        html = html_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return html_bytes
+
+    def _replace(m):
+        attr_prefix = m.group(1)   # src=" või href="
+        filename = m.group(2)      # additional.js
+        quote = m.group(3)         # " või '
+        local_path = LOCAL_ASSETS[filename]
+        return f'{attr_prefix}/_local/{local_path}{quote}'
+
+    modified = _ASSET_RE.sub(_replace, html)
+
+    # Lisa väike visuaalne indikaator, et see on lokaalne proxy
+    indicator = (
+        '<div style="position:fixed;bottom:8px;right:8px;background:#1a1a2e;color:#e94560;'
+        'padding:4px 10px;border-radius:4px;font:bold 11px/1.4 monospace;z-index:99999;'
+        'pointer-events:none;opacity:0.85">LOCAL DEV</div>'
+    )
+    modified = modified.replace("</body>", f"{indicator}</body>", 1)
+
+    return modified.encode("utf-8")
+
+
+class _ProxyHandler(BaseHTTPRequestHandler):
+    """HTTP handler: serveerib kohalikke faile /_local/ alt, ülejäänu proxib live-saidilt."""
+
+    def do_GET(self):
+        # 1. Kohalikud failid
+        if self.path.startswith("/_local/"):
+            self._serve_local()
+            return
+
+        # 2. Proxy live-saidilt
+        status, ct, body = _fetch_live(self.path)
+
+        # HTML vastuse puhul asenda asset URL-id
+        if "text/html" in ct:
+            body = _inject_local_assets(body)
+
+        self.send_response(status)
+        self.send_header("Content-Type", ct)
+        self.send_header("Content-Length", len(body))
+        self.send_header("Cache-Control", "no-cache, no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        # POST päringud (nt cart API) — proxy otse läbi
+        content_len = int(self.headers.get("Content-Length", 0))
+        post_body = self.rfile.read(content_len) if content_len else b""
+
+        url = f"https://{HOST}{self.path}"
+        req = urllib.request.Request(url, data=post_body, method="POST")
+        req.add_header("User-Agent", "Mozilla/5.0 voog.py-serve/1.0")
+        # Kopeeri olulised päised
+        for h in ("Content-Type", "Accept", "X-Requested-With"):
+            val = self.headers.get(h)
+            if val:
+                req.add_header(h, val)
+
+        ctx = ssl.create_default_context()
+        try:
+            with urllib.request.urlopen(req, context=ctx) as resp:
+                ct = resp.headers.get("Content-Type", "application/json")
+                body = resp.read()
+                self.send_response(resp.status)
+        except urllib.error.HTTPError as e:
+            ct = e.headers.get("Content-Type", "application/json") if hasattr(e, "headers") else "application/json"
+            body = e.read() if hasattr(e, "read") else b""
+            self.send_response(e.code)
+
+        self.send_header("Content-Type", ct)
+        self.send_header("Content-Length", len(body))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_local(self):
+        """Serveerib faili kohalikust stellasoomlais-voog/ kaustast."""
+        rel_path = self.path[len("/_local/"):]  # eemalda /_local/ prefix
+        # Turvakontroll — ära luba .. navigeerimist
+        if ".." in rel_path:
+            self.send_error(403, "Keelatud")
+            return
+
+        filepath = LOCAL_DIR / rel_path
+        if not filepath.exists() or not filepath.is_file():
+            self.send_error(404, f"Faili ei leitud: {rel_path}")
+            return
+
+        # MIME tüübi tuvastamine
+        ext = filepath.suffix.lower()
+        mime_map = {
+            ".js": "application/javascript",
+            ".css": "text/css",
+            ".html": "text/html",
+            ".json": "application/json",
+            ".svg": "image/svg+xml",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+            ".woff2": "font/woff2",
+            ".woff": "font/woff",
+        }
+        ct = mime_map.get(ext, "application/octet-stream")
+
+        body = filepath.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", ct)
+        self.send_header("Content-Length", len(body))
+        self.send_header("Cache-Control", "no-cache, no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        """Kompaktsem logimine."""
+        # BaseHTTPRequestHandler kutsub log_message erinevate argumentidega:
+        # do_GET/POST: format="%s", args=("GET /path HTTP/1.1", "200", "-")
+        # send_error:  format="code %d, message %s", args=(404, "Not Found")
+        try:
+            msg = format % args
+        except (TypeError, ValueError):
+            msg = str(args)
+        # Tõmba path välja kui võimalik
+        if self.path.startswith("/_local/"):
+            marker = "📁"
+        else:
+            marker = "🌐"
+        sys.stderr.write(f"  {marker} {msg}\n")
+
+
+def serve(port=8080):
+    """Käivitab lokaalse proxy serveri."""
+    print(f"🚀 Voog lokaalne arendusserver")
+    print(f"   Live sait: https://{HOST}")
+    print(f"   Lokaalsed failid: {LOCAL_DIR}")
+    print(f"\n   Asendatavad failid:")
+    for name, path in LOCAL_ASSETS.items():
+        local_file = LOCAL_DIR / path
+        exists = "✓" if local_file.exists() else "✗ PUUDUB"
+        print(f"     {name} → /_local/{path} [{exists}]")
+    print(f"\n   Ava brauseris: http://localhost:{port}")
+    print(f"   Peata: Ctrl+C\n")
+
+    server = HTTPServer(("", port), _ProxyHandler)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n\n👋 Server peatatud.")
+        server.server_close()
+
+
+# --- Main ---
+
+if __name__ == "__main__":
+    # API_KEY ja config valideerimine on juba tehtud ülal load_site_config'is
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "help"
+
+    if cmd == "pull":
+        pull()
+    elif cmd == "serve":
+        port = 8080
+        for i, arg in enumerate(sys.argv[2:], 2):
+            if arg == "--port" and i + 1 < len(sys.argv):
+                port = int(sys.argv[i + 1])
+            elif arg.isdigit():
+                port = int(arg)
+        serve(port)
+    elif cmd == "push":
+        targets = sys.argv[2:] if len(sys.argv) > 2 else None
+        push(targets)
+    elif cmd == "list":
+        list_files()
+    elif cmd == "products":
+        products_list()
+    elif cmd == "product":
+        if len(sys.argv) < 3:
+            print("Kasutus: python3 voog.py product <id> [väli väärtus ...]")
+            sys.exit(1)
+        pid = sys.argv[2]
+        extra = sys.argv[3:]
+        if not extra:
+            product_get(pid)
+        elif len(extra) % 2 != 0:
+            print("❌ Välja-väärtuse paarid peavad olema paaris arv argumente")
+            sys.exit(1)
+        else:
+            pairs = [(extra[i], extra[i+1]) for i in range(0, len(extra), 2)]
+            product_update(pid, pairs)
+    elif cmd == "product-image":
+        if len(sys.argv) < 4:
+            print("Kasutus: python3 voog.py product-image <id> <fail> [fail2 ...]")
+            sys.exit(1)
+        pid = sys.argv[2]
+        files = sys.argv[3:]
+        product_set_images(pid, files)
+    elif cmd == "redirects":
+        redirects_list()
+    elif cmd == "redirect-add":
+        if len(sys.argv) < 4:
+            print("Kasutus: python3 voog.py redirect-add <allikas> <siht> [301|302|307|410]")
+            sys.exit(1)
+        rtype = sys.argv[4] if len(sys.argv) > 4 else 301
+        redirect_add(sys.argv[2], sys.argv[3], rtype)
+    else:
+        print(__doc__)
