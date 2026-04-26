@@ -134,5 +134,23 @@ class TestLayoutRename(unittest.TestCase):
             self.assertEqual(new_manifest["layouts/old-Front page.tpl"]["id"], 977702)
 
 
+class TestPageSetHidden(unittest.TestCase):
+    def test_page_set_hidden_true_calls_api_for_each_id(self):
+        with patch.object(voog, "api_put") as mock_put:
+            mock_put.return_value = {}
+            voog.page_set_hidden(["100", "200", "300"], True)
+
+            self.assertEqual(mock_put.call_count, 3)
+            mock_put.assert_any_call("/pages/100", {"hidden": True})
+            mock_put.assert_any_call("/pages/200", {"hidden": True})
+            mock_put.assert_any_call("/pages/300", {"hidden": True})
+
+    def test_page_set_hidden_false_unhides(self):
+        with patch.object(voog, "api_put") as mock_put:
+            mock_put.return_value = {}
+            voog.page_set_hidden(["100"], False)
+            mock_put.assert_called_once_with("/pages/100", {"hidden": False})
+
+
 if __name__ == "__main__":
     unittest.main()
