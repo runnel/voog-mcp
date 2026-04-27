@@ -6,10 +6,11 @@ from mcp.server.stdio import stdio_server
 from voog_mcp.config import load_config
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import error_response
+from voog_mcp.tools import layouts as layouts_tools
 from voog_mcp.tools import pages as pages_tools
 from voog_mcp.tools import pages_mutate as pages_mutate_tools
 from voog_mcp.tools import redirects as redirects_tools
-# Tasks 11-13: append more `from voog_mcp.tools import <group> as <group>_tools` imports below
+# Tasks 12-13: append more `from voog_mcp.tools import <group> as <group>_tools` imports below
 
 from voog_mcp.resources import articles as articles_resources
 from voog_mcp.resources import layouts as layouts_resources
@@ -22,10 +23,11 @@ logger = logging.getLogger("voog-mcp")
 # Tool group registry — Tasks 10-14 should append their module here.
 # Each module must export get_tools() -> list[Tool] and async call_tool(name, arguments, client) -> list[TextContent].
 TOOL_GROUPS = [
+    layouts_tools,
     pages_tools,
     pages_mutate_tools,
     redirects_tools,
-    # Tasks 11-13: append more tool group modules here
+    # Tasks 12-13: append more tool group modules here
 ]
 
 # Resource group registry — Phase D Tasks 15-19 should append their module here.
