@@ -26,12 +26,17 @@ from voog_mcp.tools import products_images as products_images_tools
 
 
 def _ann_get(ann, key_camel, key_snake):
+    # NB: explicit `in` membership (not `or`) — `False or X` would swallow an
+    # explicit False annotation. Mirrors the fix in PR #32.
     if hasattr(ann, key_snake):
         return getattr(ann, key_snake)
     if hasattr(ann, key_camel):
         return getattr(ann, key_camel)
     if isinstance(ann, dict):
-        return ann.get(key_camel) or ann.get(key_snake)
+        if key_camel in ann:
+            return ann[key_camel]
+        if key_snake in ann:
+            return ann[key_snake]
     return None
 
 

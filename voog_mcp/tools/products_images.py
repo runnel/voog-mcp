@@ -261,7 +261,12 @@ def _upload_asset(path: Path, client: VoogClient) -> dict:
             "x-amz-acl": "public-read",
         },
     )
-    with urllib.request.urlopen(req) as resp:
+    # 120s comfortably covers a multi-MB image over a slow link. Without a
+    # bound, a hung S3 endpoint blocks the MCP request indefinitely (longer-
+    # lived process than the voog.py CLI, where the same gap is less visible).
+    # socket.timeout on expiry is caught by the outer try/except and routed
+    # to the per-file `failed` list.
+    with urllib.request.urlopen(req, timeout=120) as resp:
         if resp.status not in (200, 201):
             raise RuntimeError(f"S3 upload failed: HTTP {resp.status}")
 
