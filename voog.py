@@ -1132,6 +1132,10 @@ def layout_create(file_path, kind=None):
         "body": body,
         "component": (kind == "component"),
     }
+    if kind == "layout":
+        # Voog API nõuab non-component layout'idele content_type välja.
+        # Ilma selleta tagastab API HTTP 422. Component'idel pole vaja.
+        payload["content_type"] = "page"
 
     print(f"POST /layouts title={title!r} component={kind == 'component'}...")
     result = api_post("/layouts", payload)
