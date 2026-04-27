@@ -1077,10 +1077,21 @@ def layout_create(kind, file_path):
         print(f"❌ kind peab olema 'layout' või 'component', sain: {kind}")
         sys.exit(1)
 
-    rel_path = file_path.lstrip("./")
+    rel_path = file_path.removeprefix("./")
     full_path = LOCAL_DIR / rel_path
     if not full_path.exists():
         print(f"❌ Fail puudub: {full_path}")
+        sys.exit(1)
+
+    # Collision check: refuse to overwrite an existing manifest entry. A silent
+    # overwrite would leave the previous layout dangling in Voog.
+    manifest_path = LOCAL_DIR / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+    if rel_path in manifest:
+        existing_id = manifest[rel_path].get("id")
+        print(f"❌ {rel_path} on juba manifest'is (id:{existing_id})")
+        print(f"  Kasuta `voog.py push {rel_path}` olemasoleva uuendamiseks.")
+        print(f"  Või kustuta manifest'ist + Voogist enne uuesti loomist.")
         sys.exit(1)
 
     body = full_path.read_text(encoding="utf-8")
@@ -1099,8 +1110,6 @@ def layout_create(kind, file_path):
         print(f"❌ POST vastus ei sisaldanud uut id-d: {result!r}")
         sys.exit(1)
 
-    manifest_path = LOCAL_DIR / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
     manifest[rel_path] = {
         "id": new_id,
         "type": "layout",

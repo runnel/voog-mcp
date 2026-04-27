@@ -35,10 +35,12 @@ def test_layout_create_makes_new_layout_returns_id_updates_manifest():
     test_name = f"_test_2a_{int(time.time())}"
     test_path = REPO / "components" / f"{test_name}.tpl"
     test_path.write_text(f"<!-- {test_name} -->\n<p>hello</p>\n")
+    rel = f"components/{test_name}.tpl"
+    new_id = None
 
     try:
         result = subprocess.run(
-            ["python3", str(VOOG_PY), "layout-create", "component", str(test_path.relative_to(REPO))],
+            ["python3", str(VOOG_PY), "layout-create", "component", rel],
             cwd=REPO,
             capture_output=True,
             text=True,
@@ -47,15 +49,22 @@ def test_layout_create_makes_new_layout_returns_id_updates_manifest():
         assert "id:" in result.stdout
 
         manifest = json.loads((REPO / "manifest.json").read_text())
-        rel = f"components/{test_name}.tpl"
         assert rel in manifest, f"manifest missing {rel}"
         new_id = manifest[rel]["id"]
         assert isinstance(new_id, int) and new_id > 0
         assert manifest[rel]["type"] == "layout"
-
-        _delete_layout(new_id)
-        del manifest[rel]
-        (REPO / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     finally:
+        if new_id:
+            try:
+                _delete_layout(new_id)
+            except Exception:
+                pass
+            # Strip test entry from manifest so it doesn't pollute git status.
+            manifest_path = REPO / "manifest.json"
+            if manifest_path.exists():
+                m = json.loads(manifest_path.read_text())
+                if rel in m:
+                    del m[rel]
+                    manifest_path.write_text(json.dumps(m, indent=2, ensure_ascii=False) + "\n")
         if test_path.exists():
             test_path.unlink()
