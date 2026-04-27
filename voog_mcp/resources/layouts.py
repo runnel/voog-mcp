@@ -1,0 +1,108 @@
+"""MCP resources for Voog layouts.
+
+Phase D resource group covering two URI shapes:
+
+  - ``voog://layouts``         — list all layouts (id, title, component,
+                                  content_type, updated_at — body field
+                                  intentionally stripped from the list view;
+                                  bodies live at ``voog://layouts/{id}``)
+  - ``voog://layouts/{id}``    — raw layout body (.tpl source) as ``text/plain``
+
+The single-layout URI returns ``mime_type="text/plain"`` because the value is
+the raw Liquid template, not JSON. The list URI returns ``application/json``.
+
+Pattern mirrors :mod:`voog_mcp.resources.pages`: ``URI_PREFIX`` constant,
+:func:`matches` exact-or-slashed-sub-path, errors propagate to the server
+layer (no wrapping into MCP error responses).
+"""
+import json
+
+from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.types import Resource
+
+from voog_mcp.client import VoogClient
+
+
+URI_PREFIX = "voog://layouts"
+
+
+def get_resources() -> list[Resource]:
+    return [
+        Resource(
+            uri=URI_PREFIX,
+            name="Layouts",
+            description=(
+                "All layouts on the Voog site (simplified: id, title, component, "
+                "content_type, updated_at — without bodies). "
+                "Single layout body (raw .tpl source) at voog://layouts/{id} as text/plain."
+            ),
+            mimeType="application/json",
+        ),
+    ]
+
+
+def matches(uri: str) -> bool:
+    return uri == URI_PREFIX or uri.startswith(URI_PREFIX + "/")
+
+
+async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
+    if uri == URI_PREFIX:
+        layouts = client.get_all("/layouts")
+        return _json_response(_simplify_layouts(layouts))
+
+    if not uri.startswith(URI_PREFIX + "/"):
+        raise ValueError(f"layouts resource: unsupported URI {uri!r}")
+
+    sub = uri[len(URI_PREFIX) + 1:]
+    parts = sub.split("/")
+
+    if len(parts) == 1:
+        layout_id = _parse_id(parts[0], uri)
+        layout = client.get(f"/layouts/{layout_id}")
+        body = layout.get("body") or ""
+        return [
+            ReadResourceContents(
+                content=body,
+                mime_type="text/plain",
+            )
+        ]
+
+    raise ValueError(f"layouts resource: unsupported URI {uri!r}")
+
+
+def _parse_id(raw: str, uri: str) -> int:
+    try:
+        layout_id = int(raw)
+    except ValueError as e:
+        raise ValueError(f"layouts resource: invalid layout id in {uri!r}") from e
+    if layout_id <= 0:
+        raise ValueError(f"layouts resource: layout id must be positive in {uri!r}") from None
+    return layout_id
+
+
+def _json_response(data) -> list[ReadResourceContents]:
+    return [
+        ReadResourceContents(
+            content=json.dumps(data, indent=2, ensure_ascii=False),
+            mime_type="application/json",
+        )
+    ]
+
+
+def _simplify_layouts(layouts: list) -> list:
+    """Project layouts list to lightweight metadata (no body field).
+
+    The Voog ``/layouts`` list endpoint already omits ``body`` from each item,
+    but defensive trimming here guarantees the projection even if the API
+    starts returning it.
+    """
+    simplified = []
+    for layout in layouts:
+        simplified.append({
+            "id": layout.get("id"),
+            "title": layout.get("title"),
+            "component": layout.get("component"),
+            "content_type": layout.get("content_type"),
+            "updated_at": layout.get("updated_at"),
+        })
+    return simplified

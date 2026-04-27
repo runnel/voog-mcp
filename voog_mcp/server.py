@@ -10,9 +10,10 @@ from voog_mcp.tools import pages as pages_tools
 from voog_mcp.tools import redirects as redirects_tools
 # Tasks 10-13: append more `from voog_mcp.tools import <group> as <group>_tools` imports below
 
+from voog_mcp.resources import layouts as layouts_resources
 from voog_mcp.resources import pages as pages_resources
 from voog_mcp.resources import redirects as redirects_resources
-# Tasks 16-18: append more `from voog_mcp.resources import <group> as <group>_resources` imports below
+# Tasks 17-18: append more `from voog_mcp.resources import <group> as <group>_resources` imports below
 
 logger = logging.getLogger("voog-mcp")
 
@@ -30,9 +31,10 @@ TOOL_GROUPS = [
 #   - matches(uri: str) -> bool   (does this group handle this URI?)
 #   - async read_resource(uri: str, client) -> list[ReadResourceContents]
 RESOURCE_GROUPS = [
+    layouts_resources,
     pages_resources,
     redirects_resources,
-    # Tasks 16-18: append more resource group modules here
+    # Tasks 17-18: append more resource group modules here
 ]
 
 
