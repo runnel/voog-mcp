@@ -49,7 +49,17 @@ Kasutus:
   python3 voog.py page-set-hidden <id>... true|false  # bulk hidden toggle
   python3 voog.py page-set-layout <page-id> <layout-id>  # reassign layout
   python3 voog.py page-create <title> <slug> <language_id> [--layout-id=N] [--parent-id=N] [--hidden]
-                                                # POST uus leht
+                                                # POST uus leht. NB: --parent-id on PARENT
+                                                # PAGE id (mitte node_id). Root-lehtedele
+                                                # JÄTA --parent-id välja — Voog auto-attach'b
+                                                # root node'i alla. parent_id=<root_node_id>
+                                                # annab 422 'node_id: not found'.
+  python3 voog.py page-add-content <page_id> [name] [content_type]
+                                                # POST uus content area + linked text.
+                                                # Default name=body (vastab `{% content %}`),
+                                                # nimega area: name=gallery_1 (`{% content
+                                                # name="gallery_1" %}`). Tagastab content_id +
+                                                # text_id, mille body saab PUT /texts/{id}.
   python3 voog.py page-delete <id> [--force]    # kustuta leht (küsib kinnitust)
   python3 voog.py pages-pull                    # salvesta pages.json (struktuur, ei sisaldu sisu)
 
@@ -1191,6 +1201,13 @@ def page_create(title, slug, language_id, layout_id=None, parent_id=None, hidden
 
     None-väärtustega optional välju EI saadeta API-le (vaikimisi-käitumine säilib).
 
+    NB: `parent_id` on Voog API-s **parent PAGE id** (mitte node_id) —
+    [docs](https://www.voog.com/developers/api/resources/pages) ütlevad otse
+    "parent_id — parent page id". Root-tasandi lehtedele JÄTA `parent_id=None`
+    (Voog auto-attach'b root node'i alla). Kui anda mingi node_id mis ei ole
+    ühegi olemasoleva lehe id, vastab API HTTP 422 `{"errors":{"node_id":
+    ["not found"]}}`.
+
     NB: Voog API-l ei ole `state` välja lehtedel — POST `state="draft"`
     annab HTTP 500. Mustand-lehe semantika tuleb `hidden` (bool) ja
     `language.published` (terve keele lüliti) kaudu, mitte per-page state'ist.
@@ -1214,6 +1231,27 @@ def page_create(title, slug, language_id, layout_id=None, parent_id=None, hidden
         print(f"❌ POST vastus ei sisaldanud uut id-d: {result!r}")
         sys.exit(1)
     print(f"  ✓ Loodi leht id={new_id} path=/{result.get('path', '')}")
+    return result
+
+
+def page_add_content(page_id, name="body", content_type="text"):
+    """Loo lehele content area + linked text ühe POST'iga.
+
+    Värsked lehed: `GET /pages/{id}/contents` tagastab `[]` kuni keegi on
+    admin UI-s edit-mode'i avanud — see käsk lühendab seda. Vastus sisaldab
+    nii `id` (content_id) kui `text.id` (text_id, mille `body` saab seejärel
+    PUT'iga uuendada).
+
+    `name` peab vastama layout'i `{% content %}` tagi:
+      - Nimeta `{% content %}` → `name="body"` (vaikimisi)
+      - Nimega `{% content name="gallery_1" %}` → `name="gallery_1"`
+    """
+    payload = {"name": str(name), "content_type": str(content_type)}
+    print(f"POST /pages/{page_id}/contents name={name!r} content_type={content_type!r}...")
+    result = api_post(f"/pages/{page_id}/contents", payload)
+    content_id = result.get("id")
+    text_id = (result.get("text") or {}).get("id")
+    print(f"  ✓ Loodi content_id={content_id} text_id={text_id}")
     return result
 
 
@@ -1630,6 +1668,20 @@ def main():
                 sys.exit(1)
         page_create(title, slug, language_id, layout_id=layout_id,
                     parent_id=parent_id, hidden=hidden)
+    elif cmd == "page-add-content":
+        if len(sys.argv) < 3:
+            print("Kasutus: python3 voog.py page-add-content <page_id> [name] [content_type]")
+            print("  name vaikimisi 'body' (vastab `{% content %}` Liquid tagi)")
+            print("  content_type vaikimisi 'text'")
+            sys.exit(1)
+        try:
+            page_id = int(sys.argv[2])
+        except ValueError:
+            print(f"❌ page_id peab olema arv, sain: {sys.argv[2]!r}")
+            sys.exit(1)
+        name = sys.argv[3] if len(sys.argv) > 3 else "body"
+        content_type = sys.argv[4] if len(sys.argv) > 4 else "text"
+        page_add_content(page_id, name=name, content_type=content_type)
     elif cmd == "page-delete":
         if len(sys.argv) < 3:
             print("Kasutus: python3 voog.py page-delete <id> [--force]")

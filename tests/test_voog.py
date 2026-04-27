@@ -767,5 +767,61 @@ class TestPageCreate(unittest.TestCase):
         self.assertNotIn("hidden", args[1])
 
 
+class TestPageAddContent(unittest.TestCase):
+    """POST /admin/api/pages/{id}/contents creates a content area + linked text in one call.
+
+    Faas 2b discovered that fresh pages return [] from /contents until either an admin
+    UI edit-mode visit OR an explicit POST. This wrapper shortcuts that.
+    """
+
+    def test_page_add_content_default_body_text(self):
+        """Default name='body', content_type='text' (matches `{% content %}` Liquid tag)."""
+        with patch.object(voog, "api_post") as mock_post:
+            mock_post.return_value = {
+                "id": 11814284,
+                "name": "body",
+                "content_type": "text",
+                "text": {"id": 9181011},
+            }
+            result = voog.page_add_content(3530073)
+
+        mock_post.assert_called_once_with(
+            "/pages/3530073/contents",
+            {"name": "body", "content_type": "text"},
+        )
+        self.assertEqual(result["id"], 11814284)
+        self.assertEqual(result["text"]["id"], 9181011)
+
+    def test_page_add_content_custom_name(self):
+        """Named content area (e.g. 'gallery_1' for `{% content name='gallery_1' %}`)."""
+        with patch.object(voog, "api_post") as mock_post:
+            mock_post.return_value = {
+                "id": 1,
+                "name": "gallery_1",
+                "content_type": "text",
+                "text": {"id": 2},
+            }
+            voog.page_add_content(123, name="gallery_1")
+
+        args, _ = mock_post.call_args
+        self.assertEqual(args[1]["name"], "gallery_1")
+        self.assertEqual(args[1]["content_type"], "text")
+
+    def test_page_add_content_validates_required_page_id(self):
+        """Missing page_id → TypeError, no API call."""
+        with patch.object(voog, "api_post") as mock_post:
+            with self.assertRaises(TypeError):
+                voog.page_add_content()  # missing page_id
+            mock_post.assert_not_called()
+
+    def test_page_add_content_returns_post_response(self):
+        """Caller needs both content_id and text_id; return the full POST response."""
+        with patch.object(voog, "api_post") as mock_post:
+            expected = {"id": 42, "text": {"id": 7}, "name": "body"}
+            mock_post.return_value = expected
+            result = voog.page_add_content(1)
+        self.assertEqual(result, expected)
+
+
 if __name__ == "__main__":
     unittest.main()
