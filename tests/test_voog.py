@@ -715,7 +715,6 @@ class TestPageCreate(unittest.TestCase):
                 "language_id": 629624,
                 "layout_id": 12345,
                 "hidden": True,
-                "state": "draft",
             }
             result = voog.page_create(
                 title="Privacy",
@@ -723,7 +722,6 @@ class TestPageCreate(unittest.TestCase):
                 language_id=629624,
                 layout_id=12345,
                 hidden=True,
-                state="draft",
             )
 
         mock_post.assert_called_once_with(
@@ -734,14 +732,13 @@ class TestPageCreate(unittest.TestCase):
                 "language_id": 629624,
                 "layout_id": 12345,
                 "hidden": True,
-                "state": "draft",
             },
         )
         self.assertEqual(result["id"], 999999)
         self.assertEqual(result["slug"], "privacy")
 
     def test_page_create_omits_none_optional_fields(self):
-        """parent_id, layout_id, state are optional — None values must NOT be sent."""
+        """parent_id, layout_id are optional — None values must NOT be sent."""
         with patch.object(voog, "api_post") as mock_post:
             mock_post.return_value = {"id": 1, "title": "T", "slug": "t"}
             voog.page_create(

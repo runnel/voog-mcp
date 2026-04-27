@@ -95,6 +95,60 @@ class TestLayoutCreate(unittest.TestCase):
             if test_path.exists():
                 test_path.unlink()
 
+    def test_layout_create_makes_new_layout_with_content_type_page(self):
+        """Non-component layouts need content_type=page in POST payload (Voog API requires it)."""
+        test_name = f"_test_2a_layout_{int(time.time())}"
+        test_path = self.repo / "layouts" / f"{test_name}.tpl"
+        test_path.write_text(
+            f"<!DOCTYPE html><html><body><!-- {test_name} -->{{% content %}}</body></html>\n"
+        )
+        rel = f"layouts/{test_name}.tpl"
+        new_id = None
+
+        try:
+            result = subprocess.run(
+                ["python3", str(VOOG_PY), "layout-create", rel],
+                cwd=self.repo,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(
+                result.returncode, 0,
+                f"stderr: {result.stderr}\nstdout: {result.stdout}"
+            )
+
+            manifest = json.loads((self.repo / "manifest.json").read_text())
+            self.assertIn(rel, manifest)
+            new_id = manifest[rel]["id"]
+
+            # Verify content_type=page on the API side
+            req = urllib.request.Request(
+                f"https://runnel.ee/admin/api/layouts/{new_id}",
+                headers={"X-API-Token": _api_key()},
+            )
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read())
+            self.assertEqual(
+                data.get("content_type"), "page",
+                f"Layout missing content_type=page: {data}"
+            )
+        finally:
+            if new_id:
+                try:
+                    _delete_layout(new_id)
+                except Exception as e:
+                    print(f"⚠ Cleanup failed for layout {new_id}: {e}")
+                manifest_path = self.repo / "manifest.json"
+                if manifest_path.exists():
+                    m = json.loads(manifest_path.read_text())
+                    if rel in m:
+                        del m[rel]
+                        manifest_path.write_text(
+                            json.dumps(m, indent=2, ensure_ascii=False) + "\n"
+                        )
+            if test_path.exists():
+                test_path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()
