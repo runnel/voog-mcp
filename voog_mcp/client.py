@@ -43,12 +43,21 @@ class VoogClient:
     def delete(self, path: str, *, base: str = None):
         return self._request("DELETE", path, base=base)
 
-    def get_all(self, path: str, *, base: str = None):
-        """Pagination through all pages of results."""
+    def get_all(self, path: str, *, base: str = None, params: dict = None):
+        """Pagination through all pages of results.
+
+        Caller-provided ``params`` (e.g. ``{"include": "translations"}``) are
+        merged with pagination params (``per_page``, ``page``). Caller params
+        win over collisions, but pagination params should not normally be
+        passed in by the caller.
+        """
         results = []
         page = 1
         while True:
-            data = self.get(path, base=base, params={"per_page": 100, "page": page})
+            page_params = {"per_page": 100, "page": page}
+            if params:
+                page_params.update(params)
+            data = self.get(path, base=base, params=page_params)
             if not data:
                 break
             results.extend(data)

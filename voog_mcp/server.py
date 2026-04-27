@@ -13,8 +13,8 @@ from voog_mcp.tools import redirects as redirects_tools
 from voog_mcp.resources import articles as articles_resources
 from voog_mcp.resources import layouts as layouts_resources
 from voog_mcp.resources import pages as pages_resources
+from voog_mcp.resources import products as products_resources
 from voog_mcp.resources import redirects as redirects_resources
-# Task 18: append more `from voog_mcp.resources import <group> as <group>_resources` imports below
 
 logger = logging.getLogger("voog-mcp")
 
@@ -35,8 +35,8 @@ RESOURCE_GROUPS = [
     articles_resources,
     layouts_resources,
     pages_resources,
+    products_resources,
     redirects_resources,
-    # Task 18: append more resource group modules here
 ]
 
 
