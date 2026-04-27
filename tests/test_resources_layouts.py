@@ -114,6 +114,18 @@ class TestLayoutsResourcesReadSingleLayout(unittest.TestCase):
         contents = list(result)
         self.assertEqual(contents[0].content, "")
 
+    def test_read_single_layout_empty_string_body_passes_through(self):
+        # API explicitly returning body="" should NOT be coerced to anything else —
+        # `"" or ""` collapses to "" via the same fallback path. Pinning behaviour
+        # so any future fallback rewrite (e.g. body=None checks) doesn't surprise
+        # callers reading an explicitly empty .tpl.
+        client = MagicMock()
+        client.get.return_value = {"id": 977702, "title": "Empty Tpl", "body": ""}
+        result = asyncio.run(layouts_resources.read_resource("voog://layouts/977702", client))
+        contents = list(result)
+        self.assertEqual(contents[0].mime_type, "text/plain")
+        self.assertEqual(contents[0].content, "")
+
     def test_read_single_layout_rejects_non_integer_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
