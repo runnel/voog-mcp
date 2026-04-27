@@ -761,6 +761,14 @@ class TestPageCreate(unittest.TestCase):
                 voog.page_create(slug="x", language_id=1)  # missing title
             mock_post.assert_not_called()
 
+    def test_page_create_hidden_false_not_sent(self):
+        """hidden=False (default) must NOT add 'hidden' field to payload — locks design decision."""
+        with patch.object(voog, "api_post") as mock_post:
+            mock_post.return_value = {"id": 1, "title": "T", "slug": "t"}
+            voog.page_create(title="T", slug="t", language_id=1, hidden=False)
+        args, _ = mock_post.call_args
+        self.assertNotIn("hidden", args[1])
+
 
 if __name__ == "__main__":
     unittest.main()

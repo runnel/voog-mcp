@@ -42,7 +42,7 @@ Kasutus:
       pushimist tuleb vana asset MANUAALSELT DELETE'ida (käsk prindib curl-i).
   python3 voog.py page-set-hidden <id>... true|false  # bulk hidden toggle
   python3 voog.py page-set-layout <page-id> <layout-id>  # reassign layout
-  python3 voog.py page-create <title> <slug> <language_id> [layout_id] [parent_id] [--hidden] [--state=draft|public]
+  python3 voog.py page-create <title> <slug> <language_id> [--layout-id=N] [--parent-id=N] [--hidden] [--state=draft|public]
                                                 # POST uus leht
   python3 voog.py page-delete <id> [--force]    # kustuta leht (küsib kinnitust)
   python3 voog.py pages-pull                    # salvesta pages.json (struktuur, ei sisaldu sisu)
@@ -1483,14 +1483,18 @@ def main():
             sys.exit(1)
         page_set_layout(sys.argv[2], sys.argv[3])
     elif cmd == "page-create":
-        # Kasutus: page-create <title> <slug> <language_id> [layout_id] [parent_id] [--hidden] [--state=draft|public]
+        # Kasutus: page-create <title> <slug> <language_id> [--layout-id=N] [--parent-id=N] [--hidden] [--state=draft|public]
         if len(sys.argv) < 5:
             print("Kasutus: python3 voog.py page-create <title> <slug> <language_id> "
-                  "[layout_id] [parent_id] [--hidden] [--state=draft|public]")
+                  "[--layout-id=N] [--parent-id=N] [--hidden] [--state=draft|public]")
             sys.exit(1)
         title = sys.argv[2]
         slug = sys.argv[3]
-        language_id = int(sys.argv[4])
+        try:
+            language_id = int(sys.argv[4])
+        except ValueError:
+            print(f"❌ language_id peab olema arv, sain: {sys.argv[4]!r}")
+            sys.exit(1)
         layout_id = None
         parent_id = None
         hidden = False
@@ -1500,10 +1504,23 @@ def main():
                 hidden = True
             elif arg.startswith("--state="):
                 state = arg.split("=", 1)[1]
-            elif layout_id is None:
-                layout_id = int(arg)
-            elif parent_id is None:
-                parent_id = int(arg)
+            elif arg.startswith("--layout-id="):
+                try:
+                    layout_id = int(arg.split("=", 1)[1])
+                except ValueError:
+                    print(f"❌ --layout-id väärtus peab olema arv, sain: {arg!r}")
+                    sys.exit(1)
+            elif arg.startswith("--parent-id="):
+                try:
+                    parent_id = int(arg.split("=", 1)[1])
+                except ValueError:
+                    print(f"❌ --parent-id väärtus peab olema arv, sain: {arg!r}")
+                    sys.exit(1)
+            else:
+                print(f"❌ Tundmatu argument: {arg!r}")
+                print("Kasutus: python3 voog.py page-create <title> <slug> <language_id> "
+                      "[--layout-id=N] [--parent-id=N] [--hidden] [--state=draft|public]")
+                sys.exit(1)
         page_create(title, slug, language_id, layout_id=layout_id,
                     parent_id=parent_id, hidden=hidden, state=state)
     elif cmd == "page-delete":
