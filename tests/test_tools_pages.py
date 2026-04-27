@@ -12,23 +12,42 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from voog_mcp.tools import pages as pages_tools
 
 
+def _ann_get(ann, key_camel, key_snake):
+    if hasattr(ann, key_snake):
+        return getattr(ann, key_snake)
+    if hasattr(ann, key_camel):
+        return getattr(ann, key_camel)
+    if isinstance(ann, dict):
+        if key_camel in ann:
+            return ann[key_camel]
+        if key_snake in ann:
+            return ann[key_snake]
+    return None
+
+
 class TestPagesTools(unittest.TestCase):
     def test_get_tools_returns_three(self):
         tools = pages_tools.get_tools()
         names = [t.name for t in tools]
         self.assertEqual(names, ["pages_list", "page_get", "pages_pull"])
-        # All marked read-only — annotation may be dict or model object
-        for t in tools:
-            ann = t.annotations
-            if hasattr(ann, "read_only_hint"):
-                self.assertTrue(ann.read_only_hint)
-            elif hasattr(ann, "readOnlyHint"):
-                self.assertTrue(ann.readOnlyHint)
-            elif isinstance(ann, dict):
-                # allow either readOnlyHint or read_only_hint
-                self.assertTrue(ann.get("readOnlyHint") or ann.get("read_only_hint"))
-            else:
-                self.fail(f"Unexpected annotations type: {type(ann)}")
+
+    def test_all_tools_have_full_read_only_triple(self):
+        # Every tool here is read-only — assert the full explicit triple
+        # (readOnlyHint=True, destructiveHint=False, idempotentHint=True).
+        for tool in pages_tools.get_tools():
+            ann = tool.annotations
+            self.assertIs(
+                _ann_get(ann, "readOnlyHint", "read_only_hint"), True,
+                f"{tool.name} must have readOnlyHint=True explicitly",
+            )
+            self.assertIs(
+                _ann_get(ann, "destructiveHint", "destructive_hint"), False,
+                f"{tool.name} must have destructiveHint=False explicitly",
+            )
+            self.assertIs(
+                _ann_get(ann, "idempotentHint", "idempotent_hint"), True,
+                f"{tool.name} must have idempotentHint=True explicitly",
+            )
 
     def test_pages_list_calls_client(self):
         client = MagicMock()

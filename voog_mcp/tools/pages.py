@@ -11,7 +11,11 @@ def get_tools() -> list[Tool]:
             name="pages_list",
             description="List all pages on the Voog site (id, path, title, hidden, layout name). Read-only.",
             inputSchema={"type": "object", "properties": {}, "required": []},
-            annotations={"readOnlyHint": True},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
         ),
         Tool(
             name="page_get",
@@ -23,13 +27,21 @@ def get_tools() -> list[Tool]:
                 },
                 "required": ["page_id"],
             },
-            annotations={"readOnlyHint": True},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
         ),
         Tool(
             name="pages_pull",
             description="Return simplified pages structure as JSON (id, path, title, hidden, layout, content_type, language, public_url — no content bodies).",
             inputSchema={"type": "object", "properties": {}, "required": []},
-            annotations={"readOnlyHint": True},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
         ),
     ]
 

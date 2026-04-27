@@ -18,7 +18,10 @@ def _ann_get(ann, key_camel, key_snake):
     if hasattr(ann, key_camel):
         return getattr(ann, key_camel)
     if isinstance(ann, dict):
-        return ann.get(key_camel) or ann.get(key_snake)
+        if key_camel in ann:
+            return ann[key_camel]
+        if key_snake in ann:
+            return ann[key_snake]
     return None
 
 
@@ -28,16 +31,22 @@ class TestRedirectsTools(unittest.TestCase):
         names = [t.name for t in tools]
         self.assertEqual(names, ["redirects_list", "redirect_add"])
 
-    def test_redirects_list_is_read_only(self):
+    def test_redirects_list_full_annotation_triple(self):
         tools = {t.name: t for t in redirects_tools.get_tools()}
         ann = tools["redirects_list"].annotations
-        self.assertTrue(_ann_get(ann, "readOnlyHint", "read_only_hint"))
+        self.assertIs(_ann_get(ann, "readOnlyHint", "read_only_hint"), True)
+        self.assertIs(_ann_get(ann, "destructiveHint", "destructive_hint"), False)
+        self.assertIs(_ann_get(ann, "idempotentHint", "idempotent_hint"), True)
 
-    def test_redirect_add_not_read_only(self):
+    def test_redirect_add_full_annotation_triple(self):
+        # redirect_add is additive (creates a new rule), so destructiveHint=False.
+        # NOT idempotent: repeat calls either create duplicate rules or error
+        # on conflict — repeated calls have additional effect.
         tools = {t.name: t for t in redirects_tools.get_tools()}
         ann = tools["redirect_add"].annotations
-        # Mutating tool — read-only hint should be absent or false
-        self.assertFalse(_ann_get(ann, "readOnlyHint", "read_only_hint") or False)
+        self.assertIs(_ann_get(ann, "readOnlyHint", "read_only_hint"), False)
+        self.assertIs(_ann_get(ann, "destructiveHint", "destructive_hint"), False)
+        self.assertIs(_ann_get(ann, "idempotentHint", "idempotent_hint"), False)
 
     def test_redirect_add_schema_requires_source_and_destination(self):
         tools = {t.name: t for t in redirects_tools.get_tools()}
