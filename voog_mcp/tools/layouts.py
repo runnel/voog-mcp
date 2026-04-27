@@ -54,8 +54,9 @@ def get_tools() -> list[Tool]:
             name="layout_create",
             description=(
                 "Create a new layout or component (POST /layouts). "
-                "kind='layout' for full pages (sets content_type='page'); "
-                "kind='component' for shared partials. Returns the new id. "
+                "kind='layout' for full templates (defaults content_type='page'; "
+                "use 'blog_article' for blog post templates); kind='component' "
+                "for shared partials (content_type ignored). Returns the new id. "
                 "NOT idempotent — calling twice creates two separate layouts."
             ),
             inputSchema={
@@ -73,6 +74,17 @@ def get_tools() -> list[Tool]:
                         "type": "string",
                         "enum": ["layout", "component"],
                         "description": "'layout' for full pages, 'component' for partials",
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "enum": ["page", "blog_article", "blog"],
+                        "description": (
+                            "Layout content_type — only sent when kind='layout'. "
+                            "'page' (default) for full page templates; 'blog_article' "
+                            "for individual post templates; 'blog' for blog index. "
+                            "Ignored for components."
+                        ),
+                        "default": "page",
                     },
                 },
                 "required": ["title", "body", "kind"],
@@ -152,7 +164,7 @@ def _layout_rename(arguments: dict, client: VoogClient) -> list[TextContent]:
         result = client.put(f"/layouts/{layout_id}", {"title": new_title})
         return success_response(
             result,
-            summary=f'✓ layout {layout_id} → "{new_title}"',
+            summary=f"✓ layout {layout_id} → {new_title!r}",
         )
     except Exception as e:
         return error_response(f"layout_rename id={layout_id} ebaõnnestus: {e}")
@@ -169,6 +181,12 @@ def _layout_create(arguments: dict, client: VoogClient) -> list[TextContent]:
     if kind not in ("layout", "component"):
         return error_response(f"layout_create: kind must be 'layout' or 'component' (got {kind!r})")
 
+    content_type = arguments.get("content_type") or "page"
+    if content_type not in ("page", "blog_article", "blog"):
+        return error_response(
+            f"layout_create: content_type must be 'page', 'blog_article', or 'blog' (got {content_type!r})"
+        )
+
     payload = {
         "title": title,
         "body": body,
@@ -176,7 +194,8 @@ def _layout_create(arguments: dict, client: VoogClient) -> list[TextContent]:
     }
     if kind == "layout":
         # Voog requires content_type for non-component layouts; HTTP 422 without it.
-        payload["content_type"] = "page"
+        # Default 'page' but allow 'blog_article'/'blog' for blog template variants.
+        payload["content_type"] = content_type
 
     try:
         result = client.post("/layouts", payload)
@@ -245,5 +264,5 @@ def _asset_replace(arguments: dict, client: VoogClient) -> list[TextContent]:
                 f"DELETE /layout_assets/{asset_id}."
             ),
         },
-        summary=f"♻️  asset {asset_id} ({old_filename!r}) → {new_id} ({new_filename!r})",
+        summary=f"🆕 asset {asset_id} ({old_filename!r}) → {new_id} ({new_filename!r}) (old asset NOT deleted)",
     )

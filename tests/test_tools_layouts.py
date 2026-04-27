@@ -194,6 +194,91 @@ class TestLayoutCreate(unittest.TestCase):
         self.assertEqual(payload["component"], True)
         self.assertNotIn("content_type", payload)
 
+    def test_create_layout_explicit_content_type_blog_article(self):
+        # runnel.ee already has 2 layouts with content_type=blog_article;
+        # MCP must allow creating these (PR #28 review caught this gap).
+        client = MagicMock()
+        client.post.return_value = {"id": 999, "title": "Post", "component": False}
+        asyncio.run(layouts_tools.call_tool(
+            "layout_create",
+            {
+                "title": "Post",
+                "body": "{{ article.body }}",
+                "kind": "layout",
+                "content_type": "blog_article",
+            },
+            client,
+        ))
+        args, _ = client.post.call_args
+        payload = args[1]
+        self.assertEqual(payload["content_type"], "blog_article")
+
+    def test_create_layout_explicit_content_type_blog(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 999, "title": "Index", "component": False}
+        asyncio.run(layouts_tools.call_tool(
+            "layout_create",
+            {
+                "title": "Index",
+                "body": "{% for a in articles %}{% endfor %}",
+                "kind": "layout",
+                "content_type": "blog",
+            },
+            client,
+        ))
+        args, _ = client.post.call_args
+        payload = args[1]
+        self.assertEqual(payload["content_type"], "blog")
+
+    def test_create_component_ignores_content_type_argument(self):
+        # Even if a caller passes content_type with kind='component', it must
+        # NOT end up in the payload — Voog rejects content_type on components.
+        client = MagicMock()
+        client.post.return_value = {"id": 1001, "title": "header", "component": True}
+        asyncio.run(layouts_tools.call_tool(
+            "layout_create",
+            {
+                "title": "header",
+                "body": "<header/>",
+                "kind": "component",
+                "content_type": "blog_article",  # nonsense for component
+            },
+            client,
+        ))
+        args, _ = client.post.call_args
+        payload = args[1]
+        self.assertNotIn("content_type", payload)
+
+    def test_create_layout_invalid_content_type_rejected(self):
+        client = MagicMock()
+        result = asyncio.run(layouts_tools.call_tool(
+            "layout_create",
+            {
+                "title": "X",
+                "body": "y",
+                "kind": "layout",
+                "content_type": "wat",
+            },
+            client,
+        ))
+        client.post.assert_not_called()
+        payload = json.loads(result[0].text)
+        self.assertIn("error", payload)
+        self.assertIn("content_type", payload["error"])
+
+    def test_create_layout_default_content_type_is_page(self):
+        # When content_type is omitted entirely, default 'page' is sent
+        client = MagicMock()
+        client.post.return_value = {"id": 1, "title": "X", "component": False}
+        asyncio.run(layouts_tools.call_tool(
+            "layout_create",
+            {"title": "X", "body": "y", "kind": "layout"},
+            client,
+        ))
+        args, _ = client.post.call_args
+        payload = args[1]
+        self.assertEqual(payload["content_type"], "page")
+
     def test_invalid_kind_rejected(self):
         client = MagicMock()
         result = asyncio.run(layouts_tools.call_tool(
