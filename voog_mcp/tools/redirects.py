@@ -40,6 +40,12 @@ def get_tools() -> list[Tool]:
                 },
                 "required": ["source", "destination"],
             },
+            # Explicit annotations — MCP spec defaults destructiveHint to true
+            # when readOnlyHint is false. redirect_add is additive in storage
+            # (creates a new rule, doesn't remove one), so destructiveHint=False.
+            # idempotentHint=False: repeat calls with the same source/destination
+            # either create a duplicate rule or trigger a Voog API conflict —
+            # repeated calls have additional effect.
             annotations={
                 "readOnlyHint": False,
                 "destructiveHint": False,
