@@ -9,20 +9,8 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tests._test_helpers import _ann_get
 from voog_mcp.tools import pages as pages_tools
-
-
-def _ann_get(ann, key_camel, key_snake):
-    if hasattr(ann, key_snake):
-        return getattr(ann, key_snake)
-    if hasattr(ann, key_camel):
-        return getattr(ann, key_camel)
-    if isinstance(ann, dict):
-        if key_camel in ann:
-            return ann[key_camel]
-        if key_snake in ann:
-            return ann[key_snake]
-    return None
 
 
 class TestPagesTools(unittest.TestCase):
