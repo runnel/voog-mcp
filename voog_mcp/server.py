@@ -7,7 +7,8 @@ from voog_mcp.config import load_config
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import error_response
 from voog_mcp.tools import pages as pages_tools
-# Tasks 10-14: append more `from voog_mcp.tools import <group> as <group>_tools` imports below
+from voog_mcp.tools import redirects as redirects_tools
+# Tasks 10-13: append more `from voog_mcp.tools import <group> as <group>_tools` imports below
 
 logger = logging.getLogger("voog-mcp")
 
@@ -15,7 +16,8 @@ logger = logging.getLogger("voog-mcp")
 # Each module must export get_tools() -> list[Tool] and async call_tool(name, arguments, client) -> list[TextContent].
 TOOL_GROUPS = [
     pages_tools,
-    # Tasks 10-14: append more tool group modules here
+    redirects_tools,
+    # Tasks 10-13: append more tool group modules here
 ]
 
 
