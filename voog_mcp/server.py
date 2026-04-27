@@ -7,6 +7,7 @@ from voog_mcp.config import load_config
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import error_response
 from voog_mcp.tools import layouts as layouts_tools
+from voog_mcp.tools import layouts_sync as layouts_sync_tools
 from voog_mcp.tools import pages as pages_tools
 from voog_mcp.tools import pages_mutate as pages_mutate_tools
 from voog_mcp.tools import products as products_tools
@@ -25,6 +26,7 @@ logger = logging.getLogger("voog-mcp")
 # Each module must export get_tools() -> list[Tool] and async call_tool(name, arguments, client) -> list[TextContent].
 TOOL_GROUPS = [
     layouts_tools,
+    layouts_sync_tools,
     pages_tools,
     pages_mutate_tools,
     products_tools,

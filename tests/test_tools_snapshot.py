@@ -441,18 +441,23 @@ class TestServerToolRegistry(unittest.TestCase):
                          f"Duplicate tool names: {all_names}")
 
     def test_phase_c_complete(self):
-        # Sentinel: after Task 12, TOOL_GROUPS should cover all 6 spec § 4 groups
-        # (pages, pages_mutate, layouts, snapshot, products, redirects).
+        # Sentinel: after Task 11b, TOOL_GROUPS should cover all 6 spec § 4
+        # groups (pages, pages_mutate, layouts, snapshot, products, redirects)
+        # plus layouts_sync (Task 11b — filesystem-touching layouts pull/push).
         from voog_mcp import server
         from voog_mcp.tools import (
             layouts as layouts_t,
+            layouts_sync as layouts_sync_t,
             pages as pages_t,
             pages_mutate as pages_mutate_t,
             products as products_t,
             redirects as redirects_t,
             snapshot as snapshot_t,
         )
-        expected = {layouts_t, pages_t, pages_mutate_t, products_t, redirects_t, snapshot_t}
+        expected = {
+            layouts_t, layouts_sync_t, pages_t, pages_mutate_t,
+            products_t, redirects_t, snapshot_t,
+        }
         self.assertEqual(set(server.TOOL_GROUPS), expected)
 
 
