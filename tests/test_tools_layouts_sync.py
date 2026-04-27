@@ -14,13 +14,25 @@ from voog_mcp.tools import layouts_sync as layouts_sync_tools
 
 
 def _ann_get(ann, key_camel, key_snake):
+    # NB: explicit `in` membership (not `or`) — `False or X` would swallow an
+    # explicit False annotation. Mirrors the fix in PR #32.
     if hasattr(ann, key_snake):
         return getattr(ann, key_snake)
     if hasattr(ann, key_camel):
         return getattr(ann, key_camel)
     if isinstance(ann, dict):
-        return ann.get(key_camel) or ann.get(key_snake)
+        if key_camel in ann:
+            return ann[key_camel]
+        if key_snake in ann:
+            return ann[key_snake]
     return None
+
+
+def _normalize_type(t):
+    """Allow either string 'array' or list ['array', 'null'] in JSON Schema."""
+    if isinstance(t, list):
+        return set(t)
+    return {t}
 
 
 def _make_client():
@@ -71,13 +83,6 @@ class TestGetTools(unittest.TestCase):
                 _ann_get(ann, "idempotentHint", "idempotent_hint"), True,
                 f"{tool.name} is idempotent (same input → same end state)",
             )
-
-
-def _normalize_type(t):
-    """Allow either string 'array' or list ['array', 'null'] in JSON Schema."""
-    if isinstance(t, list):
-        return set(t)
-    return {t}
 
 
 class TestLayoutsPull(unittest.TestCase):
@@ -413,6 +418,46 @@ class TestLayoutsPush(unittest.TestCase):
         self.assertEqual(breakdown["total"], 2)
         self.assertEqual(breakdown["succeeded"], 1)
         self.assertEqual(breakdown["failed"], 1)
+
+    def test_layout_asset_entry_captured_as_failure_not_mis_put(self):
+        # voog.py-pulled trees mix type=layout and type=layout_asset entries.
+        # Sending an asset id to PUT /layouts/{id} would either 404 or — in
+        # the worst case where id-spaces collide — overwrite a real layout's
+        # body with a CSS/JS payload. layouts_push must catch this BEFORE
+        # the PUT.
+        client = _make_client()
+        client.put.return_value = {}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            _make_pulled_tree(
+                target,
+                manifest={
+                    "layouts/page.tpl": {"id": 100, "type": "layout", "updated_at": ""},
+                    "stylesheets/main.css": {
+                        "id": 50,
+                        "type": "layout_asset",
+                        "asset_type": "stylesheet",
+                        "updated_at": "",
+                    },
+                },
+                contents={
+                    "layouts/page.tpl": "page-body",
+                    "stylesheets/main.css": "body { color: red; }",
+                },
+            )
+            result = asyncio.run(layouts_sync_tools.call_tool(
+                "layouts_push", {"target_dir": str(target)}, client,
+            ))
+        # Only the layout entry was PUT — asset entry must NOT have been dispatched
+        self.assertEqual(client.put.call_count, 1)
+        self.assertEqual(client.put.call_args.args[0], "/layouts/100")
+        breakdown = json.loads(result[1].text)
+        self.assertEqual(breakdown["total"], 2)
+        self.assertEqual(breakdown["succeeded"], 1)
+        self.assertEqual(breakdown["failed"], 1)
+        failed = [r for r in breakdown["results"] if not r["ok"]][0]
+        self.assertEqual(failed["file"], "stylesheets/main.css")
+        self.assertIn("layout_asset", failed["error"])
 
     def test_missing_file_in_explicit_files_arg_still_captured(self):
         # User passes `files=["typo.tpl"]` that's not in manifest — captured

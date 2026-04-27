@@ -73,11 +73,13 @@ def get_tools() -> list[Tool]:
                 "Read manifest.json + .tpl files from target_dir and PUT each "
                 "to /layouts/{id}. Optional files=[\"layouts/x.tpl\", ...] "
                 "filter pushes only the named relative paths. files=null (or "
-                "omitted) pushes everything in the manifest. Returns per-file "
-                "success/failure breakdown; missing files and PUT errors are "
-                "captured per-entry and do not abort the remaining pushes. "
-                "Recommended pre-flight: site_snapshot for full backup before "
-                "a mass push."
+                "omitted) pushes every type=layout entry in the manifest "
+                "(non-layout entries — e.g. type=layout_asset from voog.py-"
+                "pulled trees — are captured as per-file failures rather "
+                "than mis-PUT to /layouts/{id}). Returns per-file success/"
+                "failure breakdown; missing files and PUT errors are captured "
+                "per-entry and do not abort the remaining pushes. Recommended "
+                "pre-flight: site_snapshot for full backup before a mass push."
             ),
             inputSchema={
                 "type": "object",
@@ -245,6 +247,23 @@ def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent]:
                 "file": rel_path,
                 "ok": False,
                 "error": "not in manifest",
+            })
+            continue
+
+        # voog.py-pulled trees mix type=layout and type=layout_asset entries.
+        # Sending an asset id to PUT /layouts/{id} either 404s or — worst case
+        # if the id-spaces collide — overwrites a real layout's body with a
+        # CSS/JS payload. Bucket non-layout types as per-file failures.
+        entry_type = info.get("type")
+        if entry_type != "layout":
+            results.append({
+                "file": rel_path,
+                "ok": False,
+                "id": info.get("id"),
+                "error": (
+                    f"unsupported manifest type {entry_type!r}; layouts_push "
+                    "only handles type='layout' (use voog.py CLI for asset push)"
+                ),
             })
             continue
 
