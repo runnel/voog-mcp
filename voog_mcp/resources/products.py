@@ -17,15 +17,14 @@ Per spec § 5: list view uses ``?include=translations`` (matches the existing
 detail view).
 
 Pattern mirrors :mod:`voog_mcp.resources.pages`: ``URI_PREFIX`` constant,
-exact-or-slashed-sub-path :func:`matches`, strict :func:`_parse_id`, errors
-propagate to the server layer (no wrapping into MCP error responses).
+exact-or-slashed-sub-path :func:`matches`, strict :func:`parse_id` (shared),
+errors propagate to the server layer (no wrapping into MCP error responses).
 """
-import json
-
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Resource
 
 from voog_mcp.client import VoogClient
+from voog_mcp.resources._helpers import json_response, parse_id
 
 
 URI_PREFIX = "voog://products"
@@ -61,7 +60,7 @@ async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceConten
             base=client.ecommerce_url,
             params={"include": LIST_INCLUDE},
         )
-        return _json_response(_simplify_products(products))
+        return json_response(_simplify_products(products))
 
     if not uri.startswith(URI_PREFIX + "/"):
         raise ValueError(f"products resource: unsupported URI {uri!r}")
@@ -70,34 +69,15 @@ async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceConten
     parts = sub.split("/")
 
     if len(parts) == 1:
-        product_id = _parse_id(parts[0], uri)
+        product_id = parse_id(parts[0], uri, group_name="products")
         product = client.get(
             f"/products/{product_id}",
             base=client.ecommerce_url,
             params={"include": DETAIL_INCLUDE},
         )
-        return _json_response(product)
+        return json_response(product)
 
     raise ValueError(f"products resource: unsupported URI {uri!r}")
-
-
-def _parse_id(raw: str, uri: str) -> int:
-    try:
-        product_id = int(raw)
-    except ValueError as e:
-        raise ValueError(f"products resource: invalid product id in {uri!r}") from e
-    if product_id <= 0:
-        raise ValueError(f"products resource: product id must be positive in {uri!r}") from None
-    return product_id
-
-
-def _json_response(data) -> list[ReadResourceContents]:
-    return [
-        ReadResourceContents(
-            content=json.dumps(data, indent=2, ensure_ascii=False),
-            mime_type="application/json",
-        )
-    ]
 
 
 def _simplify_products(products: list) -> list:
