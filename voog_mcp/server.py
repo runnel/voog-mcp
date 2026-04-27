@@ -11,7 +11,7 @@ from voog_mcp.tools import pages as pages_tools
 from voog_mcp.tools import pages_mutate as pages_mutate_tools
 from voog_mcp.tools import products as products_tools
 from voog_mcp.tools import redirects as redirects_tools
-# Task 12: append more `from voog_mcp.tools import <group> as <group>_tools` imports below
+from voog_mcp.tools import snapshot as snapshot_tools
 
 from voog_mcp.resources import articles as articles_resources
 from voog_mcp.resources import layouts as layouts_resources
@@ -29,7 +29,7 @@ TOOL_GROUPS = [
     pages_mutate_tools,
     products_tools,
     redirects_tools,
-    # Task 12: append more tool group modules here
+    snapshot_tools,
 ]
 
 # Resource group registry — Phase D Tasks 15-19 should append their module here.
