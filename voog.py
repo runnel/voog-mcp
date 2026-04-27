@@ -43,7 +43,9 @@ Kasutus:
   python3 voog.py layout-create components/site-header.tpl
                                                 # POST uus component (kind tuletatud path'ist)
   python3 voog.py layout-create 'layouts/Front page.tpl'
-                                                # POST uus layout
+                                                # POST uus layout (content_type=page vaikimisi)
+  python3 voog.py layout-create --content-type=blog_article 'layouts/Writing.tpl'
+                                                # POST artikli-layout (content_type=blog_article)
   python3 voog.py layout-create component components/site-header.tpl
                                                 # explicit kind (valideeritakse path'iga)
   python3 voog.py page-set-hidden <id>... true|false  # bulk hidden toggle
@@ -1078,7 +1080,7 @@ def asset_replace(asset_id, new_filename):
     print(f"       -H \"X-API-Token: $RUNNEL_VOOG_API_KEY\"")
 
 
-def layout_create(file_path, kind=None):
+def layout_create(file_path, kind=None, content_type=None):
     """Create a new layout or component in Voog via POST /admin/api/layouts.
 
     file_path: path relative to repo root, e.g. "layouts/Front page.tpl"
@@ -1088,6 +1090,9 @@ def layout_create(file_path, kind=None):
           parent folder (components/ → component, layouts/ → layout). If
           provided, validated to match the derived kind — mismatch is an
           error so we never silently write the wrong component flag.
+    content_type: optional override for layouts. Voog accepts "page" (default),
+                  "blog_article" (for article layouts), "blog", and others.
+                  Ignored for components — Voog API doesn't use it there.
 
     On success: POSTs body, captures returned id, updates manifest.json.
     """
@@ -1145,7 +1150,7 @@ def layout_create(file_path, kind=None):
     if kind == "layout":
         # Voog API nõuab non-component layout'idele content_type välja.
         # Ilma selleta tagastab API HTTP 422. Component'idel pole vaja.
-        payload["content_type"] = "page"
+        payload["content_type"] = content_type or "page"
 
     print(f"POST /layouts title={title!r} component={kind == 'component'}...")
     result = api_post("/layouts", payload)
@@ -1604,16 +1609,30 @@ def main():
             sys.exit(1)
         asset_replace(sys.argv[2], sys.argv[3])
     elif cmd == "layout-create":
-        if len(sys.argv) == 3:
+        # Toetab vorme:
+        #   voog.py layout-create <path>
+        #   voog.py layout-create <kind> <path>
+        #   ükskõik kummale lisaks --content-type=<value> ükskõik kus argumentide vahel.
+        # --content-type kehtib ainult layout'idele; component'idel ignoreerime.
+        raw = sys.argv[2:]
+        content_type = None
+        positional = []
+        for a in raw:
+            if a.startswith("--content-type="):
+                content_type = a.split("=", 1)[1] or None
+            else:
+                positional.append(a)
+        if len(positional) == 1:
             # voog.py layout-create <path> — kind auto-derived from folder
-            layout_create(sys.argv[2])
-        elif len(sys.argv) == 4:
+            layout_create(positional[0], content_type=content_type)
+        elif len(positional) == 2:
             # voog.py layout-create <kind> <path> — explicit kind validated against path
-            layout_create(sys.argv[3], kind=sys.argv[2])
+            layout_create(positional[1], kind=positional[0], content_type=content_type)
         else:
-            print("Kasutus: python3 voog.py layout-create <path>")
-            print("        python3 voog.py layout-create <kind> <path>")
+            print("Kasutus: python3 voog.py layout-create [--content-type=<ct>] <path>")
+            print("        python3 voog.py layout-create [--content-type=<ct>] <kind> <path>")
             print("  kind: layout | component (optional, derived from path)")
+            print("  content_type: page (default) | blog_article | blog | ...")
             sys.exit(1)
     elif cmd == "page-set-hidden":
         if len(sys.argv) < 4:
