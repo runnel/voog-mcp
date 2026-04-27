@@ -48,14 +48,25 @@ class TestGetTools(unittest.TestCase):
         for req in ("product_id", "fields"):
             self.assertIn(req, schema["required"])
 
-    def test_read_only_tools_marked(self):
-        # products_list and product_get are read-only
+    def test_read_only_tools_have_full_explicit_annotations(self):
+        # products_list and product_get must have the full triple
+        # (readOnlyHint=True, destructiveHint=False, idempotentHint=True)
+        # per PR #27/#28 always-explicit pattern. Read-only + idempotent
+        # because repeated reads return the same data.
         tools = {t.name: t for t in products_tools.get_tools()}
         for name in ("products_list", "product_get"):
             ann = tools[name].annotations
             self.assertIs(
                 _ann_get(ann, "readOnlyHint", "read_only_hint"), True,
-                f"{name} must be marked readOnlyHint=True",
+                f"{name} must have readOnlyHint=True",
+            )
+            self.assertIs(
+                _ann_get(ann, "destructiveHint", "destructive_hint"), False,
+                f"{name} should set destructiveHint=False explicitly",
+            )
+            self.assertIs(
+                _ann_get(ann, "idempotentHint", "idempotent_hint"), True,
+                f"{name} should set idempotentHint=True (repeat reads = same data)",
             )
 
     def test_product_update_annotations(self):
@@ -267,6 +278,74 @@ class TestProductUpdate(unittest.TestCase):
         payload = json.loads(result[0].text)
         self.assertIn("error", payload)
         self.assertIn("product_update", payload["error"])
+
+    def test_empty_lang_segment_rejected(self):
+        # 'name-' splits to lang='' — Voog would reject with a generic 422
+        client = MagicMock()
+        result = asyncio.run(products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "fields": {"name-": "X"}},
+            client,
+        ))
+        client.put.assert_not_called()
+        payload = json.loads(result[0].text)
+        self.assertIn("error", payload)
+        self.assertIn("lang segment", payload["error"])
+
+    def test_double_dash_lang_rejected(self):
+        # 'name--et' splits to lang='-et' (starts with '-'); Voog would reject
+        client = MagicMock()
+        result = asyncio.run(products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "fields": {"name--et": "X"}},
+            client,
+        ))
+        client.put.assert_not_called()
+
+    def test_empty_value_rejected(self):
+        # Voog rejects empty translations; we surface this earlier with a
+        # precise error rather than letting the API speak generically
+        client = MagicMock()
+        result = asyncio.run(products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "fields": {"name-et": ""}},
+            client,
+        ))
+        client.put.assert_not_called()
+        payload = json.loads(result[0].text)
+        self.assertIn("error", payload)
+        self.assertIn("empty value", payload["error"])
+
+
+class TestProjectionConsistency(unittest.TestCase):
+    """Critical cross-module invariant per PR #30 review.
+
+    The PR description claims products_list tool and voog://products resource
+    produce identical shapes. This is enforced by duplicating _simplify_products
+    in both modules — but without a test, the two will inevitably drift.
+
+    This test fails immediately if anyone changes one projection without the
+    other, so the contract is locked in CI.
+    """
+
+    def test_simplify_products_matches_resource_module_shape(self):
+        from voog_mcp.resources import products as resource_products
+        # Sample with both retained and stripped fields, including a heavy
+        # field (description, physical_properties) that must be stripped from
+        # both projections identically
+        sample = [{
+            "id": 1, "name": "X", "slug": "x", "sku": "X-1",
+            "status": "live", "in_stock": True, "on_sale": False,
+            "price": "1900", "effective_price": "1900",
+            "translations": {"name": {"et": "Iks"}},
+            "updated_at": "2026-01-01T00:00:00Z",
+            "description": "this MUST be stripped",
+            "physical_properties": {"weight": 100},
+            "asset_ids": [1, 2, 3],
+        }]
+        tool_output = products_tools._simplify_products(sample)
+        resource_output = resource_products._simplify_products(sample)
+        self.assertEqual(tool_output, resource_output)
 
 
 class TestUnknownTool(unittest.TestCase):

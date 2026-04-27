@@ -50,7 +50,11 @@ def get_tools() -> list[Tool]:
                 "tools and resources surfaces."
             ),
             inputSchema={"type": "object", "properties": {}, "required": []},
-            annotations={"readOnlyHint": True},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
         ),
         Tool(
             name="product_get",
@@ -65,7 +69,11 @@ def get_tools() -> list[Tool]:
                 },
                 "required": ["product_id"],
             },
-            annotations={"readOnlyHint": True},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
         ),
         Tool(
             name="product_update",
@@ -165,6 +173,18 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent]:
             return error_response(
                 f"product_update: field {field!r} not supported. "
                 f"Allowed: {TRANSLATABLE_FIELDS}"
+            )
+        # Reject malformed lang segment: empty (e.g. 'name-') or starts with
+        # '-' (e.g. 'name--et' splits to lang='-et'). Voog would reject these
+        # eventually with a generic 422; catching them here gives the caller
+        # a precise error message.
+        if not lang or lang.startswith("-"):
+            return error_response(
+                f"product_update: lang segment in {key!r} is empty or malformed"
+            )
+        if not value:
+            return error_response(
+                f"product_update: empty value for {key!r} (Voog rejects empty translations)"
             )
         translations.setdefault(field, {})[lang] = value
 
