@@ -23,11 +23,11 @@ NOTE: ``_simplify_pages`` is deliberately duplicated from
 resource produce the same shape. Group-specific projections rightly stay
 local; only id parsing and JSON wrapping are shared via :mod:`._helpers`.
 """
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Resource
 
 from voog_mcp.client import VoogClient
 from voog_mcp.resources._helpers import json_response, parse_id
-from mcp.server.lowlevel.helper_types import ReadResourceContents
 
 
 URI_PREFIX = "voog://pages"
