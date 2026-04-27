@@ -48,6 +48,8 @@ Kasutus:
                                                 # explicit kind (valideeritakse path'iga)
   python3 voog.py page-set-hidden <id>... true|false  # bulk hidden toggle
   python3 voog.py page-set-layout <page-id> <layout-id>  # reassign layout
+  python3 voog.py page-create <title> <slug> <language_id> [--layout-id=N] [--parent-id=N] [--hidden] [--state=draft|public]
+                                                # POST uus leht
   python3 voog.py page-delete <id> [--force]    # kustuta leht (küsib kinnitust)
   python3 voog.py pages-pull                    # salvesta pages.json (struktuur, ei sisaldu sisu)
 
@@ -1177,6 +1179,38 @@ def page_set_layout(page_id, layout_id):
     print(f"  ✓ page {page_id} → layout {layout_id}")
 
 
+def page_create(title, slug, language_id, layout_id=None, parent_id=None, hidden=False, state=None):
+    """Loo uus leht (POST /pages). Tagastab täieliku page objekti.
+
+    Required: title, slug, language_id (int).
+    Optional: layout_id (int), parent_id (int), hidden (bool), state (str: 'draft'/'public').
+
+    None-väärtustega optional välju EI saadeta API-le (vaikimisi-käitumine säilib).
+    """
+    payload = {
+        "title": str(title),
+        "slug": str(slug),
+        "language_id": int(language_id),
+    }
+    if layout_id is not None:
+        payload["layout_id"] = int(layout_id)
+    if parent_id is not None:
+        payload["parent_id"] = int(parent_id)
+    if hidden:
+        payload["hidden"] = True
+    if state is not None:
+        payload["state"] = str(state)
+
+    print(f"POST /pages title={title!r} slug={slug!r} language_id={language_id}...")
+    result = api_post("/pages", payload)
+    new_id = result.get("id")
+    if not new_id:
+        print(f"❌ POST vastus ei sisaldanud uut id-d: {result!r}")
+        sys.exit(1)
+    print(f"  ✓ Loodi leht id={new_id} path=/{result.get('path', '')}")
+    return result
+
+
 def page_delete(page_id, force=False):
     """Kustutab lehe (irreversibel). force=True skipib kinnituse."""
     if not force:
@@ -1552,6 +1586,47 @@ def main():
             print("Kasutus: python3 voog.py page-set-layout <page-id> <layout-id>")
             sys.exit(1)
         page_set_layout(sys.argv[2], sys.argv[3])
+    elif cmd == "page-create":
+        # Kasutus: page-create <title> <slug> <language_id> [--layout-id=N] [--parent-id=N] [--hidden] [--state=draft|public]
+        if len(sys.argv) < 5:
+            print("Kasutus: python3 voog.py page-create <title> <slug> <language_id> "
+                  "[--layout-id=N] [--parent-id=N] [--hidden] [--state=draft|public]")
+            sys.exit(1)
+        title = sys.argv[2]
+        slug = sys.argv[3]
+        try:
+            language_id = int(sys.argv[4])
+        except ValueError:
+            print(f"❌ language_id peab olema arv, sain: {sys.argv[4]!r}")
+            sys.exit(1)
+        layout_id = None
+        parent_id = None
+        hidden = False
+        state = None
+        for arg in sys.argv[5:]:
+            if arg == "--hidden":
+                hidden = True
+            elif arg.startswith("--state="):
+                state = arg.split("=", 1)[1]
+            elif arg.startswith("--layout-id="):
+                try:
+                    layout_id = int(arg.split("=", 1)[1])
+                except ValueError:
+                    print(f"❌ --layout-id väärtus peab olema arv, sain: {arg!r}")
+                    sys.exit(1)
+            elif arg.startswith("--parent-id="):
+                try:
+                    parent_id = int(arg.split("=", 1)[1])
+                except ValueError:
+                    print(f"❌ --parent-id väärtus peab olema arv, sain: {arg!r}")
+                    sys.exit(1)
+            else:
+                print(f"❌ Tundmatu argument: {arg!r}")
+                print("Kasutus: python3 voog.py page-create <title> <slug> <language_id> "
+                      "[--layout-id=N] [--parent-id=N] [--hidden] [--state=draft|public]")
+                sys.exit(1)
+        page_create(title, slug, language_id, layout_id=layout_id,
+                    parent_id=parent_id, hidden=hidden, state=state)
     elif cmd == "page-delete":
         if len(sys.argv) < 3:
             print("Kasutus: python3 voog.py page-delete <id> [--force]")
