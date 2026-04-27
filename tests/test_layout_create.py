@@ -4,14 +4,14 @@ Hits live runnel.ee API. Creates a temp component, asserts new id in
 manifest, then cleans up via DELETE.
 """
 import json
+import os
 import subprocess
 import time
+import unittest
 from pathlib import Path
 import urllib.request
-import pytest
 
-REPO = Path("/Users/runnel/Library/CloudStorage/Dropbox/Documents/Claude/Isiklik/Runnel/runnel-voog")
-VOOG_PY = Path("/Users/runnel/Library/CloudStorage/Dropbox/Documents/Claude/Tööriistad/voog.py")
+VOOG_PY = Path(__file__).resolve().parent.parent / "voog.py"
 
 
 def _api_key():
@@ -31,40 +31,70 @@ def _delete_layout(layout_id):
     urllib.request.urlopen(req)
 
 
-def test_layout_create_makes_new_layout_returns_id_updates_manifest():
-    test_name = f"_test_2a_{int(time.time())}"
-    test_path = REPO / "components" / f"{test_name}.tpl"
-    test_path.write_text(f"<!-- {test_name} -->\n<p>hello</p>\n")
-    rel = f"components/{test_name}.tpl"
-    new_id = None
+def _site_dir():
+    """Where to run voog.py from. Must contain voog-site.json + manifest.json.
 
-    try:
-        result = subprocess.run(
-            ["python3", str(VOOG_PY), "layout-create", "component", rel],
-            cwd=REPO,
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, f"stderr: {result.stderr}\nstdout: {result.stdout}"
-        assert "id:" in result.stdout
+    Defaults to runnel-voog repo on dev box; override with VOOG_TEST_SITE_DIR
+    env var (e.g. for CI or other developers).
+    """
+    env = os.environ.get("VOOG_TEST_SITE_DIR")
+    if env:
+        return Path(env)
+    return Path("/Users/runnel/Library/CloudStorage/Dropbox/Documents/Claude/Isiklik/Runnel/runnel-voog")
 
-        manifest = json.loads((REPO / "manifest.json").read_text())
-        assert rel in manifest, f"manifest missing {rel}"
-        new_id = manifest[rel]["id"]
-        assert isinstance(new_id, int) and new_id > 0
-        assert manifest[rel]["type"] == "layout"
-    finally:
-        if new_id:
-            try:
-                _delete_layout(new_id)
-            except Exception:
-                pass
-            # Strip test entry from manifest so it doesn't pollute git status.
-            manifest_path = REPO / "manifest.json"
-            if manifest_path.exists():
-                m = json.loads(manifest_path.read_text())
-                if rel in m:
-                    del m[rel]
-                    manifest_path.write_text(json.dumps(m, indent=2, ensure_ascii=False) + "\n")
-        if test_path.exists():
-            test_path.unlink()
+
+class TestLayoutCreate(unittest.TestCase):
+    def setUp(self):
+        self.repo = _site_dir()
+        if not (self.repo / "voog-site.json").exists():
+            self.skipTest(
+                f"voog-site.json puudub kohas {self.repo}; "
+                "set VOOG_TEST_SITE_DIR to a runnel.ee Voog repo to run this test."
+            )
+
+    def test_layout_create_makes_new_layout_returns_id_updates_manifest(self):
+        test_name = f"_test_2a_{int(time.time())}"
+        test_path = self.repo / "components" / f"{test_name}.tpl"
+        test_path.write_text(f"<!-- {test_name} -->\n<p>hello</p>\n")
+        rel = f"components/{test_name}.tpl"
+        new_id = None
+
+        try:
+            result = subprocess.run(
+                ["python3", str(VOOG_PY), "layout-create", "component", rel],
+                cwd=self.repo,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(
+                result.returncode, 0,
+                f"stderr: {result.stderr}\nstdout: {result.stdout}"
+            )
+            self.assertIn("id:", result.stdout)
+
+            manifest = json.loads((self.repo / "manifest.json").read_text())
+            self.assertIn(rel, manifest, f"manifest missing {rel}")
+            new_id = manifest[rel]["id"]
+            self.assertIsInstance(new_id, int)
+            self.assertGreater(new_id, 0)
+            self.assertEqual(manifest[rel]["type"], "layout")
+        finally:
+            if new_id:
+                try:
+                    _delete_layout(new_id)
+                except Exception as e:
+                    print(f"⚠ Cleanup failed for layout {new_id}: {e}")
+                manifest_path = self.repo / "manifest.json"
+                if manifest_path.exists():
+                    m = json.loads(manifest_path.read_text())
+                    if rel in m:
+                        del m[rel]
+                        manifest_path.write_text(
+                            json.dumps(m, indent=2, ensure_ascii=False) + "\n"
+                        )
+            if test_path.exists():
+                test_path.unlink()
+
+
+if __name__ == "__main__":
+    unittest.main()
