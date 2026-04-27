@@ -54,6 +54,8 @@ import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
+from voog_mcp.client import VoogClient
+
 # --- Seadistus ---
 
 def load_env():
@@ -110,14 +112,15 @@ API_KEY = ""
 BASE_URL = ""
 ECOMMERCE_URL = ""
 HEADERS = {}
+_client = None  # type: VoogClient | None
 
 _HELP_CMDS = {"help", "-h", "--help"}
 
 
 def init_site():
-    """Lazy-load site config and global URLs/headers. Idempotent."""
-    global SITE_CONFIG, HOST, API_KEY, BASE_URL, ECOMMERCE_URL
-    if SITE_CONFIG is not None:
+    """Lazy-load site config + create VoogClient. Idempotent."""
+    global SITE_CONFIG, HOST, API_KEY, BASE_URL, ECOMMERCE_URL, _client
+    if _client is not None:
         return  # already initialized
     SITE_CONFIG = load_site_config()
     HOST = SITE_CONFIG["host"]
@@ -130,14 +133,10 @@ def init_site():
         sys.exit(1)
     BASE_URL = f"https://{HOST}/admin/api"
     ECOMMERCE_URL = f"https://{HOST}/admin/api/ecommerce/v1"
+    _client = VoogClient(host=HOST, api_token=API_KEY)
     # HEADERS is mutated in place (update) — callers hold a reference to the
     # same dict object, so we must not rebind the name.
-    HEADERS.update({
-        "X-API-Token": API_KEY,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0 voog.py/1.0",
-    })
+    HEADERS.update(_client.headers)
 
 # Kohalikud failid — alati TÖÖKAUSTAS (cwd), mitte voog.py asukohas.
 # See tagab, et iga saidikaust haldab oma faile eraldi.
@@ -152,50 +151,24 @@ ASSET_TYPE_TO_FOLDER = {
 }
 
 # --- API abifunktsioonid ---
+# Module-level wrappers — delegate to _client (VoogClient). Module-level
+# functions preserved for backward-compat with existing tests + callers.
 
 def api_get(path, params=None, base=None):
-    url = f"{base or BASE_URL}{path}"
-    if params:
-        query = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items())
-        url += f"?{query}"
-    req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req) as resp:
-        return json.loads(resp.read())
+    return _client.get(path, base=base, params=params)
 
 def api_put(path, data=None, base=None):
-    url = f"{base or BASE_URL}{path}"
-    payload = json.dumps(data).encode() if data is not None else None
-    req = urllib.request.Request(url, data=payload, headers=HEADERS, method="PUT")
-    with urllib.request.urlopen(req) as resp:
-        return json.loads(resp.read())
+    return _client.put(path, data, base=base)
 
 def api_post(path, data, base=None):
-    url = f"{base or BASE_URL}{path}"
-    payload = json.dumps(data).encode()
-    req = urllib.request.Request(url, data=payload, headers=HEADERS, method="POST")
-    with urllib.request.urlopen(req) as resp:
-        return json.loads(resp.read())
+    return _client.post(path, data, base=base)
 
 def api_delete(path, base=None):
-    url = f"{base or BASE_URL}{path}"
-    req = urllib.request.Request(url, headers=HEADERS, method="DELETE")
-    with urllib.request.urlopen(req) as resp:
-        body = resp.read()
-        return json.loads(body) if body else None
+    return _client.delete(path, base=base)
 
 def api_get_all(path, base=None):
     """Laeb kõik lehed (pagination)."""
-    results = []
-    page = 1
-    while True:
-        data = api_get(path, {"per_page": 100, "page": page}, base=base)
-        if not data:
-            break
-        results.extend(data)
-        if len(data) < 100:
-            break
-        page += 1
-    return results
+    return _client.get_all(path, base=base)
 
 # --- Pull ---
 
