@@ -43,12 +43,22 @@ class VoogClient:
     def delete(self, path: str, *, base: str = None):
         return self._request("DELETE", path, base=base)
 
-    def get_all(self, path: str, *, base: str = None):
-        """Pagination through all pages of results."""
+    def get_all(self, path: str, *, base: str = None, params: dict = None):
+        """Pagination through all pages of results.
+
+        Caller-provided ``params`` (e.g. ``{"include": "translations"}``) are
+        merged with pagination params. ``per_page`` may be overridden by the
+        caller (escape hatch for endpoints that benefit from a different
+        page size); ``page`` is **always** controlled by the iteration loop —
+        any caller-supplied ``page`` value is ignored, since overriding it
+        would silently re-fetch the same page on every iteration and
+        infinite-loop on endpoints with ≥1 full page.
+        """
         results = []
         page = 1
         while True:
-            data = self.get(path, base=base, params={"per_page": 100, "page": page})
+            page_params = {"per_page": 100, **(params or {}), "page": page}
+            data = self.get(path, base=base, params=page_params)
             if not data:
                 break
             results.extend(data)
