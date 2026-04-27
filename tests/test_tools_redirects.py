@@ -89,8 +89,17 @@ class TestRedirectsTools(unittest.TestCase):
             {"source": "/x", "destination": "/y", "redirect_type": 410},
             client,
         ))
-        args, _ = client.post.call_args
-        self.assertEqual(args[1]["redirect_rule"]["redirect_type"], 410)
+        client.post.assert_called_once_with(
+            "/redirect_rules",
+            {
+                "redirect_rule": {
+                    "source": "/x",
+                    "destination": "/y",
+                    "redirect_type": 410,
+                    "active": True,
+                }
+            },
+        )
 
     def test_redirect_add_rejects_invalid_type(self):
         client = MagicMock()

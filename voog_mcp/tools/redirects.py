@@ -5,7 +5,7 @@ from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
 
 
-VALID_REDIRECT_TYPES = (301, 302, 307, 410)
+VALID_REDIRECT_TYPES = [301, 302, 307, 410]
 
 
 def get_tools() -> list[Tool]:
@@ -30,7 +30,7 @@ def get_tools() -> list[Tool]:
                     "redirect_type": {
                         "type": "integer",
                         "description": "HTTP status code: 301 (permanent), 302 (temporary), 307 (temporary, preserve method), 410 (gone). Default 301.",
-                        "enum": list(VALID_REDIRECT_TYPES),
+                        "enum": VALID_REDIRECT_TYPES,
                         "default": 301,
                     },
                 },
