@@ -59,15 +59,43 @@ class TestGetTools(unittest.TestCase):
         ann = tools["page_delete"].annotations
         self.assertTrue(_ann_get(ann, "destructiveHint", "destructive_hint"))
 
-    def test_setters_not_marked_destructive(self):
-        # set_hidden / set_layout are reversible, NOT destructive
+    def test_setters_have_explicit_non_destructive_annotations(self):
+        # set_hidden / set_layout are reversible mutations. MCP spec defaults
+        # destructiveHint to true when readOnlyHint is false — so we MUST
+        # explicitly set destructiveHint=False (not omit it) for clients to
+        # treat these as safe-to-call without confirmation.
         tools = {t.name: t for t in pages_mutate_tools.get_tools()}
         for name in ("page_set_hidden", "page_set_layout"):
             ann = tools[name].annotations
-            self.assertFalse(
-                _ann_get(ann, "destructiveHint", "destructive_hint") or False,
-                f"{name} should not have destructiveHint=true (it's reversible)",
+            self.assertIs(
+                _ann_get(ann, "destructiveHint", "destructive_hint"),
+                False,
+                f"{name} must have destructiveHint=False explicitly (spec default is True)",
             )
+            self.assertIs(
+                _ann_get(ann, "readOnlyHint", "read_only_hint"),
+                False,
+                f"{name} should set readOnlyHint=False explicitly",
+            )
+            self.assertIs(
+                _ann_get(ann, "idempotentHint", "idempotent_hint"),
+                True,
+                f"{name} should set idempotentHint=True (repeat calls = same end state)",
+            )
+
+    def test_page_delete_has_full_explicit_annotations(self):
+        tools = {t.name: t for t in pages_mutate_tools.get_tools()}
+        ann = tools["page_delete"].annotations
+        self.assertIs(
+            _ann_get(ann, "destructiveHint", "destructive_hint"), True
+        )
+        self.assertIs(
+            _ann_get(ann, "readOnlyHint", "read_only_hint"), False
+        )
+        # Deleting twice returns 404 the second time — different effect → not idempotent
+        self.assertIs(
+            _ann_get(ann, "idempotentHint", "idempotent_hint"), False
+        )
 
 
 class TestPageSetHidden(unittest.TestCase):

@@ -49,6 +49,16 @@ def get_tools() -> list[Tool]:
                 },
                 "required": ["ids", "hidden"],
             },
+            # Explicit annotations — MCP spec defaults destructiveHint to true
+            # when readOnlyHint is false. Setters are mutating but reversible
+            # (call again with the inverse value), so we mark them
+            # destructiveHint=False explicitly. idempotentHint=True because
+            # repeated identical calls produce the same end state.
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
         ),
         Tool(
             name="page_set_layout",
@@ -63,6 +73,11 @@ def get_tools() -> list[Tool]:
                     "layout_id": {"type": "integer", "description": "Voog layout id"},
                 },
                 "required": ["page_id", "layout_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
             },
         ),
         Tool(
@@ -85,7 +100,11 @@ def get_tools() -> list[Tool]:
                 },
                 "required": ["page_id"],
             },
-            annotations={"destructiveHint": True},
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": False,
+            },
         ),
     ]
 
