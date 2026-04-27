@@ -23,6 +23,7 @@ guarantees no data loss), ``idempotentHint=True`` (re-running on the same
 site produces equivalent output).
 """
 import json
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -149,6 +150,10 @@ def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent]:
     output_dir = arguments.get("output_dir") or ""
     if not output_dir:
         return error_response("pages_snapshot: output_dir must be a non-empty string")
+    if not Path(output_dir).is_absolute():
+        return error_response(
+            f"pages_snapshot: output_dir must be an absolute path (got {output_dir!r})"
+        )
 
     out = Path(output_dir)
     try:
@@ -194,6 +199,10 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent]:
     output_dir = arguments.get("output_dir") or ""
     if not output_dir:
         return error_response("site_snapshot: output_dir must be a non-empty string")
+    if not Path(output_dir).is_absolute():
+        return error_response(
+            f"site_snapshot: output_dir must be an absolute path (got {output_dir!r})"
+        )
 
     out = Path(output_dir)
     if out.exists():
@@ -345,7 +354,6 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent]:
 
 def _slugify_path(path: str) -> str:
     """URL path → filename slug. Empty/`/` → `home`."""
-    import re
     p = (path or "").strip("/")
     if not p:
         return "home"

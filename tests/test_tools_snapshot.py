@@ -180,8 +180,39 @@ class TestPagesSnapshot(unittest.TestCase):
         payload = json.loads(result[0].text)
         self.assertIn("error", payload)
 
+    def test_relative_path_rejected(self):
+        # Schema description promises absolute path; runtime enforces it so the
+        # tool can't silently dump files relative to whatever CWD the MCP
+        # server happened to start from
+        client = _make_client()
+        result = asyncio.run(snapshot_tools.call_tool(
+            "pages_snapshot", {"output_dir": "snapshots/foo"}, client,
+        ))
+        client.get_all.assert_not_called()
+        payload = json.loads(result[0].text)
+        self.assertIn("error", payload)
+        self.assertIn("absolute path", payload["error"])
+
+    def test_dot_relative_path_rejected(self):
+        client = _make_client()
+        result = asyncio.run(snapshot_tools.call_tool(
+            "pages_snapshot", {"output_dir": "./out"}, client,
+        ))
+        client.get_all.assert_not_called()
+        payload = json.loads(result[0].text)
+        self.assertIn("absolute path", payload["error"])
+
 
 class TestSiteSnapshot(unittest.TestCase):
+    def test_relative_path_rejected(self):
+        client = _make_client()
+        result = asyncio.run(snapshot_tools.call_tool(
+            "site_snapshot", {"output_dir": "backups/2026"}, client,
+        ))
+        client.get_all.assert_not_called()
+        payload = json.loads(result[0].text)
+        self.assertIn("absolute path", payload["error"])
+
     def test_refuses_existing_directory(self):
         # site_snapshot's stricter contract: refuse if output_dir exists.
         # Caller must explicitly choose a fresh location to prevent
@@ -307,6 +338,89 @@ class TestUnknownTool(unittest.TestCase):
         ))
         payload = json.loads(result[0].text)
         self.assertIn("error", payload)
+
+
+class TestSlugifyPath(unittest.TestCase):
+    """Direct unit tests for the URL→slug helper."""
+
+    def test_empty_string_becomes_home(self):
+        self.assertEqual(snapshot_tools._slugify_path(""), "home")
+
+    def test_root_slash_becomes_home(self):
+        self.assertEqual(snapshot_tools._slugify_path("/"), "home")
+
+    def test_none_becomes_home(self):
+        self.assertEqual(snapshot_tools._slugify_path(None), "home")
+
+    def test_simple_path(self):
+        self.assertEqual(snapshot_tools._slugify_path("blog"), "blog")
+
+    def test_nested_path_dashed(self):
+        self.assertEqual(snapshot_tools._slugify_path("blog/2026/post"), "blog-2026-post")
+
+    def test_strips_leading_trailing_slashes(self):
+        self.assertEqual(snapshot_tools._slugify_path("/blog/"), "blog")
+
+    def test_uppercase_lowercased(self):
+        self.assertEqual(snapshot_tools._slugify_path("Blog/Post"), "blog-post")
+
+    def test_special_chars_replaced(self):
+        self.assertEqual(snapshot_tools._slugify_path("blog/my post!"), "blog-my-post")
+
+    def test_only_specials_falls_back_to_home(self):
+        # If a path collapses to nothing after slugification, return "home"
+        # rather than empty string (filename safety)
+        self.assertEqual(snapshot_tools._slugify_path("!!!"), "home")
+
+
+class TestPickSamplePagePaths(unittest.TestCase):
+    """Direct unit tests for the rendered-HTML sample-selection heuristic."""
+
+    def test_empty_pages_returns_empty(self):
+        self.assertEqual(snapshot_tools._pick_sample_page_paths([]), [])
+
+    def test_prefers_front_page_first(self):
+        # Front page (empty path) must be picked first regardless of input order
+        pages = [
+            {"path": "blog/post", "content_type": "page"},
+            {"path": "", "content_type": "page"},
+        ]
+        result = snapshot_tools._pick_sample_page_paths(pages, max_samples=1)
+        self.assertEqual(result, ["/"])
+
+    def test_picks_one_per_content_type(self):
+        # Variety wins over duplicates: 3 pages with 3 different content_types
+        pages = [
+            {"path": "", "content_type": "page"},
+            {"path": "blog", "content_type": "blog"},
+            {"path": "shop", "content_type": "shop"},
+        ]
+        result = snapshot_tools._pick_sample_page_paths(pages, max_samples=3)
+        self.assertEqual(set(result), {"/", "/blog", "/shop"})
+
+    def test_skips_hidden_pages(self):
+        pages = [
+            {"path": "", "content_type": "page", "hidden": False},
+            {"path": "secret", "content_type": "page", "hidden": True},
+        ]
+        result = snapshot_tools._pick_sample_page_paths(pages, max_samples=2)
+        self.assertEqual(result, ["/"])
+
+    def test_falls_back_to_hidden_when_all_hidden(self):
+        # Edge case: site with ONLY hidden pages still picks samples (better
+        # than zero coverage in a snapshot)
+        pages = [
+            {"path": "wip", "content_type": "page", "hidden": True},
+        ]
+        result = snapshot_tools._pick_sample_page_paths(pages, max_samples=1)
+        self.assertEqual(result, ["/wip"])
+
+    def test_max_samples_caps_output(self):
+        pages = [
+            {"path": str(i), "content_type": f"ct{i}"} for i in range(10)
+        ]
+        result = snapshot_tools._pick_sample_page_paths(pages, max_samples=3)
+        self.assertEqual(len(result), 3)
 
 
 class TestServerToolRegistry(unittest.TestCase):
