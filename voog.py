@@ -27,6 +27,10 @@ Kasutus:
   python3 voog.py page <id>                     # ühe lehe täisinfo
   python3 voog.py pages-snapshot <dir>          # backup kõik lehed + contents JSON-i
   python3 voog.py layout-rename <id> <uus>      # nimeta layout ümber, säilita id
+  python3 voog.py asset-replace <id> <uus-filename>  # asenda layout_asset uue id-ga (DELETE+POST workaround filename rename'iks)
+      Voog API ei luba PUT-iga `filename` muuta — see käsk loob POST'iga uue
+      asseti uue ID-ga ja jätab vana alles. Pärast template'ide uuendust ja
+      pushimist tuleb vana asset MANUAALSELT DELETE'ida (käsk prindib curl-i).
   python3 voog.py page-set-hidden <id>... true|false  # bulk hidden toggle
   python3 voog.py page-set-layout <page-id> <layout-id>  # reassign layout
   python3 voog.py page-delete <id> [--force]    # kustuta leht (küsib kinnitust)
@@ -733,6 +737,88 @@ def layout_rename(layout_id, new_title):
     print(f"  ✓ manifest.json uuendatud")
 
 
+def asset_replace(asset_id, new_filename):
+    """Asenda layout_asset uue ID-ga (DELETE+POST workaround filename rename'iks).
+
+    Voog API tagastab `PUT /layout_assets/{id}` koos `filename` väljaga HTTP 500.
+    Workaround: GET vana asset → POST uus (uue id-ga) → uuenda manifest + lokaalne
+    fail. VANA asset jääb alles — caller peab kõigepealt template'id uue nimega
+    pushima, alles siis manuaalselt vana DELETE'ima.
+    """
+    asset_id = int(asset_id)
+    if "/" in new_filename or "\\" in new_filename or new_filename.startswith("."):
+        print(f"❌ Asset filename ei tohi sisaldada '/' ega '\\' ega alata punktiga: {new_filename!r}")
+        sys.exit(1)
+
+    # 1. GET vana asseti metadata + sisu
+    print(f"GET /layout_assets/{asset_id}...")
+    old_asset = api_get(f"/layout_assets/{asset_id}")
+    asset_type = old_asset.get("asset_type")
+    old_filename = old_asset.get("filename")
+    content = old_asset.get("data")
+
+    # 2. Leia manifest entry, et teada folder + lokaalne fail
+    manifest_path = LOCAL_DIR / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+
+    old_path = None
+    folder = None
+    for path, info in manifest.items():
+        if info.get("id") == asset_id and info.get("type") == "layout_asset":
+            old_path = path
+            folder = path.split("/", 1)[0]
+            break
+
+    # Sisu fallback: kui GET ei tagastanud `data` välja, loe lokaalsest failist
+    if content is None and old_path is not None:
+        local_file = LOCAL_DIR / old_path
+        if local_file.exists():
+            content = local_file.read_text(encoding="utf-8")
+
+    if content is None:
+        print(f"❌ Ei suutnud lugeda asset {asset_id} sisu (ei API ega lokaalne fail)")
+        sys.exit(1)
+
+    # 3. POST uus asset
+    print(f"POST /layout_assets filename=\"{new_filename}\"...")
+    result = api_post("/layout_assets", {
+        "filename": new_filename,
+        "asset_type": asset_type,
+        "data": content,
+    })
+    new_id = result.get("id")
+    if not new_id:
+        print(f"❌ POST vastus ei sisaldanud uut id-d: {result!r}")
+        sys.exit(1)
+
+    # 4. Uuenda manifest + lokaalne fail
+    if old_path and folder:
+        new_path = f"{folder}/{new_filename}"
+        old_file = LOCAL_DIR / old_path
+        new_file = LOCAL_DIR / new_path
+        if old_file.exists():
+            new_file.parent.mkdir(parents=True, exist_ok=True)
+            old_file.rename(new_file)
+        manifest.pop(old_path, None)
+        manifest[new_path] = {
+            "id": new_id,
+            "type": "layout_asset",
+            "asset_type": asset_type,
+        }
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(f"  ✓ Asset replaced: {old_path} (id {asset_id}) → {new_path} (id {new_id})")
+    else:
+        print(f"  ✓ POST õnnestus: uus id {new_id} (manifestit ei uuendatud — vana entry'd ei leitud)")
+
+    # 5. Hoiatus: vana asset on alles
+    print(f"⚠ Old asset id {asset_id} (filename {old_filename!r}) is still present.")
+    print(f"  After updating + pushing templates that reference the old name, delete with:")
+    print(f"  curl -X DELETE 'https://{HOST}/admin/api/layout_assets/{asset_id}' \\")
+    print(f"       -H \"X-API-Token: $RUNNEL_VOOG_API_KEY\"")
+
+
 def page_set_hidden(page_ids, hidden):
     """Bulk toggle hidden flag paljudele lehtedele. Exitib != 0 kui mõni ebaõnnestus."""
     flag = "🔒 hidden" if hidden else "👁  visible"
@@ -1096,6 +1182,11 @@ def main():
             print("Kasutus: python3 voog.py layout-rename <id> <uus-tiitel>")
             sys.exit(1)
         layout_rename(sys.argv[2], sys.argv[3])
+    elif cmd == "asset-replace":
+        if len(sys.argv) < 4:
+            print("Kasutus: python3 voog.py asset-replace <id> <uus-filename>")
+            sys.exit(1)
+        asset_replace(sys.argv[2], sys.argv[3])
     elif cmd == "page-set-hidden":
         if len(sys.argv) < 4:
             print("Kasutus: python3 voog.py page-set-hidden <id> [<id>...] true|false")

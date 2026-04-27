@@ -270,5 +270,179 @@ class TestEcommerceWrapper(unittest.TestCase):
                 self.assertEqual(put_kwargs.get("base"), voog.ECOMMERCE_URL)
 
 
+class TestAssetReplace(unittest.TestCase):
+    """asset-replace = DELETE+POST workaround for layout_asset filename change.
+
+    Voog API rejects PUT /layout_assets/{id} with `filename` field (HTTP 500).
+    Workaround: GET old, POST new (new id), update manifest + local file.
+    Old asset is NOT auto-deleted — caller must update templates first.
+    """
+
+    def _make_workspace(self, tmpdir, *, content="body { color: red; }",
+                        old_filename="main.css", folder="stylesheets",
+                        asset_type="stylesheet", asset_id=1833688,
+                        extra_manifest_entries=None):
+        """Build a temp workspace with one asset + optional extras."""
+        tmpdir = Path(tmpdir)
+        (tmpdir / folder).mkdir(parents=True, exist_ok=True)
+        (tmpdir / folder / old_filename).write_text(content, encoding="utf-8")
+        manifest = {
+            f"{folder}/{old_filename}": {
+                "id": asset_id,
+                "type": "layout_asset",
+                "asset_type": asset_type,
+            },
+        }
+        if extra_manifest_entries:
+            manifest.update(extra_manifest_entries)
+        (tmpdir / "manifest.json").write_text(
+            json_mod.dumps(manifest), encoding="utf-8"
+        )
+        return tmpdir
+
+    def test_happy_path_get_post_rename_update_manifest(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = self._make_workspace(tmpdir)
+            with patch.object(voog, "LOCAL_DIR", tmpdir), \
+                 patch.object(voog, "api_get") as mock_get, \
+                 patch.object(voog, "api_post") as mock_post, \
+                 patch.object(voog, "api_delete") as mock_delete:
+                mock_get.return_value = {
+                    "id": 1833688, "filename": "main.css",
+                    "asset_type": "stylesheet", "data": "body { color: red; }",
+                }
+                mock_post.return_value = {
+                    "id": 2627811, "filename": "old-main.css",
+                    "asset_type": "stylesheet",
+                }
+                voog.asset_replace(1833688, "old-main.css")
+
+            mock_get.assert_called_once_with("/layout_assets/1833688")
+            mock_post.assert_called_once()
+            mock_delete.assert_not_called()  # spec: do NOT auto-delete
+
+            # Local file renamed
+            self.assertFalse((tmpdir / "stylesheets" / "main.css").exists())
+            self.assertTrue((tmpdir / "stylesheets" / "old-main.css").exists())
+            self.assertEqual(
+                (tmpdir / "stylesheets" / "old-main.css").read_text(),
+                "body { color: red; }",
+            )
+
+            # Manifest: old removed, new entry has NEW id
+            manifest = json_mod.loads((tmpdir / "manifest.json").read_text())
+            self.assertNotIn("stylesheets/main.css", manifest)
+            self.assertIn("stylesheets/old-main.css", manifest)
+            self.assertEqual(manifest["stylesheets/old-main.css"]["id"], 2627811)
+            self.assertEqual(
+                manifest["stylesheets/old-main.css"]["asset_type"], "stylesheet"
+            )
+            self.assertEqual(
+                manifest["stylesheets/old-main.css"]["type"], "layout_asset"
+            )
+
+    def test_post_payload_shape(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = self._make_workspace(tmpdir)
+            with patch.object(voog, "LOCAL_DIR", tmpdir), \
+                 patch.object(voog, "api_get") as mock_get, \
+                 patch.object(voog, "api_post") as mock_post:
+                mock_get.return_value = {
+                    "id": 1833688, "filename": "main.css",
+                    "asset_type": "stylesheet", "data": "body { color: red; }",
+                }
+                mock_post.return_value = {"id": 2627811}
+                voog.asset_replace(1833688, "old-main.css")
+
+            args, _ = mock_post.call_args
+            self.assertEqual(args[0], "/layout_assets")
+            payload = args[1]
+            self.assertEqual(payload["filename"], "old-main.css")
+            self.assertEqual(payload["asset_type"], "stylesheet")
+            self.assertEqual(payload["data"], "body { color: red; }")
+
+    def test_data_falls_back_to_local_file_when_get_lacks_data(self):
+        """If GET response has no `data`, content is read from local disk."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = self._make_workspace(
+                tmpdir, content="// from local disk", old_filename="app.js",
+                folder="javascripts", asset_type="javascript",
+            )
+            with patch.object(voog, "LOCAL_DIR", tmpdir), \
+                 patch.object(voog, "api_get") as mock_get, \
+                 patch.object(voog, "api_post") as mock_post:
+                # GET returns metadata WITHOUT data field
+                mock_get.return_value = {
+                    "id": 1833688, "filename": "app.js",
+                    "asset_type": "javascript",
+                }
+                mock_post.return_value = {"id": 2627811}
+                voog.asset_replace(1833688, "old-app.js")
+
+            args, _ = mock_post.call_args
+            self.assertEqual(args[1]["data"], "// from local disk")
+
+    def test_other_manifest_entries_preserved(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            extras = {
+                "stylesheets/cart.css": {
+                    "id": 1111, "type": "layout_asset", "asset_type": "stylesheet",
+                },
+                "layouts/Front page.tpl": {"id": 977702, "type": "layout"},
+            }
+            tmpdir = self._make_workspace(tmpdir, extra_manifest_entries=extras)
+            with patch.object(voog, "LOCAL_DIR", tmpdir), \
+                 patch.object(voog, "api_get") as mock_get, \
+                 patch.object(voog, "api_post") as mock_post:
+                mock_get.return_value = {
+                    "id": 1833688, "filename": "main.css",
+                    "asset_type": "stylesheet", "data": "x",
+                }
+                mock_post.return_value = {"id": 2627811}
+                voog.asset_replace(1833688, "old-main.css")
+
+            manifest = json_mod.loads((tmpdir / "manifest.json").read_text())
+            self.assertEqual(manifest["stylesheets/cart.css"]["id"], 1111)
+            self.assertEqual(
+                manifest["layouts/Front page.tpl"]["id"], 977702
+            )
+
+
+class TestAssetReplaceValidation(unittest.TestCase):
+    # NB: assertions inside `with patch` so assert_not_called runs while patch active
+    def test_rejects_slash_in_filename(self):
+        with patch.object(voog, "api_get") as mock_get, \
+             patch.object(voog, "api_post") as mock_post:
+            with self.assertRaises(SystemExit):
+                voog.asset_replace(1833688, "foo/bar.css")
+            mock_get.assert_not_called()
+            mock_post.assert_not_called()
+
+    def test_rejects_backslash_in_filename(self):
+        with patch.object(voog, "api_get") as mock_get, \
+             patch.object(voog, "api_post") as mock_post:
+            with self.assertRaises(SystemExit):
+                voog.asset_replace(1833688, "foo\\bar.css")
+            mock_get.assert_not_called()
+            mock_post.assert_not_called()
+
+    def test_rejects_leading_dot(self):
+        # Covers both `.hidden.css` and `..parent.css`
+        with patch.object(voog, "api_get") as mock_get, \
+             patch.object(voog, "api_post") as mock_post:
+            with self.assertRaises(SystemExit):
+                voog.asset_replace(1833688, ".hidden.css")
+            mock_get.assert_not_called()
+            mock_post.assert_not_called()
+
+    def test_rejects_double_dot_prefix(self):
+        with patch.object(voog, "api_get") as mock_get, \
+             patch.object(voog, "api_post") as mock_post:
+            with self.assertRaises(SystemExit):
+                voog.asset_replace(1833688, "..parent.css")
+            mock_get.assert_not_called()
+            mock_post.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
