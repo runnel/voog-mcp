@@ -704,5 +704,63 @@ class TestAssetReplaceValidation(unittest.TestCase):
             mock_post.assert_not_called()
 
 
+class TestPageCreate(unittest.TestCase):
+    def test_page_create_calls_api_post_with_required_fields(self):
+        with patch.object(voog, "api_post") as mock_post:
+            mock_post.return_value = {
+                "id": 999999,
+                "title": "Privacy",
+                "slug": "privacy",
+                "path": "privacy",
+                "language_id": 629624,
+                "layout_id": 12345,
+                "hidden": True,
+                "state": "draft",
+            }
+            result = voog.page_create(
+                title="Privacy",
+                slug="privacy",
+                language_id=629624,
+                layout_id=12345,
+                hidden=True,
+                state="draft",
+            )
+
+        mock_post.assert_called_once_with(
+            "/pages",
+            {
+                "title": "Privacy",
+                "slug": "privacy",
+                "language_id": 629624,
+                "layout_id": 12345,
+                "hidden": True,
+                "state": "draft",
+            },
+        )
+        self.assertEqual(result["id"], 999999)
+        self.assertEqual(result["slug"], "privacy")
+
+    def test_page_create_omits_none_optional_fields(self):
+        """parent_id, layout_id, state are optional — None values must NOT be sent."""
+        with patch.object(voog, "api_post") as mock_post:
+            mock_post.return_value = {"id": 1, "title": "T", "slug": "t"}
+            voog.page_create(
+                title="T",
+                slug="t",
+                language_id=629624,
+            )
+        mock_post.assert_called_once_with(
+            "/pages",
+            {"title": "T", "slug": "t", "language_id": 629624},
+        )
+
+    def test_page_create_validates_required_args(self):
+        """Missing required arg → TypeError, no API call."""
+        with patch.object(voog, "api_post") as mock_post:
+            with self.assertRaises(TypeError):
+                voog.page_create(slug="x", language_id=1)  # missing title
+            mock_post.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
