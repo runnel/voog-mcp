@@ -71,7 +71,26 @@ class TestRedirectsResources(unittest.TestCase):
 
 
 class TestServerResourceRegistry(unittest.TestCase):
-    """Phase D dispatcher pattern — RESOURCE_GROUPS in server.py."""
+    """Phase D dispatcher pattern — RESOURCE_GROUPS in server.py.
+
+    These tests are CRITICAL for Tasks 15-18: each parallel session adds a
+    new module to ``RESOURCE_GROUPS`` independently, and these tests catch
+    contract violations BEFORE merge:
+
+    - ``test_each_group_exports_required_callables`` — fails if a new
+      group forgets ``get_resources`` / ``matches`` / ``read_resource``.
+    - ``test_no_uri_collisions_across_groups`` — fails if two groups
+      claim the same URI (e.g. both pages and articles claim
+      ``voog://pages``). Without this, the first-match dispatcher in
+      ``handle_read_resource`` would silently route to whichever group
+      registered first.
+    - ``test_resource_groups_includes_redirects`` — sentinel that
+      registry itself wasn't accidentally cleared.
+
+    Anyone adding a Phase D group should expect these tests to either
+    pass automatically (if their module conforms) or guide them to the
+    contract via the failure messages.
+    """
 
     def test_resource_groups_includes_redirects(self):
         from voog_mcp import server

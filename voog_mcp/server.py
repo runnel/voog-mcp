@@ -27,7 +27,7 @@ TOOL_GROUPS = [
 # Each module must export:
 #   - get_resources() -> list[Resource]
 #   - matches(uri: str) -> bool   (does this group handle this URI?)
-#   - async read_resource(uri: str, client) -> Iterable[ReadResourceContents]
+#   - async read_resource(uri: str, client) -> list[ReadResourceContents]
 RESOURCE_GROUPS = [
     redirects_resources,
     # Tasks 15-18: append more resource group modules here
