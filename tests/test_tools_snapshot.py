@@ -10,17 +10,8 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tests._test_helpers import _ann_get
 from voog_mcp.tools import snapshot as snapshot_tools
-
-
-def _ann_get(ann, key_camel, key_snake):
-    if hasattr(ann, key_snake):
-        return getattr(ann, key_snake)
-    if hasattr(ann, key_camel):
-        return getattr(ann, key_camel)
-    if isinstance(ann, dict):
-        return ann.get(key_camel) or ann.get(key_snake)
-    return None
 
 
 def _make_client():
