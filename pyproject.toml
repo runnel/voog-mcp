@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voog-mcp"
+version = "0.1.0"
+description = "MCP server for Voog CMS — Liquid templates, pages, products, ecommerce"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Tõnu Runnel", email = "runnel@gmail.com"}]
+dependencies = [
+    "mcp>=0.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+]
+
+[project.scripts]
+voog-mcp = "voog_mcp.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["voog_mcp*"]
+exclude = ["tests*"]
