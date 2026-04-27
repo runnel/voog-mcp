@@ -167,8 +167,11 @@ Testid kasutavad stdlib `unittest` + `unittest.mock` (no pytest dependency).
 # Tavaline test run — integration testid skipitakse:
 .venv/bin/python -m unittest discover tests
 
-# Live API test run — vajab RUNNEL_VOOG_API_KEY env'is:
-RUN_SMOKE=1 RUNNEL_VOOG_API_KEY=... .venv/bin/python -m unittest tests.test_mcp_integration -v
+# Live API test run — vajab RUN_SMOKE=1 env'is. API võti loetakse
+# AINULT failist Claude/.env (`RUNNEL_VOOG_API_KEY=...`), mitte shell env'ist
+# — vt tests/test_mcp_integration.py:_read_smoke_api_key. Kui Claude/.env
+# pole olemas või võtit pole, skippivad kõik smoke-testid vaikselt:
+RUN_SMOKE=1 .venv/bin/python -m unittest tests.test_mcp_integration -v
 ```
 
 CI's tuleb `RUN_SMOKE` jätta määramata.
