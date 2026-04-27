@@ -40,6 +40,12 @@ Kasutus:
       Voog API ei luba PUT-iga `filename` muuta — see käsk loob POST'iga uue
       asseti uue ID-ga ja jätab vana alles. Pärast template'ide uuendust ja
       pushimist tuleb vana asset MANUAALSELT DELETE'ida (käsk prindib curl-i).
+  python3 voog.py layout-create components/site-header.tpl
+                                                # POST uus component (kind tuletatud path'ist)
+  python3 voog.py layout-create 'layouts/Front page.tpl'
+                                                # POST uus layout
+  python3 voog.py layout-create component components/site-header.tpl
+                                                # explicit kind (valideeritakse path'iga)
   python3 voog.py page-set-hidden <id>... true|false  # bulk hidden toggle
   python3 voog.py page-set-layout <page-id> <layout-id>  # reassign layout
   python3 voog.py page-delete <id> [--force]    # kustuta leht (küsib kinnitust)
@@ -1060,6 +1066,92 @@ def asset_replace(asset_id, new_filename):
     print(f"       -H \"X-API-Token: $RUNNEL_VOOG_API_KEY\"")
 
 
+def layout_create(file_path, kind=None):
+    """Create a new layout or component in Voog via POST /admin/api/layouts.
+
+    file_path: path relative to repo root, e.g. "layouts/Front page.tpl"
+               or "components/site-header.tpl". May also be absolute (resolved
+               and validated against LOCAL_DIR).
+    kind: optional "layout" or "component". If omitted, derived from path's
+          parent folder (components/ → component, layouts/ → layout). If
+          provided, validated to match the derived kind — mismatch is an
+          error so we never silently write the wrong component flag.
+
+    On success: POSTs body, captures returned id, updates manifest.json.
+    """
+    # Robust path handling: handles absolute paths, ./, ../, etc., and rejects
+    # paths that escape the repo.
+    try:
+        full_path = (LOCAL_DIR / file_path).resolve()
+        rel_path = str(full_path.relative_to(LOCAL_DIR.resolve()))
+    except ValueError:
+        print(f"❌ Path peab olema repo sees: {file_path}")
+        sys.exit(1)
+    if not full_path.exists():
+        print(f"❌ Fail puudub: {full_path}")
+        sys.exit(1)
+
+    # Derive kind from parent folder. This is the source of truth — Voog's
+    # `component` flag and the local folder MUST agree, otherwise next pull
+    # duplicates the manifest entry.
+    parent = full_path.parent.name
+    if parent == "components":
+        derived_kind = "component"
+    elif parent == "layouts":
+        derived_kind = "layout"
+    else:
+        print(f"❌ Path peab olema 'components/...' või 'layouts/...' all, sain: {rel_path}")
+        sys.exit(1)
+
+    # If user provided kind, validate it matches the path. We refuse to silently
+    # accept a mismatch — that's the original footgun this guard prevents.
+    if kind is not None and kind != derived_kind:
+        print(f"❌ kind={kind!r} ei klapi path'iga {rel_path} (eeldab {derived_kind!r})")
+        sys.exit(1)
+
+    kind = derived_kind
+
+    # Collision check: refuse to overwrite an existing manifest entry. A silent
+    # overwrite would leave the previous layout dangling in Voog.
+    manifest_path = LOCAL_DIR / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+    if rel_path in manifest:
+        existing_id = manifest[rel_path].get("id")
+        print(f"❌ {rel_path} on juba manifest'is (id:{existing_id})")
+        print(f"  Kasuta `voog.py push {rel_path}` olemasoleva uuendamiseks.")
+        print(f"  Või kustuta manifest'ist + Voogist enne uuesti loomist.")
+        sys.exit(1)
+
+    body = full_path.read_text(encoding="utf-8")
+    title = full_path.stem  # filename without extension
+
+    payload = {
+        "title": title,
+        "body": body,
+        "component": (kind == "component"),
+    }
+
+    print(f"POST /layouts title={title!r} component={kind == 'component'}...")
+    result = api_post("/layouts", payload)
+    new_id = result.get("id")
+    if not new_id:
+        print(f"❌ POST vastus ei sisaldanud uut id-d: {result!r}")
+        sys.exit(1)
+
+    manifest[rel_path] = {
+        "id": new_id,
+        "type": "layout",
+        "updated_at": result.get("updated_at", ""),
+    }
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+    print(f"  ✓ Loodi {kind}: {rel_path} (id:{new_id})")
+    print(f"  Manifest uuendatud.")
+    return new_id
+
+
 def page_set_hidden(page_ids, hidden):
     """Bulk toggle hidden flag paljudele lehtedele. Exitib != 0 kui mõni ebaõnnestus."""
     flag = "🔒 hidden" if hidden else "👁  visible"
@@ -1433,6 +1525,18 @@ def main():
             print("Kasutus: python3 voog.py asset-replace <id> <uus-filename>")
             sys.exit(1)
         asset_replace(sys.argv[2], sys.argv[3])
+    elif cmd == "layout-create":
+        if len(sys.argv) == 3:
+            # voog.py layout-create <path> — kind auto-derived from folder
+            layout_create(sys.argv[2])
+        elif len(sys.argv) == 4:
+            # voog.py layout-create <kind> <path> — explicit kind validated against path
+            layout_create(sys.argv[3], kind=sys.argv[2])
+        else:
+            print("Kasutus: python3 voog.py layout-create <path>")
+            print("        python3 voog.py layout-create <kind> <path>")
+            print("  kind: layout | component (optional, derived from path)")
+            sys.exit(1)
     elif cmd == "page-set-hidden":
         if len(sys.argv) < 4:
             print("Kasutus: python3 voog.py page-set-hidden <id> [<id>...] true|false")
