@@ -14,7 +14,11 @@ def get_tools() -> list[Tool]:
             name="redirects_list",
             description="List all redirect rules on the Voog site (id, source, destination, redirect_type, active). Read-only.",
             inputSchema={"type": "object", "properties": {}, "required": []},
-            annotations={"readOnlyHint": True},
+            annotations={
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
         ),
         Tool(
             name="redirect_add",
@@ -35,6 +39,11 @@ def get_tools() -> list[Tool]:
                     },
                 },
                 "required": ["source", "destination"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": False,
             },
         ),
     ]
