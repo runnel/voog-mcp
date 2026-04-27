@@ -822,6 +822,19 @@ class TestPageAddContent(unittest.TestCase):
             result = voog.page_add_content(1)
         self.assertEqual(result, expected)
 
+    def test_page_add_content_propagates_api_error(self):
+        """API errors (422 invalid page_id, 500, etc.) propagate — no silent swallow."""
+        with patch.object(voog, "api_post") as mock_post:
+            mock_post.side_effect = urllib.error.HTTPError(
+                url="https://example/admin/api/pages/999/contents",
+                code=422,
+                msg="Unprocessable Entity",
+                hdrs=None,
+                fp=None,
+            )
+            with self.assertRaises(urllib.error.HTTPError):
+                voog.page_add_content(999)
+
 
 if __name__ == "__main__":
     unittest.main()
