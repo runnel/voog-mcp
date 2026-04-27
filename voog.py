@@ -26,6 +26,15 @@ Kasutus:
   python3 voog.py pages                         # kõik lehed (id, path, title, hidden, layout)
   python3 voog.py page <id>                     # ühe lehe täisinfo
   python3 voog.py pages-snapshot <dir>          # backup kõik lehed + contents JSON-i
+  python3 voog.py site-snapshot <dir>           # comprehensive read-only backup of EVERY mutable resource
+      Pages, articles, layouts, layout_assets, languages, redirect_rules, nodes,
+      texts, content_partials, tags, forms, media_sets, assets, webhooks, elements,
+      element_definitions, site, me, products (with variants+translations), per-page
+      contents, per-article details, per-product details, sample rendered HTML
+      (captures `<style data-voog-style>` block — the only place saved VoogStyle
+      customizations are visible). 404s on optional endpoints are skipped, not fatal.
+      REQUIRED pre-flight before layout-rename, mass push, layout swap, VoogStyle push.
+      Refuses to overwrite existing dir.
   python3 voog.py layout-rename <id> <uus>      # nimeta layout ümber, säilita id
   python3 voog.py page-set-hidden <id>... true|false  # bulk hidden toggle
   python3 voog.py page-set-layout <page-id> <layout-id>  # reassign layout
@@ -659,6 +668,265 @@ def pages_snapshot(output_dir):
     print(f"✅ Snapshot: {output_dir}")
 
 
+# --- site-snapshot: comprehensive read-only backup of EVERY mutable resource ---
+
+# Standard /admin/api/ list endpoints. Each is paginated via api_get_all.
+# Order matters only for log readability — failures are independent.
+SITE_SNAPSHOT_LIST_ENDPOINTS = [
+    "/pages",
+    "/articles",
+    "/elements",
+    "/element_definitions",
+    "/layouts",
+    "/layout_assets",
+    "/languages",
+    "/redirect_rules",
+    "/nodes",
+    "/texts",
+    "/content_partials",
+    "/tags",
+    "/forms",
+    "/media_sets",
+    "/assets",
+    "/webhooks",
+]
+
+# Standard /admin/api/ singletons (no list).
+SITE_SNAPSHOT_SINGLETONS = ["/site", "/me"]
+
+
+def _snapshot_filename_for(endpoint):
+    """`/redirect_rules` -> `redirect_rules.json`."""
+    return endpoint.lstrip("/").replace("/", "_") + ".json"
+
+
+def _slugify_path(path):
+    """URL path -> filename slug. Empty/`/` -> `home`. `/pood/kass` -> `pood-kass`."""
+    p = (path or "").strip("/")
+    if not p:
+        return "home"
+    cleaned = re.sub(r"[^a-z0-9-]+", "-", p.lower()).strip("-")
+    return cleaned or "home"
+
+
+def _pick_sample_page_paths(pages, max_samples=3):
+    """Pick up to N representative URL paths to render for VoogStyle capture.
+
+    Prefers front page (empty path) + variety across content_types, skips hidden.
+    Returns list of URL paths starting with "/".
+    """
+    if not pages:
+        return []
+    visible = [p for p in pages if not p.get("hidden")] or list(pages)
+
+    seen_urls = set()
+    seen_cts = set()
+    picks = []
+
+    # 1. Front page (empty path) first
+    for p in visible:
+        if (p.get("path") or "").strip("/") == "":
+            url = "/"
+            seen_urls.add(url)
+            seen_cts.add(p.get("content_type") or "default")
+            picks.append(url)
+            break
+
+    # 2. One per NEW content_type — prioritize variety over duplicating types
+    by_ct = {}
+    for p in visible:
+        if (p.get("path") or "").strip("/") == "":
+            continue
+        ct = p.get("content_type") or "default"
+        by_ct.setdefault(ct, []).append(p)
+    for ct, items in by_ct.items():
+        if len(picks) >= max_samples:
+            break
+        if ct in seen_cts:
+            continue
+        url = "/" + (items[0].get("path") or "").strip("/")
+        if url not in seen_urls:
+            seen_urls.add(url)
+            seen_cts.add(ct)
+            picks.append(url)
+
+    # 3. Fill remaining slots with any other visible pages
+    for p in visible:
+        if len(picks) >= max_samples:
+            break
+        url = "/" + (p.get("path") or "").strip("/")
+        if url == "/" or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        picks.append(url)
+
+    return picks[:max_samples]
+
+
+def _fetch_rendered_page(url):
+    """Fetch a public Voog page as HTML string. Raises on HTTP/network error."""
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 voog.py-snapshot/1.0"},
+    )
+    with urllib.request.urlopen(req) as resp:
+        return resp.read().decode("utf-8", errors="replace")
+
+
+def _snapshot_log_skip(label, exc):
+    """Format a single skip log line for an endpoint that 404'd or errored."""
+    if isinstance(exc, urllib.error.HTTPError) and exc.code == 404:
+        return f"  — {label}: endpoint puudub (404)"
+    if isinstance(exc, urllib.error.HTTPError):
+        return f"  ⚠ {label}: HTTP {exc.code} {exc.reason}"
+    return f"  ⚠ {label}: {exc}"
+
+
+def site_snapshot(output_dir):
+    """Comprehensive read-only backup of EVERY mutable Voog resource.
+
+    Refuses to overwrite an existing directory. Per-resource graceful 404 handling
+    means missing endpoints (e.g. /elements on a non-element site) are skipped, not
+    fatal. Empty list endpoints write `[]` so absence vs empty is distinguishable.
+
+    Required pre-flight before any risky operation: layout rename, mass push,
+    layout swap, or VoogStyle template push.
+    """
+    out = Path(output_dir)
+    if out.exists():
+        sys.stderr.write(
+            f"❌ Sihtkaust eksisteerib juba: {out}\n"
+            "   Vali teine kaust või kustuta vana snapshot enne uue tegemist.\n"
+        )
+        sys.exit(1)
+    out.mkdir(parents=True, exist_ok=False)
+
+    print(f"📥 Site-snapshot: {HOST} → {out}/")
+    written = 0
+    pages_data = []
+    articles_data = []
+
+    # 1. Standard API list endpoints
+    for endpoint in SITE_SNAPSHOT_LIST_ENDPOINTS:
+        filename = _snapshot_filename_for(endpoint)
+        try:
+            data = api_get_all(endpoint)
+        except Exception as e:
+            print(_snapshot_log_skip(filename, e))
+            continue
+        (out / filename).write_text(
+            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(f"  ✓ {filename} ({len(data)})")
+        written += 1
+        if endpoint == "/pages":
+            pages_data = data
+        elif endpoint == "/articles":
+            articles_data = data
+
+    # 2. Standard API singletons
+    for endpoint in SITE_SNAPSHOT_SINGLETONS:
+        filename = _snapshot_filename_for(endpoint)
+        try:
+            data = api_get(endpoint)
+        except Exception as e:
+            print(_snapshot_log_skip(filename, e))
+            continue
+        (out / filename).write_text(
+            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(f"  ✓ {filename}")
+        written += 1
+
+    # 3. Per-page contents
+    page_contents_count = 0
+    for p in pages_data:
+        pid = p.get("id")
+        if not pid:
+            continue
+        try:
+            contents = api_get(f"/pages/{pid}/contents")
+        except Exception as e:
+            print(f"  ⚠ page {pid} contents: {e}")
+            continue
+        (out / f"page_{pid}_contents.json").write_text(
+            json.dumps(contents, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        written += 1
+        page_contents_count += 1
+    if page_contents_count:
+        print(f"  ✓ page contents × {page_contents_count}")
+
+    # 4. Per-article details
+    article_detail_count = 0
+    for a in articles_data:
+        aid = a.get("id")
+        if not aid:
+            continue
+        try:
+            detail = api_get(f"/articles/{aid}")
+        except Exception as e:
+            print(f"  ⚠ article {aid}: {e}")
+            continue
+        (out / f"article_{aid}.json").write_text(
+            json.dumps(detail, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        written += 1
+        article_detail_count += 1
+    if article_detail_count:
+        print(f"  ✓ article details × {article_detail_count}")
+
+    # 5. Ecommerce: products list + per-product details with translations
+    products_data = []
+    try:
+        products_data = api_get_all("/products", base=ECOMMERCE_URL)
+    except Exception as e:
+        print(_snapshot_log_skip("products.json", e))
+
+    if products_data:
+        (out / "products.json").write_text(
+            json.dumps(products_data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(f"  ✓ products.json ({len(products_data)})")
+        written += 1
+        product_detail_count = 0
+        for prod in products_data:
+            pid = prod.get("id")
+            if not pid:
+                continue
+            try:
+                detail = api_get(
+                    f"/products/{pid}",
+                    {"include": "variant_types,translations"},
+                    base=ECOMMERCE_URL,
+                )
+            except Exception as e:
+                print(f"  ⚠ product {pid}: {e}")
+                continue
+            (out / f"product_{pid}.json").write_text(
+                json.dumps(detail, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            written += 1
+            product_detail_count += 1
+        if product_detail_count:
+            print(f"  ✓ product details × {product_detail_count}")
+
+    # 6. Rendered HTML for VoogStyle capture (the only way to see saved customizations)
+    for path in _pick_sample_page_paths(pages_data):
+        slug = _slugify_path(path)
+        url = f"https://{HOST}{path}"
+        try:
+            html = _fetch_rendered_page(url)
+        except Exception as e:
+            print(f"  ⚠ {url}: {e}")
+            continue
+        (out / f"voog_style_rendered_{slug}.html").write_text(html, encoding="utf-8")
+        print(f"  ✓ voog_style_rendered_{slug}.html")
+        written += 1
+
+    print(f"\n✅ Snapshot complete: {written} resources backed up to {out}/")
+
+
 def layout_rename(layout_id, new_title):
     """Nimeta layout ümber API-s + lokaalses manifestis + failsüsteemis. Säilitab id."""
     layout_id = int(layout_id)
@@ -1064,6 +1332,11 @@ def main():
             print("Kasutus: python3 voog.py pages-snapshot <output-dir>")
             sys.exit(1)
         pages_snapshot(sys.argv[2])
+    elif cmd == "site-snapshot":
+        if len(sys.argv) < 3:
+            print("Kasutus: python3 voog.py site-snapshot <output-dir>")
+            sys.exit(1)
+        site_snapshot(sys.argv[2])
     elif cmd == "layout-rename":
         if len(sys.argv) < 4:
             print("Kasutus: python3 voog.py layout-rename <id> <uus-tiitel>")

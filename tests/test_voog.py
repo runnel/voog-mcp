@@ -4,6 +4,7 @@ import sys
 import json as json_mod
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -223,6 +224,265 @@ class TestPagesPull(unittest.TestCase):
             self.assertEqual(saved[0]["id"], 100)
             self.assertEqual(saved[0]["language_code"], "et")
             self.assertIn("layout_id", saved[0])
+
+
+class TestSlugifyPath(unittest.TestCase):
+    def test_empty_path_becomes_home(self):
+        self.assertEqual(voog._slugify_path(""), "home")
+        self.assertEqual(voog._slugify_path("/"), "home")
+        self.assertEqual(voog._slugify_path(None), "home")
+
+    def test_simple_path(self):
+        self.assertEqual(voog._slugify_path("foto"), "foto")
+        self.assertEqual(voog._slugify_path("/foto"), "foto")
+
+    def test_nested_path_uses_dashes(self):
+        self.assertEqual(voog._slugify_path("/pood/kass"), "pood-kass")
+        self.assertEqual(voog._slugify_path("pood/kass/"), "pood-kass")
+
+
+class TestPickSamplePagePaths(unittest.TestCase):
+    def test_returns_empty_for_no_pages(self):
+        self.assertEqual(voog._pick_sample_page_paths([]), [])
+
+    def test_picks_front_first_then_variety(self):
+        pages = [
+            {"id": 1, "path": "", "content_type": "common", "hidden": False},
+            {"id": 2, "path": "info", "content_type": "common", "hidden": False},
+            {"id": 3, "path": "pood/kass", "content_type": "product", "hidden": False},
+            {"id": 4, "path": "blog", "content_type": "blog", "hidden": False},
+        ]
+        picks = voog._pick_sample_page_paths(pages, max_samples=3)
+        self.assertEqual(len(picks), 3)
+        self.assertEqual(picks[0], "/")  # front first
+        # Remaining 2 should be from different content_types
+        self.assertIn("/pood/kass", picks)
+        self.assertIn("/blog", picks)
+
+    def test_skips_hidden_pages(self):
+        pages = [
+            {"id": 1, "path": "", "content_type": "common", "hidden": False},
+            {"id": 2, "path": "secret", "content_type": "common", "hidden": True},
+        ]
+        picks = voog._pick_sample_page_paths(pages, max_samples=3)
+        self.assertNotIn("/secret", picks)
+
+
+class TestSiteSnapshot(unittest.TestCase):
+    """Comprehensive snapshot of every mutable Voog resource (TDD spec)."""
+
+    def _default_responses(self):
+        return {
+            "lists": {
+                "/pages": [
+                    {"id": 100, "path": "", "title": "Front",
+                     "content_type": "common", "hidden": False},
+                    {"id": 200, "path": "info", "title": "Info",
+                     "content_type": "common", "hidden": False},
+                ],
+                "/articles": [{"id": 500, "title": "A1"}],
+                "/layouts": [{"id": 1, "title": "x"}],
+                "/layout_assets": [{"id": 10, "filename": "a.css"}],
+                "/languages": [{"code": "et"}],
+                "/redirect_rules": [],
+                "/tags": [],
+                "/forms": [],
+                "/media_sets": [],
+                "/assets": [],
+                "/webhooks": [],
+                "/elements": [],
+                "/element_definitions": [],
+                "/content_partials": [],
+                "/nodes": [],
+                "/texts": [],
+            },
+            "singletons": {
+                "/site": {"id": 1, "name": "Site"},
+                "/me": {"email": "a@b.c"},
+            },
+            "by_path": {
+                "/pages/100/contents": [{"id": 1, "name": "body"}],
+                "/pages/200/contents": [],
+                "/articles/500": {"id": 500, "body": "hello"},
+                "/products/9000": {"id": 9000, "translations": {}},
+            },
+            "products": [{"id": 9000, "name": "P1"}],
+        }
+
+    def _patches(self, responses, *, missing_404=()):
+        lists = responses["lists"]
+        singletons = responses["singletons"]
+        by_path = responses["by_path"]
+        products = responses.get("products", [])
+        ecommerce_base = "https://example.com/admin/api/ecommerce/v1"
+
+        def get_all(path, *args, base=None, **kwargs):
+            if path in missing_404:
+                raise urllib.error.HTTPError(path, 404, "Not Found", {}, None)
+            if base == ecommerce_base and path == "/products":
+                return products
+            return lists.get(path, [])
+
+        def get(path, *args, base=None, **kwargs):
+            if path in missing_404:
+                raise urllib.error.HTTPError(path, 404, "Not Found", {}, None)
+            if path in singletons:
+                return singletons[path]
+            return by_path.get(path, {})
+
+        return get_all, get
+
+    def _run(self, *, responses=None, missing_404=(), html_pages=None,
+             html_error=False, dirname="snap"):
+        responses = responses or self._default_responses()
+        get_all, get = self._patches(responses, missing_404=missing_404)
+        html_pages = html_pages or {}
+
+        def fetch(url):
+            if html_error:
+                raise urllib.error.URLError("connection refused")
+            return html_pages.get(url, "<html><style data-voog-style></style></html>")
+
+        parent = tempfile.mkdtemp()
+        outdir = Path(parent) / dirname
+        with patch.object(voog, "HOST", "example.com"), \
+             patch.object(voog, "ECOMMERCE_URL",
+                          "https://example.com/admin/api/ecommerce/v1"), \
+             patch.object(voog, "api_get_all", side_effect=get_all), \
+             patch.object(voog, "api_get", side_effect=get), \
+             patch.object(voog, "_fetch_rendered_page", side_effect=fetch), \
+             patch("builtins.print") as mock_print:
+            voog.site_snapshot(str(outdir))
+        return outdir, mock_print
+
+    def test_refuses_to_overwrite_existing_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            existing = Path(tmp) / "existing-snap"
+            existing.mkdir()
+            with patch.object(voog, "HOST", "example.com"):
+                with self.assertRaises(SystemExit):
+                    voog.site_snapshot(str(existing))
+
+    def test_writes_top_level_resource_lists(self):
+        outdir, _ = self._run()
+        for filename in (
+            "pages.json", "articles.json", "layouts.json", "layout_assets.json",
+            "languages.json", "redirect_rules.json", "tags.json", "forms.json",
+            "media_sets.json", "assets.json", "webhooks.json",
+            "elements.json", "element_definitions.json",
+            "content_partials.json", "nodes.json", "texts.json",
+        ):
+            self.assertTrue((outdir / filename).exists(), f"Missing {filename}")
+
+        pages = json_mod.loads((outdir / "pages.json").read_text())
+        self.assertEqual(len(pages), 2)
+        self.assertEqual(pages[0]["id"], 100)
+
+    def test_writes_singletons(self):
+        outdir, _ = self._run()
+        site = json_mod.loads((outdir / "site.json").read_text())
+        self.assertEqual(site["name"], "Site")
+        me = json_mod.loads((outdir / "me.json").read_text())
+        self.assertEqual(me["email"], "a@b.c")
+
+    def test_writes_per_page_contents_files(self):
+        outdir, _ = self._run()
+        self.assertTrue((outdir / "page_100_contents.json").exists())
+        self.assertTrue((outdir / "page_200_contents.json").exists())
+        contents_100 = json_mod.loads((outdir / "page_100_contents.json").read_text())
+        self.assertEqual(contents_100[0]["name"], "body")
+
+    def test_writes_per_article_detail_files(self):
+        outdir, _ = self._run()
+        self.assertTrue((outdir / "article_500.json").exists())
+        article = json_mod.loads((outdir / "article_500.json").read_text())
+        self.assertEqual(article["body"], "hello")
+
+    def test_writes_per_product_files_with_include(self):
+        """Per-product calls api_get with include=variant_types,translations."""
+        responses = self._default_responses()
+        get_all, _ = self._patches(responses)
+
+        captured_calls = []
+
+        def get(path, *args, base=None, **kwargs):
+            captured_calls.append((path, args, kwargs, base))
+            if path == "/products/9000":
+                return responses["by_path"]["/products/9000"]
+            if path in responses["singletons"]:
+                return responses["singletons"][path]
+            return responses["by_path"].get(path, {})
+
+        parent = tempfile.mkdtemp()
+        outdir = Path(parent) / "snap"
+        with patch.object(voog, "HOST", "example.com"), \
+             patch.object(voog, "ECOMMERCE_URL",
+                          "https://example.com/admin/api/ecommerce/v1"), \
+             patch.object(voog, "api_get_all", side_effect=get_all), \
+             patch.object(voog, "api_get", side_effect=get), \
+             patch.object(voog, "_fetch_rendered_page",
+                          return_value="<html></html>"), \
+             patch("builtins.print"):
+            voog.site_snapshot(str(outdir))
+
+        self.assertTrue((outdir / "products.json").exists())
+        self.assertTrue((outdir / "product_9000.json").exists())
+
+        product_calls = [c for c in captured_calls if c[0] == "/products/9000"]
+        self.assertEqual(len(product_calls), 1)
+        path, args, kwargs, base = product_calls[0]
+        params = args[0] if args else kwargs.get("params")
+        self.assertEqual(params, {"include": "variant_types,translations"})
+        self.assertEqual(base, "https://example.com/admin/api/ecommerce/v1")
+
+    def test_skips_404_endpoints_without_aborting(self):
+        outdir, mock_print = self._run(missing_404=("/nodes", "/elements"))
+        # Skipped files do NOT exist
+        self.assertFalse((outdir / "nodes.json").exists())
+        self.assertFalse((outdir / "elements.json").exists())
+        # But other files still written — and summary still printed
+        self.assertTrue((outdir / "pages.json").exists())
+        output = "\n".join(str(c.args[0]) for c in mock_print.call_args_list)
+        self.assertIn("Snapshot complete", output)
+
+    def test_empty_list_endpoint_writes_empty_array(self):
+        """Empty list still writes `[]` so absence vs empty is distinguishable."""
+        outdir, _ = self._run()
+        # /tags returns [] in defaults
+        self.assertTrue((outdir / "tags.json").exists())
+        tags = json_mod.loads((outdir / "tags.json").read_text())
+        self.assertEqual(tags, [])
+
+    def test_writes_rendered_html_for_sample_pages(self):
+        """Rendered HTML files are written via _fetch_rendered_page."""
+        html = '<html><style data-voog-style>:root{--c:red}</style></html>'
+        outdir, _ = self._run(html_pages={
+            "https://example.com/": html,
+            "https://example.com/info": html,
+        })
+        # Front page rendered as voog_style_rendered_home.html
+        self.assertTrue((outdir / "voog_style_rendered_home.html").exists())
+        rendered = (outdir / "voog_style_rendered_home.html").read_text()
+        self.assertIn("data-voog-style", rendered)
+
+    def test_html_fetch_failure_does_not_abort(self):
+        outdir, mock_print = self._run(html_error=True)
+        # Other files still written
+        self.assertTrue((outdir / "pages.json").exists())
+        # But no rendered HTML files
+        self.assertEqual(list(outdir.glob("voog_style_rendered_*.html")), [])
+
+    def test_summary_count_matches_files_written(self):
+        outdir, mock_print = self._run()
+        output = "\n".join(str(c.args[0]) for c in mock_print.call_args_list)
+        # Find the "Snapshot complete: N resources" line
+        import re as _re
+        m = _re.search(r"Snapshot complete:\s*(\d+)\s+resources", output)
+        self.assertIsNotNone(m, f"Summary not found in:\n{output}")
+        claimed = int(m.group(1))
+        actual = len([f for f in outdir.iterdir() if f.is_file()])
+        self.assertEqual(claimed, actual,
+                         f"Summary claims {claimed} but {actual} files exist")
 
 
 class TestEcommerceWrapper(unittest.TestCase):
