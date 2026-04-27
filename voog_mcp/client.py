@@ -47,16 +47,17 @@ class VoogClient:
         """Pagination through all pages of results.
 
         Caller-provided ``params`` (e.g. ``{"include": "translations"}``) are
-        merged with pagination params (``per_page``, ``page``). Caller params
-        win over collisions, but pagination params should not normally be
-        passed in by the caller.
+        merged with pagination params. ``per_page`` may be overridden by the
+        caller (escape hatch for endpoints that benefit from a different
+        page size); ``page`` is **always** controlled by the iteration loop —
+        any caller-supplied ``page`` value is ignored, since overriding it
+        would silently re-fetch the same page on every iteration and
+        infinite-loop on endpoints with ≥1 full page.
         """
         results = []
         page = 1
         while True:
-            page_params = {"per_page": 100, "page": page}
-            if params:
-                page_params.update(params)
+            page_params = {"per_page": 100, **(params or {}), "page": page}
             data = self.get(path, base=base, params=page_params)
             if not data:
                 break

@@ -53,13 +53,30 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
         args, kwargs = client.get.call_args
         self.assertEqual(kwargs["base"], client.ecommerce_url)
 
-    def test_caller_params_can_override_pagination(self):
-        # Documented behavior: caller params win — useful only if a future
-        # endpoint needs a different per_page; not the common path.
+    def test_caller_can_override_per_page(self):
+        # `per_page` is overridable — escape hatch for endpoints that
+        # benefit from a different page size.
         client = self._make_client()
         client.get_all("/x", params={"per_page": 50})
         args, kwargs = client.get.call_args
         self.assertEqual(kwargs["params"]["per_page"], 50)
+
+    def test_caller_page_param_ignored(self):
+        # CRITICAL: caller-supplied `page` MUST NOT win — overriding it
+        # would silently re-fetch the same page every iteration and
+        # infinite-loop on endpoints with ≥1 full page. The iteration
+        # counter always wins.
+        client = VoogClient(host="runnel.ee", api_token="t")
+        client.get = MagicMock(side_effect=[
+            [{"id": i} for i in range(100)],  # page 1, full
+            [{"id": 100}],                    # page 2, partial → loop exits
+        ])
+        client.get_all("/x", params={"page": 99})  # caller's `page` ignored
+        first_call = client.get.call_args_list[0]
+        second_call = client.get.call_args_list[1]
+        # Iteration counter wins on both calls, regardless of caller's page=99
+        self.assertEqual(first_call.kwargs["params"]["page"], 1)
+        self.assertEqual(second_call.kwargs["params"]["page"], 2)
 
     def test_pagination_increments_page_across_calls(self):
         client = VoogClient(host="runnel.ee", api_token="t")
