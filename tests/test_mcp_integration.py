@@ -314,10 +314,29 @@ class _LiveMCPSubprocessTestCase(unittest.TestCase):
         self._send_notification("notifications/initialized")
 
     def _drain_stderr(self) -> str:
+        """Read the subprocess's stderr to EOF.
+
+        Terminates the process first — ``stderr.read()`` blocks until EOF,
+        which only arrives once the process exits. Without forcing EOF,
+        callers in the timeout/diagnostic path (e.g. ``_read_response``
+        after a stdout timeout) would hang on a still-running server,
+        masking the very failure they are trying to diagnose. Idempotent:
+        safe to call again from ``_terminate``.
+        """
         if self.proc.stderr is None:
             return ""
         try:
-            # Non-blocking peek: terminate first, then read remaining.
+            self.proc.terminate()
+            self.proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                self.proc.kill()
+                self.proc.wait(timeout=2)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        try:
             return self.proc.stderr.read() or ""
         except Exception:
             return ""
@@ -386,6 +405,10 @@ class TestMCPSmokeTools(_LiveMCPSubprocessTestCase):
     exercise dispatch on a same-group neighbour).
     """
 
+    # Subset semantics (assertFalse(missing) below): missing names = test
+    # failure, but extra names (e.g. tools added by later phase tasks) are
+    # tolerated so this suite does not break the moment a new tool group
+    # lands. The list below is the v0.1 baseline.
     EXPECTED_TOOLS = {
         # pages group
         "pages_list",
@@ -481,6 +504,7 @@ class TestMCPSmokeTools(_LiveMCPSubprocessTestCase):
 
 
 class TestMCPSmokeResources(_LiveMCPSubprocessTestCase):
+    # Subset semantics — see TestMCPSmokeTools.EXPECTED_TOOLS for rationale.
     EXPECTED_RESOURCE_URIS = {
         "voog://articles",
         "voog://layouts",
