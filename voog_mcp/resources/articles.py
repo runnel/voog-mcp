@@ -1,0 +1,117 @@
+"""MCP resources for Voog blog articles.
+
+Phase D resource group covering two URI shapes:
+
+  - ``voog://articles``        — list all articles (id, title, path, public_url,
+                                  published, published_at, updated_at, created_at,
+                                  language_code, page_id — body field stripped;
+                                  bodies live at ``voog://articles/{id}``)
+  - ``voog://articles/{id}``   — article body (HTML) as ``text/html``
+
+The single-article URI returns ``mime_type="text/html"`` because the value is
+the rendered HTML body of the post, not JSON. The list URI returns
+``application/json``.
+
+Pattern mirrors :mod:`voog_mcp.resources.layouts`: ``URI_PREFIX`` constant,
+exact-or-slashed-sub-path :func:`matches`, strict :func:`_parse_id`, errors
+propagate to the server layer (no wrapping into MCP error responses).
+"""
+import json
+
+from mcp.server.lowlevel.helper_types import ReadResourceContents
+from mcp.types import Resource
+
+from voog_mcp.client import VoogClient
+
+
+URI_PREFIX = "voog://articles"
+
+
+def get_resources() -> list[Resource]:
+    return [
+        Resource(
+            uri=URI_PREFIX,
+            name="Articles",
+            description=(
+                "All blog articles on the Voog site (simplified: id, title, path, "
+                "public_url, published, published_at, updated_at, created_at, "
+                "language_code, page_id — without bodies). "
+                "Single article body (rendered HTML) at voog://articles/{id} as text/html."
+            ),
+            mimeType="application/json",
+        ),
+    ]
+
+
+def matches(uri: str) -> bool:
+    return uri == URI_PREFIX or uri.startswith(URI_PREFIX + "/")
+
+
+async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
+    if uri == URI_PREFIX:
+        articles = client.get_all("/articles")
+        return _json_response(_simplify_articles(articles))
+
+    if not uri.startswith(URI_PREFIX + "/"):
+        raise ValueError(f"articles resource: unsupported URI {uri!r}")
+
+    sub = uri[len(URI_PREFIX) + 1:]
+    parts = sub.split("/")
+
+    if len(parts) == 1:
+        article_id = _parse_id(parts[0], uri)
+        article = client.get(f"/articles/{article_id}")
+        body = article.get("body") or ""
+        return [
+            ReadResourceContents(
+                content=body,
+                mime_type="text/html",
+            )
+        ]
+
+    raise ValueError(f"articles resource: unsupported URI {uri!r}")
+
+
+def _parse_id(raw: str, uri: str) -> int:
+    try:
+        article_id = int(raw)
+    except ValueError as e:
+        raise ValueError(f"articles resource: invalid article id in {uri!r}") from e
+    if article_id <= 0:
+        raise ValueError(f"articles resource: article id must be positive in {uri!r}") from None
+    return article_id
+
+
+def _json_response(data) -> list[ReadResourceContents]:
+    return [
+        ReadResourceContents(
+            content=json.dumps(data, indent=2, ensure_ascii=False),
+            mime_type="application/json",
+        )
+    ]
+
+
+def _simplify_articles(articles: list) -> list:
+    """Project articles list to lightweight metadata (no body field).
+
+    The Voog ``/articles`` list endpoint already omits ``body`` from each item,
+    but defensive trimming guarantees the projection even if the API ever
+    starts returning bodies (which would balloon list payloads).
+    """
+    simplified = []
+    for article in articles:
+        lang = article.get("language") or {}
+        page = article.get("page") or {}
+        simplified.append({
+            "id": article.get("id"),
+            "title": article.get("title"),
+            "path": article.get("path"),
+            "public_url": article.get("public_url"),
+            "published": article.get("published"),
+            "published_at": article.get("published_at"),
+            "updated_at": article.get("updated_at"),
+            "created_at": article.get("created_at"),
+            "language_code": lang.get("code"),
+            "page_id": page.get("id"),
+        })
+    return simplified
