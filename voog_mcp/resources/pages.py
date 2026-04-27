@@ -6,12 +6,23 @@ Phase D resource group covering three URI shapes:
   - ``voog://pages/{id}``                  — full page details
   - ``voog://pages/{id}/contents``         — page contents array
 
-Multi-URI groups use ``URI_PREFIX`` (vs. single-URI groups using ``URI``);
-:func:`matches` checks for the exact root *or* a slashed sub-path so that
-URIs like ``voog://pagesx`` are correctly rejected.
+Multi-URI groups use a single ``URI_PREFIX`` constant (vs. single-URI groups
+using ``URI``); :func:`matches` checks for the exact prefix *or* a slashed
+sub-path so that URIs like ``voog://pagesx`` are correctly rejected. Future
+groups whose listable URI differs from the prefix root (e.g. ``voog://articles``
+prefix but ``voog://articles/published`` as the listable URI) can introduce
+a separate ``URI_ROOT`` constant — pages, layouts, articles, products and
+redirects all happen to have ``URI_PREFIX == listable URI``, so a single name
+suffices.
 
 Errors propagate (no wrapping into MCP error responses) — the server layer
 turns raised exceptions into JSON-RPC errors.
+
+NOTE: ``_simplify_pages`` is deliberately duplicated from
+``voog_mcp.tools.pages`` so the ``pages_list`` tool and the ``voog://pages``
+resource produce the same shape. If a second resource group needs an
+identical projection helper, promote both to ``voog_mcp/resources/_helpers.py``
+at that point — premature shared-helper extraction is avoided here.
 """
 import json
 
@@ -22,13 +33,12 @@ from voog_mcp.client import VoogClient
 
 
 URI_PREFIX = "voog://pages"
-URI_ROOT = URI_PREFIX  # the listable URI
 
 
 def get_resources() -> list[Resource]:
     return [
         Resource(
-            uri=URI_ROOT,
+            uri=URI_PREFIX,
             name="Pages",
             description=(
                 "All pages on the Voog site (simplified: id, path, title, hidden, "
@@ -42,18 +52,18 @@ def get_resources() -> list[Resource]:
 
 
 def matches(uri: str) -> bool:
-    return uri == URI_ROOT or uri.startswith(URI_ROOT + "/")
+    return uri == URI_PREFIX or uri.startswith(URI_PREFIX + "/")
 
 
 async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
-    if uri == URI_ROOT:
+    if uri == URI_PREFIX:
         pages = client.get_all("/pages")
         return _json_response(_simplify_pages(pages))
 
-    if not uri.startswith(URI_ROOT + "/"):
+    if not uri.startswith(URI_PREFIX + "/"):
         raise ValueError(f"pages resource: unsupported URI {uri!r}")
 
-    sub = uri[len(URI_ROOT) + 1:]
+    sub = uri[len(URI_PREFIX) + 1:]
     parts = sub.split("/")
 
     if len(parts) == 1:
@@ -75,7 +85,7 @@ def _parse_id(raw: str, uri: str) -> int:
     except ValueError as e:
         raise ValueError(f"pages resource: invalid page id in {uri!r}") from e
     if page_id <= 0:
-        raise ValueError(f"pages resource: page id must be positive in {uri!r}")
+        raise ValueError(f"pages resource: page id must be positive in {uri!r}") from None
     return page_id
 
 
