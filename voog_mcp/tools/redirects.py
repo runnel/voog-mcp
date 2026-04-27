@@ -1,0 +1,80 @@
+"""MCP tools for Voog redirect rules."""
+from mcp.types import Tool, TextContent
+
+from voog_mcp.client import VoogClient
+from voog_mcp.errors import success_response, error_response
+
+
+VALID_REDIRECT_TYPES = (301, 302, 307, 410)
+
+
+def get_tools() -> list[Tool]:
+    return [
+        Tool(
+            name="redirects_list",
+            description="List all redirect rules on the Voog site (id, source, destination, redirect_type, active). Read-only.",
+            inputSchema={"type": "object", "properties": {}, "required": []},
+            annotations={"readOnlyHint": True},
+        ),
+        Tool(
+            name="redirect_add",
+            description=(
+                "Add a redirect rule. source/destination are paths (e.g. /old → /new). "
+                "redirect_type defaults to 301; allowed: 301, 302, 307, 410."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source path (e.g. /en/products/old)"},
+                    "destination": {"type": "string", "description": "Destination path (e.g. /en/products/new)"},
+                    "redirect_type": {
+                        "type": "integer",
+                        "description": "HTTP status code: 301 (permanent), 302 (temporary), 307 (temporary, preserve method), 410 (gone). Default 301.",
+                        "enum": list(VALID_REDIRECT_TYPES),
+                        "default": 301,
+                    },
+                },
+                "required": ["source", "destination"],
+            },
+        ),
+    ]
+
+
+async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent]:
+    arguments = arguments or {}
+
+    if name == "redirects_list":
+        try:
+            rules = client.get_all("/redirect_rules")
+            return success_response(rules, summary=f"↪️  {len(rules)} redirect rules")
+        except Exception as e:
+            return error_response(f"redirects_list ebaõnnestus: {e}")
+
+    if name == "redirect_add":
+        source = arguments.get("source")
+        destination = arguments.get("destination")
+        rtype = arguments.get("redirect_type", 301)
+        if rtype not in VALID_REDIRECT_TYPES:
+            return error_response(
+                f"redirect_add: vigane redirect_type {rtype!r}. Lubatud: {VALID_REDIRECT_TYPES}"
+            )
+        try:
+            result = client.post(
+                "/redirect_rules",
+                {
+                    "redirect_rule": {
+                        "source": source,
+                        "destination": destination,
+                        "redirect_type": rtype,
+                        "active": True,
+                    }
+                },
+            )
+            return success_response(
+                result,
+                summary=f"✅ {source} → {destination} ({rtype})",
+            )
+        except Exception as e:
+            return error_response(f"redirect_add ebaõnnestus: {e}")
+
+    return error_response(f"Unknown tool: {name}")
