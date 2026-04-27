@@ -20,16 +20,14 @@ turns raised exceptions into JSON-RPC errors.
 
 NOTE: ``_simplify_pages`` is deliberately duplicated from
 ``voog_mcp.tools.pages`` so the ``pages_list`` tool and the ``voog://pages``
-resource produce the same shape. If a second resource group needs an
-identical projection helper, promote both to ``voog_mcp/resources/_helpers.py``
-at that point — premature shared-helper extraction is avoided here.
+resource produce the same shape. Group-specific projections rightly stay
+local; only id parsing and JSON wrapping are shared via :mod:`._helpers`.
 """
-import json
-
-from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Resource
 
 from voog_mcp.client import VoogClient
+from voog_mcp.resources._helpers import json_response, parse_id
+from mcp.server.lowlevel.helper_types import ReadResourceContents
 
 
 URI_PREFIX = "voog://pages"
@@ -58,7 +56,7 @@ def matches(uri: str) -> bool:
 async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
     if uri == URI_PREFIX:
         pages = client.get_all("/pages")
-        return _json_response(_simplify_pages(pages))
+        return json_response(_simplify_pages(pages))
 
     if not uri.startswith(URI_PREFIX + "/"):
         raise ValueError(f"pages resource: unsupported URI {uri!r}")
@@ -67,35 +65,16 @@ async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceConten
     parts = sub.split("/")
 
     if len(parts) == 1:
-        page_id = _parse_id(parts[0], uri)
+        page_id = parse_id(parts[0], uri, group_name="pages")
         page = client.get(f"/pages/{page_id}")
-        return _json_response(page)
+        return json_response(page)
 
     if len(parts) == 2 and parts[1] == "contents":
-        page_id = _parse_id(parts[0], uri)
+        page_id = parse_id(parts[0], uri, group_name="pages")
         contents = client.get(f"/pages/{page_id}/contents")
-        return _json_response(contents)
+        return json_response(contents)
 
     raise ValueError(f"pages resource: unsupported URI {uri!r}")
-
-
-def _parse_id(raw: str, uri: str) -> int:
-    try:
-        page_id = int(raw)
-    except ValueError as e:
-        raise ValueError(f"pages resource: invalid page id in {uri!r}") from e
-    if page_id <= 0:
-        raise ValueError(f"pages resource: page id must be positive in {uri!r}") from None
-    return page_id
-
-
-def _json_response(data) -> list[ReadResourceContents]:
-    return [
-        ReadResourceContents(
-            content=json.dumps(data, indent=2, ensure_ascii=False),
-            mime_type="application/json",
-        )
-    ]
 
 
 def _simplify_pages(pages: list) -> list:

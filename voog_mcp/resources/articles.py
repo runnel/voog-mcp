@@ -9,19 +9,19 @@ Phase D resource group covering two URI shapes:
   - ``voog://articles/{id}``   — article body (HTML) as ``text/html``
 
 The single-article URI returns ``mime_type="text/html"`` because the value is
-the rendered HTML body of the post, not JSON. The list URI returns
-``application/json``.
+the rendered HTML body of the post, not JSON — constructed locally rather
+than via :func:`json_response` for that reason. The list URI returns
+``application/json`` via the shared helper.
 
 Pattern mirrors :mod:`voog_mcp.resources.layouts`: ``URI_PREFIX`` constant,
-exact-or-slashed-sub-path :func:`matches`, strict :func:`_parse_id`, errors
+exact-or-slashed-sub-path :func:`matches`, strict :func:`parse_id`, errors
 propagate to the server layer (no wrapping into MCP error responses).
 """
-import json
-
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Resource
 
 from voog_mcp.client import VoogClient
+from voog_mcp.resources._helpers import json_response, parse_id
 
 
 URI_PREFIX = "voog://articles"
@@ -50,7 +50,7 @@ def matches(uri: str) -> bool:
 async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
     if uri == URI_PREFIX:
         articles = client.get_all("/articles")
-        return _json_response(_simplify_articles(articles))
+        return json_response(_simplify_articles(articles))
 
     if not uri.startswith(URI_PREFIX + "/"):
         raise ValueError(f"articles resource: unsupported URI {uri!r}")
@@ -59,7 +59,7 @@ async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceConten
     parts = sub.split("/")
 
     if len(parts) == 1:
-        article_id = _parse_id(parts[0], uri)
+        article_id = parse_id(parts[0], uri, group_name="articles")
         article = client.get(f"/articles/{article_id}")
         body = article.get("body") or ""
         return [
@@ -70,25 +70,6 @@ async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceConten
         ]
 
     raise ValueError(f"articles resource: unsupported URI {uri!r}")
-
-
-def _parse_id(raw: str, uri: str) -> int:
-    try:
-        article_id = int(raw)
-    except ValueError as e:
-        raise ValueError(f"articles resource: invalid article id in {uri!r}") from e
-    if article_id <= 0:
-        raise ValueError(f"articles resource: article id must be positive in {uri!r}") from None
-    return article_id
-
-
-def _json_response(data) -> list[ReadResourceContents]:
-    return [
-        ReadResourceContents(
-            content=json.dumps(data, indent=2, ensure_ascii=False),
-            mime_type="application/json",
-        )
-    ]
 
 
 def _simplify_articles(articles: list) -> list:
