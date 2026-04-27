@@ -10,6 +10,9 @@ from voog_mcp.tools import pages as pages_tools
 from voog_mcp.tools import redirects as redirects_tools
 # Tasks 10-13: append more `from voog_mcp.tools import <group> as <group>_tools` imports below
 
+from voog_mcp.resources import redirects as redirects_resources
+# Tasks 15-18: append more `from voog_mcp.resources import <group> as <group>_resources` imports below
+
 logger = logging.getLogger("voog-mcp")
 
 # Tool group registry — Tasks 10-14 should append their module here.
@@ -18,6 +21,16 @@ TOOL_GROUPS = [
     pages_tools,
     redirects_tools,
     # Tasks 10-13: append more tool group modules here
+]
+
+# Resource group registry — Phase D Tasks 15-19 should append their module here.
+# Each module must export:
+#   - get_resources() -> list[Resource]
+#   - matches(uri: str) -> bool   (does this group handle this URI?)
+#   - async read_resource(uri: str, client) -> Iterable[ReadResourceContents]
+RESOURCE_GROUPS = [
+    redirects_resources,
+    # Tasks 15-18: append more resource group modules here
 ]
 
 
@@ -47,6 +60,18 @@ async def run_server():
         if group is None:
             return error_response(f"Unknown tool: {name}")
         return await group.call_tool(name, arguments or {}, client)
+
+    @server.list_resources()
+    async def handle_list_resources():
+        return [r for group in RESOURCE_GROUPS for r in group.get_resources()]
+
+    @server.read_resource()
+    async def handle_read_resource(uri):
+        uri_str = str(uri)
+        for group in RESOURCE_GROUPS:
+            if group.matches(uri_str):
+                return await group.read_resource(uri_str, client)
+        raise ValueError(f"Unknown resource URI: {uri_str}")
 
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
