@@ -500,8 +500,7 @@ class TestMCPSmokeTools(_LiveMCPSubprocessTestCase):
     """End-to-end checks for representative read-only tools.
 
     We list tools first to confirm the registry is exposed, then call one
-    tool per group (plus a second pages-group tool — pages_pull — to
-    exercise dispatch on a same-group neighbour).
+    tool per group.
     """
 
     # Subset semantics (assertFalse(missing) below): missing names = test
@@ -512,7 +511,6 @@ class TestMCPSmokeTools(_LiveMCPSubprocessTestCase):
         # pages group
         "pages_list",
         "page_get",
-        "pages_pull",
         # pages_mutate group (we don't *call* mutating tools, just verify
         # they are listed)
         "page_set_hidden",
@@ -555,18 +553,6 @@ class TestMCPSmokeTools(_LiveMCPSubprocessTestCase):
         self.assertIn("pages", text.lower())
         self.assertIn('"id"', text)
         self.assertIn('"path"', text)
-
-    def test_pages_pull_returns_simplified_pages(self):
-        result = self._call_jsonrpc(
-            "tools/call",
-            {"name": "pages_pull", "arguments": {}},
-        )["result"]
-        self.assertFalse(result.get("isError"), f"pages_pull errored: {result}")
-        text = self._tool_call_text(result)
-        self.assertIn("pages-pull", text)
-        # Simplified projection includes language_code + public_url
-        self.assertIn('"language_code"', text)
-        self.assertIn('"public_url"', text)
 
     def test_redirects_list_returns_array(self):
         result = self._call_jsonrpc(

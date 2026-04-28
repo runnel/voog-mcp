@@ -71,7 +71,6 @@ Kõik tools on registreeritud `voog_mcp/server.py` `TOOL_GROUPS` registris. Iga 
 |---|---|---|---|
 | `pages.py` | `pages_list` | read-only | Kõik lehed (id, path, title, hidden, layout) |
 | `pages.py` | `page_get` | read-only | Lehe täisinfo id järgi |
-| `pages.py` | `pages_pull` | read-only | Lihtsustatud pages JSON (ilma sisuta) |
 | `pages_mutate.py` | `page_set_hidden` | mutating, idempotent | Bulk `hidden` flag'i toggle ühele või mitmele lehele |
 | `pages_mutate.py` | `page_set_layout` | mutating, idempotent | Lehe layouti vahetus |
 | `pages_mutate.py` | `page_delete` | **destructive**, non-idempotent | Lehe kustutamine (vajab `force=true`) |

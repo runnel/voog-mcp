@@ -24,10 +24,9 @@ from voog_mcp.resources import redirects as redirects_resources
 
 logger = logging.getLogger("voog-mcp")
 
-# Tool group registry — Tasks 10-14 should append their module here.
-# Each module must export get_tools() -> list[Tool] and call_tool(name, arguments, client) -> list[TextContent].
-# call_tool is sync — server.handle_call_tool dispatches it via asyncio.to_thread so blocking
-# urllib I/O does not stall the MCP event loop (review fix #3).
+# Tool group registry. Each module exports get_tools() and a sync call_tool();
+# handle_call_tool dispatches via asyncio.to_thread so blocking urllib I/O
+# doesn't stall the event loop. Append new groups here.
 TOOL_GROUPS = [
     layouts_tools,
     layouts_sync_tools,
@@ -39,14 +38,9 @@ TOOL_GROUPS = [
     snapshot_tools,
 ]
 
-# Resource group registry — Phase D Tasks 15-19 should append their module here.
-# Each module must export:
-#   - get_resources() -> list[Resource]
-#   - get_uri_patterns() -> list[str]   (claimed URI / URI_PREFIX strings;
-#                                        read by the startup collision guard)
-#   - matches(uri: str) -> bool         (does this group handle this URI?)
-#   - read_resource(uri: str, client) -> list[ReadResourceContents]
-# read_resource is sync — handle_read_resource dispatches it via asyncio.to_thread.
+# Resource group registry. Each module exports get_resources(),
+# get_uri_patterns(), matches(uri), and a sync read_resource(uri, client) —
+# the latter dispatched via asyncio.to_thread, same rationale as tools.
 RESOURCE_GROUPS = [
     articles_resources,
     layouts_resources,

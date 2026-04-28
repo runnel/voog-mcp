@@ -1,9 +1,4 @@
-"""Shared helpers for Phase D resource modules.
-
-After all 5 spec § 5 resource groups landed (PR #19, #20, #21, #23, #24),
-``_parse_id`` and ``_json_response`` had been copy-pasted across 4 modules
-(pages, layouts, articles, products) with only the group name in error
-messages varying. This module centralizes both.
+"""Shared helpers for resource modules.
 
 What stays in each resource module:
   - ``URI`` / ``URI_PREFIX`` constant
@@ -11,13 +6,22 @@ What stays in each resource module:
   - ``matches(uri)`` URI ownership check (built via :func:`prefix_matcher` for
     multi-URI groups)
   - ``read_resource(uri, client)`` dispatch + endpoint calls
-  - ``_simplify_*`` projection (group-specific field selection)
+
+Projections (group-specific field selection) live in :mod:`voog_mcp.projections`
+since both tools and resources share them.
 
 What lives here:
-  - :func:`parse_id` — strict positive-integer parsing with group-tagged errors
-  - :func:`json_response` — wrap data as a single ``application/json`` content
+  - :func:`parse_id`       — strict positive-integer parsing with group-tagged errors
+  - :func:`json_response`  — wrap data as a single ``application/json`` content
+  - :func:`text_response`  — wrap raw text as a single typed-mime content
+                              (e.g. ``text/plain`` for .tpl, ``text/html`` for
+                              article body)
   - :func:`prefix_matcher` — closure factory for the
-    ``uri == prefix or uri.startswith(prefix + "/")`` ownership check
+                              ``uri == prefix or uri.startswith(prefix + "/")``
+                              ownership check
+
+Encapsulates the SDK-internal ``ReadResourceContents`` import path so resource
+modules don't need to reach into ``mcp.server.lowlevel.helper_types`` directly.
 
 Errors propagate (no wrapping into MCP error responses) — the server layer
 turns raised exceptions into JSON-RPC errors.
@@ -27,6 +31,10 @@ from typing import Callable
 
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 
+# Re-exported so resource modules can use the type annotation without
+# importing from the SDK's lowlevel namespace themselves.
+__all__ = ["ReadResourceContents", "json_response", "parse_id", "prefix_matcher", "text_response"]
+
 
 def parse_id(raw: str, uri: str, *, group_name: str) -> int:
     """Parse a positive integer id from a URI segment.
@@ -34,12 +42,6 @@ def parse_id(raw: str, uri: str, *, group_name: str) -> int:
     Raises ``ValueError`` for non-integer, zero, or negative ids. The error
     message is tagged with ``group_name`` (e.g. ``"pages"``, ``"layouts"``)
     and the full ``uri`` so the failure points to a specific resource shape.
-
-    Both raise paths are explicitly chained:
-      - ``from e`` for the ``int()`` conversion failure (preserves traceback)
-      - ``from None`` for the value check (no underlying exception to chain;
-        the explicit ``None`` suppresses Python's implicit "during handling
-        of the above exception" context)
     """
     try:
         parsed = int(raw)
@@ -71,9 +73,7 @@ def json_response(data) -> list[ReadResourceContents]:
 
     Uses ``indent=2`` and ``ensure_ascii=False`` so non-ASCII content
     (Estonian characters, emojis, etc.) round-trips cleanly without
-    \\uXXXX escaping. mime_type is fixed at ``application/json`` —
-    callers needing ``text/plain`` (raw .tpl) or ``text/html`` (article body)
-    should construct ``ReadResourceContents`` directly.
+    \\uXXXX escaping.
     """
     return [
         ReadResourceContents(
@@ -81,3 +81,14 @@ def json_response(data) -> list[ReadResourceContents]:
             mime_type="application/json",
         )
     ]
+
+
+def text_response(content: str, *, mime_type: str) -> list[ReadResourceContents]:
+    """Wrap a raw string body as a single ``ReadResourceContents``.
+
+    For non-JSON resources: ``text/plain`` (raw .tpl source) and
+    ``text/html`` (article body). Centralizes the
+    ``ReadResourceContents`` import so resource modules don't depend on
+    SDK-internal paths.
+    """
+    return [ReadResourceContents(content=content, mime_type=mime_type)]

@@ -24,19 +24,24 @@ The list view's curated shape comes from :func:`voog_mcp.projections.simplify_pr
 shared with :mod:`voog_mcp.tools.products` so the ``products_list`` tool and
 the ``voog://products`` resource can't drift out of sync.
 """
-from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Resource
 
 from voog_mcp.client import VoogClient
-from voog_mcp.projections import simplify_products
-from voog_mcp.resources._helpers import json_response, parse_id, prefix_matcher
+from voog_mcp.projections import (
+    PRODUCTS_DETAIL_INCLUDE,
+    PRODUCTS_LIST_INCLUDE,
+    simplify_products,
+)
+from voog_mcp.resources._helpers import (
+    ReadResourceContents,
+    json_response,
+    parse_id,
+    prefix_matcher,
+)
 
 
 URI_PREFIX = "voog://products"
 matches = prefix_matcher(URI_PREFIX)
-
-LIST_INCLUDE = "translations"
-DETAIL_INCLUDE = "variant_types,translations"
 
 
 def get_uri_patterns() -> list[str]:
@@ -65,7 +70,7 @@ def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
         products = client.get_all(
             "/products",
             base=client.ecommerce_url,
-            params={"include": LIST_INCLUDE},
+            params={"include": PRODUCTS_LIST_INCLUDE},
         )
         return json_response(simplify_products(products))
 
@@ -80,7 +85,7 @@ def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
         product = client.get(
             f"/products/{product_id}",
             base=client.ecommerce_url,
-            params={"include": DETAIL_INCLUDE},
+            params={"include": PRODUCTS_DETAIL_INCLUDE},
         )
         return json_response(product)
 

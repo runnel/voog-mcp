@@ -6,7 +6,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from voog_mcp.resources._helpers import parse_id, json_response, prefix_matcher
+from voog_mcp.resources._helpers import (
+    ReadResourceContents,
+    json_response,
+    parse_id,
+    prefix_matcher,
+    text_response,
+)
 
 
 class TestParseId(unittest.TestCase):
@@ -99,6 +105,28 @@ class TestJsonResponse(unittest.TestCase):
         result = json_response(data)
         parsed = json.loads(result[0].content)
         self.assertEqual(parsed, data)
+
+
+class TestTextResponse(unittest.TestCase):
+    def test_returns_single_read_resource_contents(self):
+        result = text_response("hello", mime_type="text/plain")
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], ReadResourceContents)
+
+    def test_mime_type_propagates(self):
+        plain = text_response("x", mime_type="text/plain")
+        html = text_response("<p>x</p>", mime_type="text/html")
+        self.assertEqual(plain[0].mime_type, "text/plain")
+        self.assertEqual(html[0].mime_type, "text/html")
+
+    def test_empty_string_preserved(self):
+        result = text_response("", mime_type="text/plain")
+        self.assertEqual(result[0].content, "")
+
+    def test_content_passes_through_unchanged(self):
+        body = "<!DOCTYPE html>\n<p>Tõnu</p>"
+        result = text_response(body, mime_type="text/html")
+        self.assertEqual(result[0].content, body)
 
 
 class TestPrefixMatcher(unittest.TestCase):

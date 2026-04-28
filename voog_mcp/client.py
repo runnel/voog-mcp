@@ -7,9 +7,8 @@
 from __future__ import annotations
 
 import json
-import urllib.request
 import urllib.parse
-import urllib.error
+import urllib.request
 
 
 class VoogClient:
@@ -33,8 +32,7 @@ class VoogClient:
     def _request(self, method: str, path: str, *, base: str | None = None, data=None, params: dict | None = None):
         url = f"{base or self.base_url}{path}"
         if params:
-            query = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items())
-            url += f"?{query}"
+            url += f"?{urllib.parse.urlencode(params)}"
         payload = json.dumps(data).encode() if data is not None else None
         req = urllib.request.Request(url, data=payload, headers=self.headers, method=method)
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:

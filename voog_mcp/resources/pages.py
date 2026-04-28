@@ -22,12 +22,16 @@ The list view's curated shape comes from :func:`voog_mcp.projections.simplify_pa
 shared with :mod:`voog_mcp.tools.pages` so the ``pages_list`` tool and the
 ``voog://pages`` resource can't drift out of sync.
 """
-from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Resource
 
 from voog_mcp.client import VoogClient
 from voog_mcp.projections import simplify_pages
-from voog_mcp.resources._helpers import json_response, parse_id, prefix_matcher
+from voog_mcp.resources._helpers import (
+    ReadResourceContents,
+    json_response,
+    parse_id,
+    prefix_matcher,
+)
 
 
 URI_PREFIX = "voog://pages"

@@ -22,7 +22,6 @@ filesystem. Annotations: ``readOnlyHint=False`` (we write disk),
 guarantees no data loss), ``idempotentHint=True`` (re-running on the same
 site produces equivalent output).
 """
-import json
 import re
 import urllib.error
 import urllib.request
@@ -32,6 +31,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
+from voog_mcp.tools._helpers import validate_output_dir, write_json
 
 
 # Standard /admin/api/ list endpoints. Each is paginated via client.get_all.
@@ -129,10 +129,6 @@ def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[Tex
     return error_response(f"Unknown tool: {name}")
 
 
-def _write_json(path: Path, data) -> None:
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-
-
 def _snapshot_filename_for(endpoint: str) -> str:
     """`/redirect_rules` → `redirect_rules.json`."""
     return endpoint.lstrip("/").replace("/", "_") + ".json"
@@ -148,18 +144,15 @@ def _format_skip(label: str, exc: Exception) -> str:
 
 def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     output_dir = arguments.get("output_dir") or ""
-    if not output_dir:
-        return error_response("pages_snapshot: output_dir must be a non-empty string")
-    if not Path(output_dir).is_absolute():
-        return error_response(
-            f"pages_snapshot: output_dir must be an absolute path (got {output_dir!r})"
-        )
+    err = validate_output_dir(output_dir, tool_name="pages_snapshot", param_name="output_dir")
+    if err:
+        return error_response(err)
 
     out = Path(output_dir)
     try:
         out.mkdir(parents=True, exist_ok=True)
         pages = client.get_all("/pages")
-        _write_json(out / "pages.json", pages)
+        write_json(out / "pages.json", pages)
     except Exception as e:
         return error_response(f"pages_snapshot ebaõnnestus: {e}")
 
@@ -174,7 +167,7 @@ def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | 
         except Exception as e:
             per_page_errors.append({"page_id": pid, "error": str(e)})
             continue
-        _write_json(out / f"page_{pid}_contents.json", contents)
+        write_json(out / f"page_{pid}_contents.json", contents)
         page_contents_written += 1
 
     summary = (
@@ -197,12 +190,9 @@ def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | 
 
 def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     output_dir = arguments.get("output_dir") or ""
-    if not output_dir:
-        return error_response("site_snapshot: output_dir must be a non-empty string")
-    if not Path(output_dir).is_absolute():
-        return error_response(
-            f"site_snapshot: output_dir must be an absolute path (got {output_dir!r})"
-        )
+    err = validate_output_dir(output_dir, tool_name="site_snapshot", param_name="output_dir")
+    if err:
+        return error_response(err)
 
     out = Path(output_dir)
     if out.exists():
@@ -230,7 +220,7 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         except Exception as e:
             skipped.append({"file": filename, "reason": _format_skip(filename, e)})
             continue
-        _write_json(out / filename, data)
+        write_json(out / filename, data)
         files_written += 1
         if endpoint == "/pages":
             pages_data = data
@@ -245,7 +235,7 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         except Exception as e:
             skipped.append({"file": filename, "reason": _format_skip(filename, e)})
             continue
-        _write_json(out / filename, data)
+        write_json(out / filename, data)
         files_written += 1
 
     # 3. Per-page contents
@@ -259,7 +249,7 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         except Exception as e:
             skipped.append({"file": f"page_{pid}_contents.json", "reason": str(e)})
             continue
-        _write_json(out / f"page_{pid}_contents.json", contents)
+        write_json(out / f"page_{pid}_contents.json", contents)
         files_written += 1
         page_contents_count += 1
 
@@ -274,7 +264,7 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         except Exception as e:
             skipped.append({"file": f"article_{aid}.json", "reason": str(e)})
             continue
-        _write_json(out / f"article_{aid}.json", detail)
+        write_json(out / f"article_{aid}.json", detail)
         files_written += 1
         article_detail_count += 1
 
@@ -286,7 +276,7 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         products_data = []
 
     if products_data:
-        _write_json(out / "products.json", products_data)
+        write_json(out / "products.json", products_data)
         files_written += 1
         for prod in products_data:
             pid = prod.get("id")
@@ -301,7 +291,7 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
             except Exception as e:
                 skipped.append({"file": f"product_{pid}.json", "reason": str(e)})
                 continue
-            _write_json(out / f"product_{pid}.json", detail)
+            write_json(out / f"product_{pid}.json", detail)
             files_written += 1
 
     # 6. Rendered HTML samples for VoogStyle capture (best-effort).

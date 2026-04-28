@@ -13,10 +13,10 @@ from voog_mcp.tools import pages as pages_tools
 
 
 class TestPagesTools(unittest.TestCase):
-    def test_get_tools_returns_three(self):
+    def test_get_tools_returns_two(self):
         tools = pages_tools.get_tools()
         names = [t.name for t in tools]
-        self.assertEqual(names, ["pages_list", "page_get", "pages_pull"])
+        self.assertEqual(names, ["pages_list", "page_get"])
 
     def test_all_tools_have_full_read_only_triple(self):
         # Every tool here is read-only — assert the full explicit triple
@@ -51,14 +51,6 @@ class TestPagesTools(unittest.TestCase):
         client.get.assert_called_once_with("/pages/42")
         # No summary → 1 TextContent
         self.assertEqual(len(result), 1)
-
-    def test_pages_pull_calls_get_all(self):
-        client = MagicMock()
-        client.get_all.return_value = []
-        result = pages_tools.call_tool("pages_pull", {}, client)
-        client.get_all.assert_called_once_with("/pages")
-        # Even with empty list, success_response with summary returns 2 TextContents
-        self.assertEqual(len(result), 2)
 
     def test_call_tool_unknown_name_returns_error(self):
         client = MagicMock()
