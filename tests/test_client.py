@@ -55,6 +55,35 @@ class TestVoogClientTimeout(unittest.TestCase):
         self.assertEqual(kwargs.get("timeout"), 60)
 
 
+class TestRequestUrlEncoding(unittest.TestCase):
+    """Querystring assembly uses urllib.parse.urlencode — encodes both keys
+    and values. Old hand-rolled code only quoted values; if a non-alphanumeric
+    key ever appears (none today, but no longer a footgun) it would break the
+    URL. Documenting the fix with a direct test on `_request`.
+    """
+
+    def test_request_urlencodes_keys_with_special_chars(self):
+        client = VoogClient(host="x.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog_mcp.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = fake_resp
+            client.get("/x", params={"foo bar": "y"})
+        url = mock_urlopen.call_args.args[0].full_url
+        # urlencode encodes spaces in keys as '+' (form-encoded)
+        self.assertIn("foo+bar=y", url)
+
+    def test_request_urlencodes_values_with_special_chars(self):
+        client = VoogClient(host="x.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog_mcp.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = fake_resp
+            client.get("/x", params={"include": "variant_types,translations"})
+        url = mock_urlopen.call_args.args[0].full_url
+        self.assertIn("include=variant_types%2Ctranslations", url)
+
+
 class TestGetAllParamsPassthrough(unittest.TestCase):
     """get_all merges caller params with pagination params."""
 

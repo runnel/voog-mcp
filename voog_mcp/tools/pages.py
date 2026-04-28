@@ -34,16 +34,6 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": True,
             },
         ),
-        Tool(
-            name="pages_pull",
-            description="Return simplified pages structure as JSON (id, path, title, hidden, layout, content_type, language, public_url — no content bodies).",
-            inputSchema={"type": "object", "properties": {}, "required": []},
-            annotations={
-                "readOnlyHint": True,
-                "destructiveHint": False,
-                "idempotentHint": True,
-            },
-        ),
     ]
 
 
@@ -64,13 +54,5 @@ def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[Tex
             return success_response(p)
         except Exception as e:
             return error_response(f"page_get id={page_id} ebaõnnestus: {e}")
-
-    if name == "pages_pull":
-        try:
-            pages = client.get_all("/pages")
-            simplified = simplify_pages(pages)
-            return success_response(simplified, summary=f"✓ pages-pull: {len(simplified)} entries")
-        except Exception as e:
-            return error_response(f"pages_pull ebaõnnestus: {e}")
 
     return error_response(f"Unknown tool: {name}")

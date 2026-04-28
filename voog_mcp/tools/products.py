@@ -27,11 +27,12 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
-from voog_mcp.projections import simplify_products
+from voog_mcp.projections import (
+    PRODUCTS_DETAIL_INCLUDE,
+    PRODUCTS_LIST_INCLUDE,
+    simplify_products,
+)
 
-
-LIST_INCLUDE = "translations"
-DETAIL_INCLUDE = "variant_types,translations"
 
 # Voog API supports translation-keyed updates only on these fields. Each
 # entry in `fields` (the input arg) must be `<field>-<lang>`, e.g. `name-et`,
@@ -135,7 +136,7 @@ def _products_list(client: VoogClient) -> list[TextContent] | CallToolResult:
         products = client.get_all(
             "/products",
             base=client.ecommerce_url,
-            params={"include": LIST_INCLUDE},
+            params={"include": PRODUCTS_LIST_INCLUDE},
         )
         simplified = simplify_products(products)
         return success_response(simplified, summary=f"🛒 {len(simplified)} products")
@@ -149,7 +150,7 @@ def _product_get(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
         product = client.get(
             f"/products/{product_id}",
             base=client.ecommerce_url,
-            params={"include": DETAIL_INCLUDE},
+            params={"include": PRODUCTS_DETAIL_INCLUDE},
         )
         return success_response(product)
     except Exception as e:

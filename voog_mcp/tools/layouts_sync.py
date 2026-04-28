@@ -36,6 +36,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
+from voog_mcp.tools._helpers import validate_output_dir, write_json
 
 
 def get_tools() -> list[Tool]:
@@ -117,18 +118,9 @@ def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[Tex
     return error_response(f"Unknown tool: {name}")
 
 
-def _validate_target_dir(target_dir: str, tool_name: str) -> str | None:
-    """Shared validation: non-empty + absolute path. Returns error msg or None."""
-    if not target_dir:
-        return f"{tool_name}: target_dir must be a non-empty string"
-    if not Path(target_dir).is_absolute():
-        return f"{tool_name}: target_dir must be an absolute path (got {target_dir!r})"
-    return None
-
-
 def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     target_dir = arguments.get("target_dir") or ""
-    err = _validate_target_dir(target_dir, "layouts_pull")
+    err = validate_output_dir(target_dir, tool_name="layouts_pull", param_name="target_dir")
     if err:
         return error_response(err)
 
@@ -191,9 +183,7 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
             layouts_written += 1
 
     manifest_path = target / "manifest.json"
-    manifest_path.write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8",
-    )
+    write_json(manifest_path, manifest)
 
     summary = (
         f"📥 layouts_pull: {layouts_written} layouts + {components_written} components "
@@ -216,7 +206,7 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
 
 def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     target_dir = arguments.get("target_dir") or ""
-    err = _validate_target_dir(target_dir, "layouts_push")
+    err = validate_output_dir(target_dir, tool_name="layouts_push", param_name="target_dir")
     if err:
         return error_response(err)
 

@@ -6,9 +6,19 @@ views of the same Voog API entities. Each surface promises the *same shape* —
 mental model consistent. Living the projection in one place stops the two
 copies from drifting apart silently when one is updated and the other is not.
 
+Same rationale for the include-string constants: tools and resources must
+fetch the same superset, otherwise the simplified shapes silently diverge.
+
 Pure stdlib, no MCP / client dependencies — easy to import from either side
 without circulars.
 """
+
+# Voog ?include= string for products list views (translations only — list
+# views skip variant_types to keep payloads light).
+PRODUCTS_LIST_INCLUDE = "translations"
+
+# Voog ?include= for product detail views (full enrichment).
+PRODUCTS_DETAIL_INCLUDE = "variant_types,translations"
 
 
 def simplify_pages(pages: list) -> list:
