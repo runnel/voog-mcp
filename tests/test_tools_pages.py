@@ -6,10 +6,9 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tests._test_helpers import _ann_get
-from voog_mcp.tools import pages as pages_tools
+from voog.mcp.tools import pages as pages_tools
 
 
 class TestPagesTools(unittest.TestCase):
@@ -61,7 +60,7 @@ class TestPagesTools(unittest.TestCase):
         self.assertIn("error", payload)
 
     def test_simplify_pages_projects_fields(self):
-        from voog_mcp.projections import simplify_pages
+        from voog.projections import simplify_pages
         raw = [{
             "id": 1, "path": "foo", "title": "Foo", "hidden": False,
             "layout": {"id": 10, "title": "Default"},
@@ -77,7 +76,7 @@ class TestPagesTools(unittest.TestCase):
         self.assertEqual(out[0]["language_code"], "et")
 
     def test_simplify_pages_handles_missing_fields(self):
-        from voog_mcp.projections import simplify_pages
+        from voog.projections import simplify_pages
         raw = [{"id": 2, "path": "x", "title": "X"}]  # no layout, no language
         out = simplify_pages(raw)
         self.assertEqual(out[0]["id"], 2)

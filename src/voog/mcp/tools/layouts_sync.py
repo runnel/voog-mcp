@@ -34,10 +34,10 @@ from pathlib import Path
 
 from mcp.types import CallToolResult, TextContent, Tool
 
-from voog_mcp._concurrency import parallel_map
-from voog_mcp.client import VoogClient
-from voog_mcp.errors import success_response, error_response
-from voog_mcp.tools._helpers import validate_output_dir, write_json
+from voog._concurrency import parallel_map
+from voog.client import VoogClient
+from voog.errors import success_response, error_response
+from voog.mcp.tools._helpers import validate_output_dir, write_json
 
 
 def get_tools() -> list[Tool]:

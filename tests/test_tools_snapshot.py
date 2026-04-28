@@ -7,10 +7,9 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tests._test_helpers import _ann_get
-from voog_mcp.tools import snapshot as snapshot_tools
+from voog.mcp.tools import snapshot as snapshot_tools
 
 
 def _make_client():
@@ -362,7 +361,7 @@ class TestSiteSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
             with patch(
-                "voog_mcp.tools.snapshot.parallel_map",
+                "voog.mcp.tools.snapshot.parallel_map",
                 wraps=snapshot_tools.parallel_map,
             ) as mock_pm:
                 snapshot_tools.call_tool(
@@ -458,7 +457,7 @@ class TestSiteSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
             with patch(
-                "voog_mcp.tools.snapshot.urllib.request.urlopen"
+                "voog.mcp.tools.snapshot.urllib.request.urlopen"
             ) as mock_urlopen:
                 fake = MagicMock()
                 fake.read.return_value = b"<html></html>"
@@ -590,11 +589,11 @@ class TestServerToolRegistry(unittest.TestCase):
     """Phase C contract — snapshot_tools joined to TOOL_GROUPS."""
 
     def test_snapshot_in_tool_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
         self.assertIn(snapshot_tools, server.TOOL_GROUPS)
 
     def test_no_tool_name_collisions(self):
-        from voog_mcp import server
+        from voog.mcp import server
         all_names = [
             tool.name
             for group in server.TOOL_GROUPS
@@ -609,8 +608,8 @@ class TestServerToolRegistry(unittest.TestCase):
         # products, redirects) plus layouts_sync (Task 11b — filesystem-
         # touching layouts pull/push) and products_images (deferred from
         # Task 13 — 3-step asset upload protocol).
-        from voog_mcp import server
-        from voog_mcp.tools import (
+        from voog.mcp import server
+        from voog.mcp.tools import (
             layouts as layouts_t,
             layouts_sync as layouts_sync_t,
             pages as pages_t,

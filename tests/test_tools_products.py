@@ -6,10 +6,9 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tests._test_helpers import _ann_get
-from voog_mcp.tools import products as products_tools
+from voog.mcp.tools import products as products_tools
 
 
 class TestGetTools(unittest.TestCase):
@@ -327,8 +326,8 @@ class TestProjectionConsistency(unittest.TestCase):
     """
 
     def test_both_surfaces_use_shared_projection(self):
-        from voog_mcp import projections
-        from voog_mcp.resources import products as resource_products
+        from voog import projections
+        from voog.mcp.resources import products as resource_products
         self.assertIs(products_tools.simplify_products, projections.simplify_products)
         self.assertIs(resource_products.simplify_products, projections.simplify_products)
 
@@ -337,7 +336,7 @@ class TestProjectionConsistency(unittest.TestCase):
         # (description, physical_properties, asset_ids) must be stripped from
         # the list view — clients fetching voog://products/{id} get the full
         # detail.
-        from voog_mcp.projections import simplify_products
+        from voog.projections import simplify_products
         sample = [{
             "id": 1, "name": "X", "slug": "x", "sku": "X-1",
             "status": "live", "in_stock": True, "on_sale": False,
@@ -369,11 +368,11 @@ class TestServerToolRegistry(unittest.TestCase):
     """Phase C contract — products_tools joined to TOOL_GROUPS."""
 
     def test_products_tools_in_tool_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
         self.assertIn(products_tools, server.TOOL_GROUPS)
 
     def test_no_tool_name_collisions(self):
-        from voog_mcp import server
+        from voog.mcp import server
         all_names = [
             tool.name
             for group in server.TOOL_GROUPS

@@ -25,9 +25,9 @@ for that operation.
 """
 from mcp.types import CallToolResult, TextContent, Tool
 
-from voog_mcp.client import VoogClient
-from voog_mcp.errors import success_response, error_response
-from voog_mcp.projections import (
+from voog.client import VoogClient
+from voog.errors import success_response, error_response
+from voog.projections import (
     PRODUCTS_DETAIL_INCLUDE,
     PRODUCTS_LIST_INCLUDE,
     simplify_products,

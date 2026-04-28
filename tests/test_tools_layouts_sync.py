@@ -7,10 +7,9 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tests._test_helpers import _ann_get
-from voog_mcp.tools import layouts_sync as layouts_sync_tools
+from voog.mcp.tools import layouts_sync as layouts_sync_tools
 
 
 def _normalize_type(t):
@@ -612,7 +611,7 @@ class TestLayoutsPush(unittest.TestCase):
                 },
             )
             with patch(
-                "voog_mcp.tools.layouts_sync.parallel_map",
+                "voog.mcp.tools.layouts_sync.parallel_map",
                 wraps=layouts_sync_tools.parallel_map,
             ) as wrapped:
                 layouts_sync_tools.call_tool(
@@ -678,11 +677,11 @@ class TestUnknownTool(unittest.TestCase):
 
 class TestServerToolRegistry(unittest.TestCase):
     def test_layouts_sync_in_tool_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
         self.assertIn(layouts_sync_tools, server.TOOL_GROUPS)
 
     def test_no_tool_name_collisions(self):
-        from voog_mcp import server
+        from voog.mcp import server
         all_names = [
             tool.name
             for group in server.TOOL_GROUPS

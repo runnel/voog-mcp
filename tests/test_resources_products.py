@@ -6,9 +6,8 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from voog_mcp.resources import products as products_resources
+from voog.mcp.resources import products as products_resources
 
 
 class TestProductsResourcesGetResources(unittest.TestCase):
@@ -218,11 +217,11 @@ class TestServerResourceRegistry(unittest.TestCase):
     """Phase D contract — products resources joined to RESOURCE_GROUPS."""
 
     def test_products_in_resource_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
         self.assertIn(products_resources, server.RESOURCE_GROUPS)
 
     def test_no_uri_collisions_after_products_added(self):
-        from voog_mcp import server
+        from voog.mcp import server
         all_uris = [
             str(r.uri)
             for g in server.RESOURCE_GROUPS
@@ -233,8 +232,8 @@ class TestServerResourceRegistry(unittest.TestCase):
 
     def test_phase_d_complete(self):
         # Sentinel: after Task 18, RESOURCE_GROUPS should cover all 5 spec § 5 groups.
-        from voog_mcp import server
-        from voog_mcp.resources import (
+        from voog.mcp import server
+        from voog.mcp.resources import (
             articles as articles_resources,
             layouts as layouts_resources,
             pages as pages_resources,

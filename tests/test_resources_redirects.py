@@ -6,9 +6,8 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from voog_mcp.resources import redirects as redirects_resources
+from voog.mcp.resources import redirects as redirects_resources
 
 
 class TestRedirectsResources(unittest.TestCase):
@@ -92,11 +91,11 @@ class TestServerResourceRegistry(unittest.TestCase):
     """
 
     def test_resource_groups_includes_redirects(self):
-        from voog_mcp import server
+        from voog.mcp import server
         self.assertIn(redirects_resources, server.RESOURCE_GROUPS)
 
     def test_no_uri_collisions_across_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
         all_uris = [
             str(r.uri)
             for g in server.RESOURCE_GROUPS
@@ -106,7 +105,7 @@ class TestServerResourceRegistry(unittest.TestCase):
                          f"Duplicate resource URIs: {all_uris}")
 
     def test_each_group_exports_required_callables(self):
-        from voog_mcp import server
+        from voog.mcp import server
         for g in server.RESOURCE_GROUPS:
             self.assertTrue(callable(getattr(g, "get_resources", None)),
                             f"{g.__name__} missing get_resources()")

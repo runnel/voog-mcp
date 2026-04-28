@@ -24,9 +24,9 @@ shared with :mod:`voog_mcp.tools.pages` so the ``pages_list`` tool and the
 """
 from mcp.types import Resource
 
-from voog_mcp.client import VoogClient
-from voog_mcp.projections import simplify_pages
-from voog_mcp.resources._helpers import (
+from voog.client import VoogClient
+from voog.projections import simplify_pages
+from voog.mcp.resources._helpers import (
     ReadResourceContents,
     json_response,
     parse_id,

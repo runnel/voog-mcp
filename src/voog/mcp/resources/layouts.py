@@ -9,9 +9,9 @@ Two URI shapes:
 """
 from mcp.types import Resource
 
-from voog_mcp.client import VoogClient
-from voog_mcp.projections import simplify_layouts
-from voog_mcp.resources._helpers import (
+from voog.client import VoogClient
+from voog.projections import simplify_layouts
+from voog.mcp.resources._helpers import (
     ReadResourceContents,
     json_response,
     parse_id,

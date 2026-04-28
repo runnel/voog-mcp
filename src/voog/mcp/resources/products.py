@@ -26,13 +26,13 @@ the ``voog://products`` resource can't drift out of sync.
 """
 from mcp.types import Resource
 
-from voog_mcp.client import VoogClient
-from voog_mcp.projections import (
+from voog.client import VoogClient
+from voog.projections import (
     PRODUCTS_DETAIL_INCLUDE,
     PRODUCTS_LIST_INCLUDE,
     simplify_products,
 )
-from voog_mcp.resources._helpers import (
+from voog.mcp.resources._helpers import (
     ReadResourceContents,
     json_response,
     parse_id,

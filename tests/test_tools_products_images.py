@@ -19,10 +19,9 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tests._test_helpers import _ann_get
-from voog_mcp.tools import products_images as products_images_tools
+from voog.mcp.tools import products_images as products_images_tools
 
 
 def _make_client():
@@ -192,7 +191,7 @@ class TestForceGuard(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "new.jpg")
             with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
+                "voog.mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
@@ -214,7 +213,7 @@ class TestForceGuard(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "new.jpg")
             with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
+                "voog.mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
@@ -267,7 +266,7 @@ class TestSuccessPath(unittest.TestCase):
             img2 = _write_image(tmpdir, "gallery.png")
 
             with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
+                "voog.mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
@@ -343,9 +342,9 @@ class TestSuccessPath(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "x.webp", b"webp-bytes")
             with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
+                "voog.mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen, patch(
-                "voog_mcp.tools.products_images.urllib.request.Request"
+                "voog.mcp.tools.products_images.urllib.request.Request"
             ) as mock_request:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 products_images_tools.call_tool(
@@ -407,7 +406,7 @@ class TestPartialFailure(unittest.TestCase):
             img2 = _write_image(tmpdir, "fails.jpg")
 
             with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
+                "voog.mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
@@ -478,7 +477,7 @@ class TestPartialFailure(unittest.TestCase):
                 _write_image(tmpdir, "fail2.jpg"),
             ]
             with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
+                "voog.mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
@@ -532,7 +531,7 @@ class TestPartialFailure(unittest.TestCase):
             img1 = _write_image(tmpdir, "ok.jpg")
             img2 = _write_image(tmpdir, "fails.jpg")
             with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
+                "voog.mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
@@ -563,7 +562,7 @@ class TestPartialFailure(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "x.jpg")
             with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
+                "voog.mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 # S3 returns 403 → upload failed
                 mock_urlopen.return_value.__enter__.return_value.status = 403
@@ -609,7 +608,7 @@ class TestProductPutFailure(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "x.jpg")
             with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
+                "voog.mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
@@ -643,11 +642,11 @@ class TestServerToolRegistry(unittest.TestCase):
     """Phase C contract — products_images joined to TOOL_GROUPS."""
 
     def test_products_images_in_tool_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
         self.assertIn(products_images_tools, server.TOOL_GROUPS)
 
     def test_no_tool_name_collisions(self):
-        from voog_mcp import server
+        from voog.mcp import server
         all_names = [
             tool.name
             for group in server.TOOL_GROUPS

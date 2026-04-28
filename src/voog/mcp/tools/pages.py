@@ -1,9 +1,9 @@
 """MCP tools for Voog pages (read-only)."""
 from mcp.types import CallToolResult, TextContent, Tool
 
-from voog_mcp.client import VoogClient
-from voog_mcp.errors import success_response, error_response
-from voog_mcp.projections import simplify_pages
+from voog.client import VoogClient
+from voog.errors import success_response, error_response
+from voog.projections import simplify_pages
 
 
 def get_tools() -> list[Tool]:

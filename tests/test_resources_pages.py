@@ -6,9 +6,8 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from voog_mcp.resources import pages as pages_resources
+from voog.mcp.resources import pages as pages_resources
 
 
 class TestPagesResourcesGetResources(unittest.TestCase):
@@ -182,11 +181,11 @@ class TestServerResourceRegistry(unittest.TestCase):
     """Phase D contract — pages resources joined to RESOURCE_GROUPS."""
 
     def test_pages_in_resource_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
         self.assertIn(pages_resources, server.RESOURCE_GROUPS)
 
     def test_no_uri_collisions_after_pages_added(self):
-        from voog_mcp import server
+        from voog.mcp import server
         all_uris = [
             str(r.uri)
             for g in server.RESOURCE_GROUPS

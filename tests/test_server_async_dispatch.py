@@ -21,8 +21,8 @@ import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
-from voog_mcp import server as server_module
-from voog_mcp.tools import (
+from voog.mcp import server as server_module
+from voog.mcp.tools import (
     layouts as layouts_tools,
     layouts_sync as layouts_sync_tools,
     pages as pages_tools,
@@ -32,7 +32,7 @@ from voog_mcp.tools import (
     redirects as redirects_tools,
     snapshot as snapshot_tools,
 )
-from voog_mcp.resources import (
+from voog.mcp.resources import (
     articles as articles_resources,
     layouts as layouts_resources,
     pages as pages_resources,

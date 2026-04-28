@@ -5,9 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from voog_mcp.tools._helpers import validate_output_dir, write_json
+from voog.mcp.tools._helpers import validate_output_dir, write_json
 
 
 class TestValidateOutputDir(unittest.TestCase):

@@ -4,8 +4,8 @@ Single URI: ``voog://redirects``. Returns a list of redirect-rule objects.
 """
 from mcp.types import Resource
 
-from voog_mcp.client import VoogClient
-from voog_mcp.resources._helpers import ReadResourceContents, json_response
+from voog.client import VoogClient
+from voog.mcp.resources._helpers import ReadResourceContents, json_response
 
 
 URI = "voog://redirects"

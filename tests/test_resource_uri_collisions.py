@@ -16,8 +16,8 @@ on both groups would resolve true for ``voog://pages/special/foo``).
 import unittest
 from types import SimpleNamespace
 
-from voog_mcp import server
-from voog_mcp.resources import (
+from voog.mcp import server
+from voog.mcp.resources import (
     articles as articles_resources,
     layouts as layouts_resources,
     pages as pages_resources,
@@ -75,22 +75,22 @@ class TestValidateResourceUriPatterns(unittest.TestCase):
 
     def test_duplicate_pattern_across_groups_raises(self):
         groups = [
-            _fake_group("voog_mcp.resources.pages", ["voog://pages"]),
-            _fake_group("voog_mcp.resources.fake_pages", ["voog://pages"]),
+            _fake_group("voog.mcp.resources.pages", ["voog://pages"]),
+            _fake_group("voog.mcp.resources.fake_pages", ["voog://pages"]),
         ]
         with self.assertRaises(RuntimeError) as ctx:
             server._validate_resource_uri_patterns(groups)
         msg = str(ctx.exception)
         self.assertIn("voog://pages", msg)
-        self.assertIn("voog_mcp.resources.pages", msg)
-        self.assertIn("voog_mcp.resources.fake_pages", msg)
+        self.assertIn("voog.mcp.resources.pages", msg)
+        self.assertIn("voog.mcp.resources.fake_pages", msg)
 
     def test_prefix_overlap_strict_subpath_raises(self):
         # "voog://pages/special" startswith "voog://pages/" -> both match
         # "voog://pages/special/foo".
         groups = [
-            _fake_group("voog_mcp.resources.pages", ["voog://pages"]),
-            _fake_group("voog_mcp.resources.pages_special", ["voog://pages/special"]),
+            _fake_group("voog.mcp.resources.pages", ["voog://pages"]),
+            _fake_group("voog.mcp.resources.pages_special", ["voog://pages/special"]),
         ]
         with self.assertRaises(RuntimeError) as ctx:
             server._validate_resource_uri_patterns(groups)
@@ -102,8 +102,8 @@ class TestValidateResourceUriPatterns(unittest.TestCase):
         # Same as above but registered in reverse order — the guard must
         # be order-independent.
         groups = [
-            _fake_group("voog_mcp.resources.pages_special", ["voog://pages/special"]),
-            _fake_group("voog_mcp.resources.pages", ["voog://pages"]),
+            _fake_group("voog.mcp.resources.pages_special", ["voog://pages/special"]),
+            _fake_group("voog.mcp.resources.pages", ["voog://pages"]),
         ]
         with self.assertRaises(RuntimeError) as ctx:
             server._validate_resource_uri_patterns(groups)
@@ -114,16 +114,16 @@ class TestValidateResourceUriPatterns(unittest.TestCase):
         # ``matches()`` would correctly reject it. Guard must agree — no
         # false positive here.
         groups = [
-            _fake_group("voog_mcp.resources.pages", ["voog://pages"]),
-            _fake_group("voog_mcp.resources.pagesx", ["voog://pagesx"]),
+            _fake_group("voog.mcp.resources.pages", ["voog://pages"]),
+            _fake_group("voog.mcp.resources.pagesx", ["voog://pagesx"]),
         ]
         server._validate_resource_uri_patterns(groups)
 
     def test_distinct_top_level_prefixes_pass(self):
         groups = [
-            _fake_group("voog_mcp.resources.pages", ["voog://pages"]),
-            _fake_group("voog_mcp.resources.layouts", ["voog://layouts"]),
-            _fake_group("voog_mcp.resources.articles", ["voog://articles"]),
+            _fake_group("voog.mcp.resources.pages", ["voog://pages"]),
+            _fake_group("voog.mcp.resources.layouts", ["voog://layouts"]),
+            _fake_group("voog.mcp.resources.articles", ["voog://articles"]),
         ]
         server._validate_resource_uri_patterns(groups)
 

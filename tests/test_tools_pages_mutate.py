@@ -6,10 +6,9 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tests._test_helpers import _ann_get
-from voog_mcp.tools import pages_mutate as pages_mutate_tools
+from voog.mcp.tools import pages_mutate as pages_mutate_tools
 
 
 class TestGetTools(unittest.TestCase):
@@ -189,7 +188,7 @@ class TestPageSetHidden(unittest.TestCase):
         client = MagicMock()
         client.put.return_value = {}
         with patch(
-            "voog_mcp.tools.pages_mutate.parallel_map",
+            "voog.mcp.tools.pages_mutate.parallel_map",
             wraps=pages_mutate_tools.parallel_map,
         ) as wrapped:
             pages_mutate_tools.call_tool(
@@ -332,12 +331,12 @@ class TestServerToolRegistry(unittest.TestCase):
     """Phase C contract — pages_mutate joined to TOOL_GROUPS."""
 
     def test_pages_mutate_in_tool_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
         self.assertIn(pages_mutate_tools, server.TOOL_GROUPS)
 
     def test_no_tool_name_collisions(self):
         # All tool names across all groups must be unique
-        from voog_mcp import server
+        from voog.mcp import server
         all_names = [
             tool.name
             for group in server.TOOL_GROUPS

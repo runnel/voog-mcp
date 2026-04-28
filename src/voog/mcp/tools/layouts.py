@@ -23,8 +23,8 @@ readOnlyHint=false, so non-destructive mutating tools must be explicit).
 """
 from mcp.types import CallToolResult, TextContent, Tool
 
-from voog_mcp.client import VoogClient
-from voog_mcp.errors import success_response, error_response
+from voog.client import VoogClient
+from voog.errors import success_response, error_response
 
 
 def get_tools() -> list[Tool]:

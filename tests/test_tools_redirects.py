@@ -6,10 +6,9 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from tests._test_helpers import _ann_get
-from voog_mcp.tools import redirects as redirects_tools
+from voog.mcp.tools import redirects as redirects_tools
 
 
 class TestRedirectsTools(unittest.TestCase):

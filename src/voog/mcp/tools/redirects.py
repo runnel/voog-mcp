@@ -1,8 +1,8 @@
 """MCP tools for Voog redirect rules."""
 from mcp.types import CallToolResult, TextContent, Tool
 
-from voog_mcp.client import VoogClient
-from voog_mcp.errors import success_response, error_response
+from voog.client import VoogClient
+from voog.errors import success_response, error_response
 
 
 VALID_REDIRECT_TYPES = [301, 302, 307, 410]
