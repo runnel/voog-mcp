@@ -15,19 +15,25 @@ class TestRedirectsResources(unittest.TestCase):
         resources = redirects_resources.get_resources()
         self.assertEqual(len(resources), 1)
         r = resources[0]
-        self.assertEqual(str(r.uri), "voog://redirects")
+        self.assertEqual(str(r.uri), "voog://{site}/redirects")
         self.assertEqual(r.mimeType, "application/json")
         self.assertTrue(r.name)
         self.assertTrue(r.description)
 
     def test_matches_exact_redirects_uri(self):
-        self.assertTrue(redirects_resources.matches("voog://redirects"))
+        self.assertTrue(redirects_resources.matches("voog://stella/redirects"))
+
+    def test_matches_any_site(self):
+        self.assertTrue(redirects_resources.matches("voog://runnel/redirects"))
 
     def test_matches_rejects_other_uris(self):
-        self.assertFalse(redirects_resources.matches("voog://pages"))
-        self.assertFalse(redirects_resources.matches("voog://redirects/123"))
-        self.assertFalse(redirects_resources.matches("voog://redirectsx"))
+        self.assertFalse(redirects_resources.matches("voog://stella/pages"))
+        self.assertFalse(redirects_resources.matches("voog://stella/redirects/123"))
+        self.assertFalse(redirects_resources.matches("voog://stella/redirectsx"))
         self.assertFalse(redirects_resources.matches(""))
+
+    def test_does_not_match_legacy_format(self):
+        self.assertFalse(redirects_resources.matches("voog://redirects"))
 
     def test_read_resource_returns_redirects_list_as_json(self):
         client = MagicMock()
@@ -35,7 +41,7 @@ class TestRedirectsResources(unittest.TestCase):
             {"id": 1, "source": "/old", "destination": "/new", "redirect_type": 301, "active": True},
             {"id": 2, "source": "/x", "destination": "/y", "redirect_type": 302, "active": True},
         ]
-        result = redirects_resources.read_resource("voog://redirects", client)
+        result = redirects_resources.read_resource("voog://stella/redirects", client)
         client.get_all.assert_called_once_with("/redirect_rules")
         # Returns iterable of ReadResourceContents
         contents = list(result)
@@ -49,7 +55,7 @@ class TestRedirectsResources(unittest.TestCase):
     def test_read_resource_empty_list_serializes_cleanly(self):
         client = MagicMock()
         client.get_all.return_value = []
-        result = redirects_resources.read_resource("voog://redirects", client)
+        result = redirects_resources.read_resource("voog://stella/redirects", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed, [])
@@ -57,7 +63,7 @@ class TestRedirectsResources(unittest.TestCase):
     def test_read_resource_unknown_uri_raises(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            redirects_resources.read_resource("voog://other", client)
+            redirects_resources.read_resource("voog://stella/other", client)
         client.get_all.assert_not_called()
 
     def test_read_resource_propagates_api_errors(self):
@@ -65,7 +71,7 @@ class TestRedirectsResources(unittest.TestCase):
         client.get_all.side_effect = urllib.error.URLError("network down")
         # Resource read errors propagate — server layer wraps them as JSON-RPC errors
         with self.assertRaises(urllib.error.URLError):
-            redirects_resources.read_resource("voog://redirects", client)
+            redirects_resources.read_resource("voog://stella/redirects", client)
 
 
 class TestServerResourceRegistry(unittest.TestCase):
@@ -79,7 +85,7 @@ class TestServerResourceRegistry(unittest.TestCase):
       group forgets ``get_resources`` / ``matches`` / ``read_resource``.
     - ``test_no_uri_collisions_across_groups`` — fails if two groups
       claim the same URI (e.g. both pages and articles claim
-      ``voog://pages``). Without this, the first-match dispatcher in
+      ``voog://stella/pages``). Without this, the first-match dispatcher in
       ``handle_read_resource`` would silently route to whichever group
       registered first.
     - ``test_resource_groups_includes_redirects`` — sentinel that

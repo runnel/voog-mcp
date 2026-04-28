@@ -38,19 +38,19 @@ class TestResourceUriPatternsContract(unittest.TestCase):
     """Each live resource group must expose ``get_uri_patterns()``."""
 
     def test_redirects_exposes_patterns(self):
-        self.assertEqual(redirects_resources.get_uri_patterns(), ["voog://redirects"])
+        self.assertEqual(redirects_resources.get_uri_patterns(), ["voog://{site}/redirects"])
 
     def test_pages_exposes_patterns(self):
-        self.assertEqual(pages_resources.get_uri_patterns(), ["voog://pages"])
+        self.assertEqual(pages_resources.get_uri_patterns(), ["voog://{site}/pages"])
 
     def test_layouts_exposes_patterns(self):
-        self.assertEqual(layouts_resources.get_uri_patterns(), ["voog://layouts"])
+        self.assertEqual(layouts_resources.get_uri_patterns(), ["voog://{site}/layouts"])
 
     def test_articles_exposes_patterns(self):
-        self.assertEqual(articles_resources.get_uri_patterns(), ["voog://articles"])
+        self.assertEqual(articles_resources.get_uri_patterns(), ["voog://{site}/articles"])
 
     def test_products_exposes_patterns(self):
-        self.assertEqual(products_resources.get_uri_patterns(), ["voog://products"])
+        self.assertEqual(products_resources.get_uri_patterns(), ["voog://{site}/products"])
 
     def test_each_live_group_exports_get_uri_patterns(self):
         for g in server.RESOURCE_GROUPS:

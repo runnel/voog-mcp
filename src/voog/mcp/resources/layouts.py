@@ -2,11 +2,13 @@
 
 Two URI shapes:
 
-  - ``voog://layouts``         — list all layouts (id, title, component,
-                                  content_type, updated_at — body field
-                                  stripped from the list view)
-  - ``voog://layouts/{id}``    — raw layout body (.tpl source) as ``text/plain``
+  - ``voog://{site}/layouts``         — list all layouts (id, title, component,
+                                         content_type, updated_at — body field
+                                         stripped from the list view)
+  - ``voog://{site}/layouts/{id}``    — raw layout body (.tpl source) as ``text/plain``
 """
+import re
+
 from mcp.types import Resource
 
 from voog.client import VoogClient
@@ -15,29 +17,39 @@ from voog.mcp.resources._helpers import (
     ReadResourceContents,
     json_response,
     parse_id,
-    prefix_matcher,
     text_response,
 )
 
 
-URI_PREFIX = "voog://layouts"
-matches = prefix_matcher(URI_PREFIX)
+URI_TEMPLATE = "voog://{site}/layouts"
+_URI_RE = re.compile(r"^voog://[^/]+/layouts(/.*)?$")
 
 
 def get_uri_patterns() -> list[str]:
     """URI patterns claimed by this group — read by the startup collision guard."""
-    return [URI_PREFIX]
+    return [URI_TEMPLATE]
+
+
+def matches(uri: str) -> bool:
+    return bool(_URI_RE.match(uri))
+
+
+def _strip_site(uri: str) -> str:
+    """voog://stella/layouts/42 → /layouts/42"""
+    rest = uri[len("voog://"):]
+    _, _, path = rest.partition("/")
+    return "/" + path
 
 
 def get_resources() -> list[Resource]:
     return [
         Resource(
-            uri=URI_PREFIX,
+            uri=URI_TEMPLATE,
             name="Layouts",
             description=(
                 "All layouts on the Voog site (simplified: id, title, component, "
                 "content_type, updated_at — without bodies). "
-                "Single layout body (raw .tpl source) at voog://layouts/{id} as text/plain."
+                "Single layout body (raw .tpl source) at voog://{site}/layouts/{id} as text/plain."
             ),
             mimeType="application/json",
         ),
@@ -45,14 +57,16 @@ def get_resources() -> list[Resource]:
 
 
 def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
-    if uri == URI_PREFIX:
+    local = _strip_site(uri)  # e.g. /layouts or /layouts/42
+
+    if local == "/layouts":
         layouts = client.get_all("/layouts")
         return json_response(simplify_layouts(layouts))
 
-    if not uri.startswith(URI_PREFIX + "/"):
+    if not local.startswith("/layouts/"):
         raise ValueError(f"layouts resource: unsupported URI {uri!r}")
 
-    sub = uri[len(URI_PREFIX) + 1:]
+    sub = local[len("/layouts/"):]
     parts = sub.split("/")
 
     if len(parts) == 1:

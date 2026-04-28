@@ -14,7 +14,7 @@ class TestProductsResourcesGetResources(unittest.TestCase):
     def test_get_resources_returns_listable_root(self):
         resources = products_resources.get_resources()
         self.assertEqual(len(resources), 1)
-        self.assertEqual(str(resources[0].uri), "voog://products")
+        self.assertEqual(str(resources[0].uri), "voog://{site}/products")
         self.assertEqual(resources[0].mimeType, "application/json")
         self.assertTrue(resources[0].name)
         self.assertTrue(resources[0].description)
@@ -22,24 +22,31 @@ class TestProductsResourcesGetResources(unittest.TestCase):
 
 class TestProductsResourcesMatches(unittest.TestCase):
     def test_matches_root_uri(self):
-        self.assertTrue(products_resources.matches("voog://products"))
+        self.assertTrue(products_resources.matches("voog://stella/products"))
 
     def test_matches_single_product_uri(self):
-        self.assertTrue(products_resources.matches("voog://products/42"))
+        self.assertTrue(products_resources.matches("voog://stella/products/42"))
+
+    def test_matches_any_site(self):
+        self.assertTrue(products_resources.matches("voog://runnel/products"))
 
     def test_does_not_match_other_groups(self):
-        self.assertFalse(products_resources.matches("voog://pages"))
-        self.assertFalse(products_resources.matches("voog://articles"))
-        self.assertFalse(products_resources.matches("voog://layouts"))
-        self.assertFalse(products_resources.matches("voog://redirects"))
+        self.assertFalse(products_resources.matches("voog://stella/pages"))
+        self.assertFalse(products_resources.matches("voog://stella/articles"))
+        self.assertFalse(products_resources.matches("voog://stella/layouts"))
+        self.assertFalse(products_resources.matches("voog://stella/redirects"))
 
     def test_does_not_match_prefix_lookalike(self):
-        self.assertFalse(products_resources.matches("voog://productsx"))
-        self.assertFalse(products_resources.matches("voog://products-old"))
+        self.assertFalse(products_resources.matches("voog://stella/productsx"))
+        self.assertFalse(products_resources.matches("voog://stella/products-old"))
 
     def test_does_not_match_empty(self):
         self.assertFalse(products_resources.matches(""))
         self.assertFalse(products_resources.matches("voog://"))
+
+    def test_does_not_match_legacy_format(self):
+        self.assertFalse(products_resources.matches("voog://products"))
+        self.assertFalse(products_resources.matches("voog://products/42"))
 
 
 class TestProductsResourcesReadRoot(unittest.TestCase):
@@ -61,7 +68,7 @@ class TestProductsResourcesReadRoot(unittest.TestCase):
                 "updated_at": "2026-04-01T00:00:00Z",
             },
         ]
-        result = products_resources.read_resource("voog://products", client)
+        result = products_resources.read_resource("voog://stella/products", client)
 
         # Must use the ecommerce base URL and request translations include
         client.get_all.assert_called_once_with(
@@ -92,7 +99,7 @@ class TestProductsResourcesReadRoot(unittest.TestCase):
         client.get_all.return_value = [
             {"id": 1, "name": "Bare"},  # most fields absent
         ]
-        result = products_resources.read_resource("voog://products", client)
+        result = products_resources.read_resource("voog://stella/products", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         item = parsed[0]
@@ -105,7 +112,7 @@ class TestProductsResourcesReadRoot(unittest.TestCase):
         client = MagicMock()
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
         client.get_all.return_value = []
-        result = products_resources.read_resource("voog://products", client)
+        result = products_resources.read_resource("voog://stella/products", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed, [])
@@ -125,7 +132,7 @@ class TestProductsResourcesReadSingleProduct(unittest.TestCase):
         }
         client.get.return_value = full_product
 
-        result = products_resources.read_resource("voog://products/42", client)
+        result = products_resources.read_resource("voog://stella/products/42", client)
 
         # Must request both includes per spec § 5
         client.get.assert_called_once_with(
@@ -155,7 +162,7 @@ class TestProductsResourcesReadSingleProduct(unittest.TestCase):
             "translations": {},
             # no variant_types key
         }
-        result = products_resources.read_resource("voog://products/42", client)
+        result = products_resources.read_resource("voog://stella/products/42", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed["id"], 42)
@@ -164,35 +171,35 @@ class TestProductsResourcesReadSingleProduct(unittest.TestCase):
     def test_read_single_product_rejects_non_integer_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            products_resources.read_resource("voog://products/abc", client)
+            products_resources.read_resource("voog://stella/products/abc", client)
         client.get.assert_not_called()
 
     def test_read_single_product_rejects_zero_or_negative(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            products_resources.read_resource("voog://products/0", client)
+            products_resources.read_resource("voog://stella/products/0", client)
         with self.assertRaises(ValueError):
-            products_resources.read_resource("voog://products/-5", client)
+            products_resources.read_resource("voog://stella/products/-5", client)
 
 
 class TestProductsResourcesUnknownUri(unittest.TestCase):
     def test_bare_trailing_slash_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            products_resources.read_resource("voog://products/", client)
+            products_resources.read_resource("voog://stella/products/", client)
 
     def test_subpath_rejected(self):
-        # voog://products/{id}/variants is NOT a supported URI in v1
+        # voog://stella/products/{id}/variants is NOT a supported URI in v1
         client = MagicMock()
         with self.assertRaises(ValueError):
             products_resources.read_resource(
-                "voog://products/42/variants", client
+                "voog://stella/products/42/variants", client
             )
 
     def test_completely_unrelated_uri_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            products_resources.read_resource("voog://pages", client)
+            products_resources.read_resource("voog://stella/pages", client)
 
 
 class TestProductsResourcesErrorPropagation(unittest.TestCase):
@@ -201,7 +208,7 @@ class TestProductsResourcesErrorPropagation(unittest.TestCase):
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
         client.get_all.side_effect = urllib.error.URLError("network down")
         with self.assertRaises(urllib.error.URLError):
-            products_resources.read_resource("voog://products", client)
+            products_resources.read_resource("voog://stella/products", client)
 
     def test_single_product_propagates_api_errors(self):
         client = MagicMock()
@@ -210,7 +217,7 @@ class TestProductsResourcesErrorPropagation(unittest.TestCase):
             "url", 404, "Not Found", {}, None
         )
         with self.assertRaises(urllib.error.HTTPError):
-            products_resources.read_resource("voog://products/999", client)
+            products_resources.read_resource("voog://stella/products/999", client)
 
 
 class TestServerResourceRegistry(unittest.TestCase):

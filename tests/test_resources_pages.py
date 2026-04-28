@@ -16,7 +16,7 @@ class TestPagesResourcesGetResources(unittest.TestCase):
         # Only the listable list URI is exposed as a concrete Resource.
         # Per-page and per-page-contents are template URIs (read-only via read_resource).
         self.assertEqual(len(resources), 1)
-        self.assertEqual(str(resources[0].uri), "voog://pages")
+        self.assertEqual(str(resources[0].uri), "voog://{site}/pages")
         self.assertEqual(resources[0].mimeType, "application/json")
         self.assertTrue(resources[0].name)
         self.assertTrue(resources[0].description)
@@ -24,28 +24,50 @@ class TestPagesResourcesGetResources(unittest.TestCase):
 
 class TestPagesResourcesMatches(unittest.TestCase):
     def test_matches_root_uri(self):
-        self.assertTrue(pages_resources.matches("voog://pages"))
+        self.assertTrue(pages_resources.matches("voog://stella/pages"))
 
     def test_matches_single_page_uri(self):
-        self.assertTrue(pages_resources.matches("voog://pages/152377"))
+        self.assertTrue(pages_resources.matches("voog://stella/pages/152377"))
 
     def test_matches_page_contents_uri(self):
-        self.assertTrue(pages_resources.matches("voog://pages/152377/contents"))
+        self.assertTrue(pages_resources.matches("voog://stella/pages/152377/contents"))
+
+    def test_matches_any_site(self):
+        self.assertTrue(pages_resources.matches("voog://runnel/pages"))
+        self.assertTrue(pages_resources.matches("voog://mysite/pages/42"))
 
     def test_does_not_match_other_groups(self):
-        self.assertFalse(pages_resources.matches("voog://layouts"))
-        self.assertFalse(pages_resources.matches("voog://articles/1"))
-        self.assertFalse(pages_resources.matches("voog://redirects"))
+        self.assertFalse(pages_resources.matches("voog://stella/layouts"))
+        self.assertFalse(pages_resources.matches("voog://stella/articles/1"))
+        self.assertFalse(pages_resources.matches("voog://stella/redirects"))
 
     def test_does_not_match_prefix_lookalike(self):
-        # voog://pagesx must NOT be considered a pages URI — guards against
-        # naive str.startswith("voog://pages") that would match "voog://pagesx"
-        self.assertFalse(pages_resources.matches("voog://pagesx"))
-        self.assertFalse(pages_resources.matches("voog://pages-archive"))
+        # voog://stella/pagesx must NOT be considered a pages URI
+        self.assertFalse(pages_resources.matches("voog://stella/pagesx"))
+        self.assertFalse(pages_resources.matches("voog://stella/pages-archive"))
 
     def test_does_not_match_empty(self):
         self.assertFalse(pages_resources.matches(""))
         self.assertFalse(pages_resources.matches("voog://"))
+
+    def test_does_not_match_legacy_format(self):
+        # Legacy voog://pages/... (no site segment) must be rejected
+        self.assertFalse(pages_resources.matches("voog://pages"))
+        self.assertFalse(pages_resources.matches("voog://pages/42"))
+
+
+class TestSiteNamespacedUri(unittest.TestCase):
+    """Task 7: URI patterns must be site-namespaced (voog://{site}/pages...)."""
+
+    def test_uri_pattern_is_site_namespaced(self):
+        patterns = pages_resources.get_uri_patterns()
+        for p in patterns:
+            self.assertRegex(p, r"^voog://\{site\}/pages")
+
+    def test_matches_site_namespaced_uri(self):
+        self.assertTrue(pages_resources.matches("voog://stella/pages"))
+        self.assertTrue(pages_resources.matches("voog://stella/pages/42"))
+        self.assertFalse(pages_resources.matches("voog://pages/42"))  # legacy format rejected
 
 
 class TestPagesResourcesReadRoot(unittest.TestCase):
@@ -65,7 +87,7 @@ class TestPagesResourcesReadRoot(unittest.TestCase):
                 "public_url": "https://runnel.ee/foo",
             },
         ]
-        result = pages_resources.read_resource("voog://pages", client)
+        result = pages_resources.read_resource("voog://stella/pages", client)
         client.get_all.assert_called_once_with("/pages")
         contents = list(result)
         self.assertEqual(len(contents), 1)
@@ -79,7 +101,7 @@ class TestPagesResourcesReadRoot(unittest.TestCase):
     def test_read_root_empty(self):
         client = MagicMock()
         client.get_all.return_value = []
-        result = pages_resources.read_resource("voog://pages", client)
+        result = pages_resources.read_resource("voog://stella/pages", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed, [])
@@ -89,7 +111,7 @@ class TestPagesResourcesReadSinglePage(unittest.TestCase):
     def test_read_single_page_calls_correct_endpoint(self):
         client = MagicMock()
         client.get.return_value = {"id": 152377, "title": "Avaleht", "path": ""}
-        result = pages_resources.read_resource("voog://pages/152377", client)
+        result = pages_resources.read_resource("voog://stella/pages/152377", client)
         client.get.assert_called_once_with("/pages/152377")
         client.get_all.assert_not_called()
         contents = list(result)
@@ -102,13 +124,13 @@ class TestPagesResourcesReadSinglePage(unittest.TestCase):
     def test_read_single_page_rejects_non_integer_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            pages_resources.read_resource("voog://pages/abc", client)
+            pages_resources.read_resource("voog://stella/pages/abc", client)
         client.get.assert_not_called()
 
     def test_read_single_page_rejects_negative_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            pages_resources.read_resource("voog://pages/-5", client)
+            pages_resources.read_resource("voog://stella/pages/-5", client)
 
 
 class TestPagesResourcesReadContents(unittest.TestCase):
@@ -119,7 +141,7 @@ class TestPagesResourcesReadContents(unittest.TestCase):
             {"id": 2, "name": "body", "value": "World"},
         ]
         result = pages_resources.read_resource(
-            "voog://pages/152377/contents", client
+            "voog://stella/pages/152377/contents", client
         )
         client.get.assert_called_once_with("/pages/152377/contents")
         contents = list(result)
@@ -131,7 +153,7 @@ class TestPagesResourcesReadContents(unittest.TestCase):
         client = MagicMock()
         with self.assertRaises(ValueError):
             pages_resources.read_resource(
-                "voog://pages/abc/contents", client
+                "voog://stella/pages/abc/contents", client
             )
 
 
@@ -139,26 +161,26 @@ class TestPagesResourcesUnknownUri(unittest.TestCase):
     def test_bare_trailing_slash_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            pages_resources.read_resource("voog://pages/", client)
+            pages_resources.read_resource("voog://stella/pages/", client)
 
     def test_unknown_subpath_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
             pages_resources.read_resource(
-                "voog://pages/152377/unknown", client
+                "voog://stella/pages/152377/unknown", client
             )
 
     def test_unknown_extra_segments_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
             pages_resources.read_resource(
-                "voog://pages/152377/contents/extra", client
+                "voog://stella/pages/152377/contents/extra", client
             )
 
     def test_completely_unrelated_uri_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            pages_resources.read_resource("voog://layouts", client)
+            pages_resources.read_resource("voog://stella/layouts", client)
 
 
 class TestPagesResourcesErrorPropagation(unittest.TestCase):
@@ -166,7 +188,7 @@ class TestPagesResourcesErrorPropagation(unittest.TestCase):
         client = MagicMock()
         client.get_all.side_effect = urllib.error.URLError("network down")
         with self.assertRaises(urllib.error.URLError):
-            pages_resources.read_resource("voog://pages", client)
+            pages_resources.read_resource("voog://stella/pages", client)
 
     def test_single_page_propagates_api_errors(self):
         client = MagicMock()
@@ -174,7 +196,7 @@ class TestPagesResourcesErrorPropagation(unittest.TestCase):
             "url", 404, "Not Found", {}, None
         )
         with self.assertRaises(urllib.error.HTTPError):
-            pages_resources.read_resource("voog://pages/999", client)
+            pages_resources.read_resource("voog://stella/pages/999", client)
 
 
 class TestServerResourceRegistry(unittest.TestCase):
