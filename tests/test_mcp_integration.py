@@ -40,6 +40,7 @@ import pathlib
 import queue
 import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 
@@ -174,10 +175,32 @@ class TestMCPInitialize(unittest.TestCase):
         # HTTP call — the dummy token is sufficient. Without isError=True a
         # client cannot distinguish a tool-level failure from a successful
         # response (per spec § 7).
+        #
+        # The new multi-site server loads config from a voog.json file
+        # (pointed to via $VOOG_CONFIG). We write a minimal temp config with
+        # one site named "runnel" and supply its API token in the env. The
+        # tool call also includes site="runnel" so dispatch reaches the tool's
+        # own force=true check rather than the missing-site guard.
+        tmpdir_obj = tempfile.TemporaryDirectory()
+        tmpdir = tmpdir_obj.name
+        cfg_path = pathlib.Path(tmpdir) / "voog.json"
+        cfg_path.write_text(
+            json.dumps(
+                {
+                    "sites": {
+                        "runnel": {
+                            "host": "runnel.ee",
+                            "api_key_env": "RUNNEL_VOOG_API_KEY",
+                        }
+                    },
+                    "default_site": "runnel",
+                }
+            )
+        )
         env = {
             **os.environ,
-            "VOOG_HOST": "runnel.ee",
-            "VOOG_API_TOKEN": "dummy",
+            "VOOG_CONFIG": str(cfg_path),
+            "RUNNEL_VOOG_API_KEY": "dummy",
         }
         proc = subprocess.Popen(
             [str(VOOG_MCP_BIN)],
@@ -227,7 +250,8 @@ class TestMCPInitialize(unittest.TestCase):
             proc.stdin.flush()
 
             # 3. Call page_delete without force=true → tool returns error_response.
-            #    Skip notifications, find the response with id=2.
+            #    site="runnel" is required by the new multi-site server; passing
+            #    it lets dispatch reach the tool's own validation (force=true check).
             proc.stdin.write(
                 json.dumps(
                     {
@@ -236,7 +260,7 @@ class TestMCPInitialize(unittest.TestCase):
                         "method": "tools/call",
                         "params": {
                             "name": "page_delete",
-                            "arguments": {"page_id": 999},
+                            "arguments": {"page_id": 999, "site": "runnel"},
                         },
                     }
                 )
@@ -279,6 +303,7 @@ class TestMCPInitialize(unittest.TestCase):
                         stream.close()
                     except Exception:
                         pass
+            tmpdir_obj.cleanup()
 
     def test_sdk_input_validation_returns_iserror_true(self):
         # Complement to test_tool_validation_error_returns_iserror_true:
