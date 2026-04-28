@@ -252,10 +252,11 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         max_workers=8,
     )
     for pid, contents, exc in page_content_results:
+        filename = f"page_{pid}_contents.json"
         if exc is not None:
-            skipped.append({"file": f"page_{pid}_contents.json", "reason": str(exc)})
+            skipped.append({"file": filename, "reason": _format_skip(filename, exc)})
             continue
-        write_json(out / f"page_{pid}_contents.json", contents)
+        write_json(out / filename, contents)
         files_written += 1
         page_contents_count += 1
 
@@ -268,10 +269,11 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         max_workers=8,
     )
     for aid, detail, exc in article_detail_results:
+        filename = f"article_{aid}.json"
         if exc is not None:
-            skipped.append({"file": f"article_{aid}.json", "reason": str(exc)})
+            skipped.append({"file": filename, "reason": _format_skip(filename, exc)})
             continue
-        write_json(out / f"article_{aid}.json", detail)
+        write_json(out / filename, detail)
         files_written += 1
         article_detail_count += 1
 
@@ -298,10 +300,11 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
             _fetch_product_detail, product_ids, max_workers=8,
         )
         for pid, detail, exc in product_detail_results:
+            filename = f"product_{pid}.json"
             if exc is not None:
-                skipped.append({"file": f"product_{pid}.json", "reason": str(exc)})
+                skipped.append({"file": filename, "reason": _format_skip(filename, exc)})
                 continue
-            write_json(out / f"product_{pid}.json", detail)
+            write_json(out / filename, detail)
             files_written += 1
 
     # 6. Rendered HTML samples for VoogStyle capture (best-effort).
