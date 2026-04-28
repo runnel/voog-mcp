@@ -22,6 +22,39 @@ class TestVoogClient(unittest.TestCase):
         self.assertEqual(client.headers["Content-Type"], "application/json")
 
 
+class TestVoogClientTimeout(unittest.TestCase):
+    """HTTP timeout — long-running MCP server cannot afford to hang on a stuck
+    connection (a hung HTTP call wedges the entire Claude session)."""
+
+    def test_default_timeout_is_60_seconds(self):
+        client = VoogClient(host="runnel.ee", api_token="t")
+        self.assertEqual(client.timeout, 60)
+
+    def test_custom_timeout_stored(self):
+        client = VoogClient(host="runnel.ee", api_token="t", timeout=15)
+        self.assertEqual(client.timeout, 15)
+
+    def test_request_passes_timeout_to_urlopen(self):
+        client = VoogClient(host="runnel.ee", api_token="t", timeout=15)
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog_mcp.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = fake_resp
+            client.get("/pages")
+        _, kwargs = mock_urlopen.call_args
+        self.assertEqual(kwargs.get("timeout"), 15)
+
+    def test_request_uses_default_timeout_when_not_overridden(self):
+        client = VoogClient(host="runnel.ee", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog_mcp.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = fake_resp
+            client.get("/pages")
+        _, kwargs = mock_urlopen.call_args
+        self.assertEqual(kwargs.get("timeout"), 60)
+
+
 class TestGetAllParamsPassthrough(unittest.TestCase):
     """get_all merges caller params with pagination params."""
 
