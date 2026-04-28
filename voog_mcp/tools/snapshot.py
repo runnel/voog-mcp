@@ -394,7 +394,7 @@ def _pick_sample_page_paths(pages: list, max_samples: int = 3) -> list:
             continue
         ct = p.get("content_type") or "default"
         by_ct.setdefault(ct, []).append(p)
-    for ct, items in by_ct.items():
+    for ct, items in sorted(by_ct.items()):
         if len(picks) >= max_samples:
             break
         if ct in seen_cts:

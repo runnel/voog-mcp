@@ -26,10 +26,11 @@ from mcp.types import Resource
 
 from voog_mcp.client import VoogClient
 from voog_mcp.projections import simplify_articles
-from voog_mcp.resources._helpers import json_response, parse_id
+from voog_mcp.resources._helpers import json_response, parse_id, prefix_matcher
 
 
 URI_PREFIX = "voog://articles"
+matches = prefix_matcher(URI_PREFIX)
 
 
 def get_uri_patterns() -> list[str]:
@@ -51,10 +52,6 @@ def get_resources() -> list[Resource]:
             mimeType="application/json",
         ),
     ]
-
-
-def matches(uri: str) -> bool:
-    return uri == URI_PREFIX or uri.startswith(URI_PREFIX + "/")
 
 
 async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:

@@ -28,7 +28,6 @@ or a follow-up tool call if desired (the assets remain in Voog's library).
 complex than the rest of :mod:`voog_mcp.tools.products` (list/get/update),
 and isolating it keeps that module's read+translate flow easy to follow.
 """
-import urllib.error
 import urllib.request
 from pathlib import Path
 

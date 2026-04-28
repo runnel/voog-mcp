@@ -462,6 +462,22 @@ class TestPickSamplePagePaths(unittest.TestCase):
         result = snapshot_tools._pick_sample_page_paths(pages, max_samples=3)
         self.assertEqual(len(result), 3)
 
+    def test_content_type_iteration_is_deterministic(self):
+        # Two distinct content_types ranked by sorted(ct) — output must be
+        # stable across input orderings so two snapshot runs against the same
+        # site produce identical sample lists.
+        pages_a = [
+            {"path": "", "content_type": "page"},
+            {"path": "blog/x", "content_type": "blog"},
+            {"path": "shop/y", "content_type": "shop"},
+        ]
+        pages_b = list(reversed(pages_a))
+        result_a = snapshot_tools._pick_sample_page_paths(pages_a, max_samples=2)
+        result_b = snapshot_tools._pick_sample_page_paths(pages_b, max_samples=2)
+        # Front page first, then "blog" (sorted before "shop")
+        self.assertEqual(result_a, ["/", "/blog/x"])
+        self.assertEqual(result_b, ["/", "/blog/x"])
+
 
 class TestServerToolRegistry(unittest.TestCase):
     """Phase C contract — snapshot_tools joined to TOOL_GROUPS."""
