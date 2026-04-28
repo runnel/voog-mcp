@@ -14,9 +14,10 @@ Three tools — all use ``client.ecommerce_url`` as base:
 Mirrors :mod:`voog_mcp.tools.layouts` pattern: explicit MCP annotation
 triples on every tool, defensive validation, ``success_response``/``error_response``.
 
-The list view's curated projection matches :mod:`voog_mcp.resources.products`
-(`_simplify_products`) so the ``products_list`` tool and the
-``voog://products`` resource produce the same shape — consistent UX.
+The list view's curated projection lives in :mod:`voog_mcp.projections`
+(:func:`simplify_products`) and is shared with :mod:`voog_mcp.resources.products`
+so the ``products_list`` tool and the ``voog://products`` resource produce the
+same shape — consistent UX, and the shape can't drift between the two surfaces.
 
 `product_set_images` is deferred (filesystem-touching: needs absolute paths
 and the 3-step asset upload protocol). The ``voog.py`` CLI shim still works
@@ -26,6 +27,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
+from voog_mcp.projections import simplify_products
 
 
 LIST_INCLUDE = "translations"
@@ -135,7 +137,7 @@ def _products_list(client: VoogClient) -> list[TextContent] | CallToolResult:
             base=client.ecommerce_url,
             params={"include": LIST_INCLUDE},
         )
-        simplified = _simplify_products(products)
+        simplified = simplify_products(products)
         return success_response(simplified, summary=f"🛒 {len(simplified)} products")
     except Exception as e:
         return error_response(f"products_list ebaõnnestus: {e}")
@@ -204,29 +206,3 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
         )
     except Exception as e:
         return error_response(f"product_update id={product_id} ebaõnnestus: {e}")
-
-
-def _simplify_products(products: list) -> list:
-    """Project products to a curated subset.
-
-    Mirrors :func:`voog_mcp.resources.products._simplify_products` so the
-    tool's output and the resource's output share the same shape — caller
-    can't tell which surface produced the data, which keeps Claude's mental
-    model consistent.
-    """
-    simplified = []
-    for product in products:
-        simplified.append({
-            "id": product.get("id"),
-            "name": product.get("name"),
-            "slug": product.get("slug"),
-            "sku": product.get("sku"),
-            "status": product.get("status"),
-            "in_stock": product.get("in_stock"),
-            "on_sale": product.get("on_sale"),
-            "price": product.get("price"),
-            "effective_price": product.get("effective_price"),
-            "translations": product.get("translations"),
-            "updated_at": product.get("updated_at"),
-        })
-    return simplified
