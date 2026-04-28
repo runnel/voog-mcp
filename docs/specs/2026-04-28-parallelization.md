@@ -105,6 +105,8 @@ def parallel_map(
 - Sync kontrakt — ei nõua call_tool muutust async-iks
 - `as_completed` kuid sisemine `idx`-järjestus säilitab caller'ile deterministliku vastuste järjekorra
 
+**Timeout interaktsioon:** PR #40 lisas `urlopen(req, timeout=60)` (read), `timeout=30` (snapshot HTML), `timeout=120` (asset upload). Paralleliseerimisel: worst-case wallclock = `max(timeout)` üle N päringu, mitte `N × timeout` — paralleliseerimise võit on tegelik. `parallel_map`-i `fn` võib raise'da `socket.timeout`, mis routes'b korrektselt `(item, None, exception)` tuple'i — caller näeb selgelt, mis päring timeout'is.
+
 ### 4.3. max_workers vaikimisi
 
 | Operatsiooni tüüp | Default | Põhjendus |
@@ -113,7 +115,9 @@ def parallel_map(
 | Write PUT/POST (page_set_hidden, layouts_push) | 4 | Kirjutamised on tundlikumad rate limit'ile + tagasipööramine on raskem; konservatiivsem |
 | Asset upload (S3 presigned URL) | 3 | Iga upload on multi-MB binary; 3 paralleelset 5 MB upload'i ≤ 15 MB net I/O |
 
-Iga tool võib oma valida — helper võtab `max_workers=...` kwarg'iks. Vaikimisi ei ole konfigureeritav env var'iga praegu (lisada saab kui vaja).
+Iga tool võib oma valida — helper võtab `max_workers=...` kwarg'iks.
+
+**Env-var override (mitte v0.1, aga muster paigas):** kui Voog 429-id sisuliselt esinema hakkavad, lisame loetavad env-var'id konsistentse mustriga: `VOOG_PARALLEL_MAX_WORKERS_READ=4`, `VOOG_PARALLEL_MAX_WORKERS_WRITE=2`, `VOOG_PARALLEL_MAX_WORKERS_UPLOAD=2`. Tools loevad need `_concurrency.py`-st sub-helperi kaudu (`get_max_workers(kind)`). Praegu kõik hardcode'itud — env-var'id lisame kui empiiriliselt vaja.
 
 ### 4.4. Rate limit etikett
 
@@ -150,6 +154,22 @@ if failed:
 ```
 
 Säilib: surface'b orphan upload'id `uploaded`-s, ei tee product PUT'i. Erinevus: nüüd kõik 4 upload'i on tehtud (kui 1 ebaõnnestub, 3 muud on Voog'is library's), enne — ainult need, mis enne failure'it järjekorras tulid. Net mõju: orphan'eid võib olla rohkem. **Aktsepteeritav** — orphan asset'id on inertselt asset library's, kasutaja saab need re-link'ida või kustutada admin UI's.
+
+**Faas 4 implementatsiooni nõue — orphan recovery juhis error_message'is:**
+
+`error_response`-i `details` säilib (`{product_id, old_asset_ids, uploaded, failed}`), aga **error_message ise peab andma kasutajale konkreetse next-step'i**. Sõnastus:
+
+```
+product_set_images: N of M upload(s) failed. Product {id} NOT updated.
+Orphan asset_id(s) in details.uploaded — these exist in Voog's asset
+library but are NOT linked to any product. Recovery options:
+  1) Re-run product_set_images with the failed file(s) removed —
+     successful orphans will be re-uploaded as new asset_ids.
+  2) Manually link the orphan asset_id(s) via Voog admin UI.
+  3) Delete orphan asset_id(s) via DELETE /assets/{id}.
+```
+
+Põhjus: ilma juhiseta caller näeb `details.uploaded: [{asset_id: 12345, ...}]` ja peab ise mõtlema, mida sellega teha. Pre-paralleelses versioonis (max 1 orphan) oli kontekst piisav; uues versioonis (kuni N-1 orphani) tuleb selgesõnaliselt käes hoida. Sessioon 4 prompt peab seda explicit'selt nõudma.
 
 ## 5. Faasid
 

@@ -110,7 +110,9 @@ Vaikimisi max_workers=4 (mitte 8 nagu read'id) — kirjutamised on tundlikumad. 
 ## Sessioon 6 — `?include=` verifitseerimine + apply
 
 ```
-Loe /Users/runnel/Library/CloudStorage/Dropbox/Documents/Claude/Tööriistad/docs/specs/2026-04-28-parallelization.md sektsioon "Faas 6: ?include= list endpoint'il (verifitseeritav)" ja täida ülesanne kahe sammuna:
+Loe /Users/runnel/Library/CloudStorage/Dropbox/Documents/Claude/Tööriistad/docs/specs/2026-04-28-parallelization.md sektsioon "Faas 6: ?include= list endpoint'il (verifitseeritav)" ja täida ülesanne kahe sammuna.
+
+Eeldus: Faas 1 (parallel_map helper) JA Faas 2 (site_snapshot parallelization) on juba merged main'i. Faas 6 muudab Faas 2-s tehtud per-product detail loop'i — peab Faas 2 valmis olema enne, muidu redigeerid faili, mida pole veel olemas. Kui Faas 2 pole merged, peatu ja anna teada.
 
 SAMM 1 (verifitseerimine):
 - Käivita käsitsi curl kõne või Python REPL'is:
