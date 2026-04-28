@@ -18,11 +18,16 @@ unlike :func:`voog_mcp.tools.products._product_update`. Voog's wrapper
 convention varies per operation, not per resource; ``voog.py`` empirically
 confirms this endpoint accepts the flat shape.
 
-**Partial failure semantics:** if any single upload fails, the final product
-PUT is skipped — better to surface the failure cleanly than leave the product
-with a half-set of images. Successful uploads are still surfaced in
-``uploaded`` so the caller can manually re-link them via the Voog admin UI
-or a follow-up tool call if desired (the assets remain in Voog's library).
+**Partial failure semantics (collect-then-decide):** uploads run in parallel
+(:func:`voog_mcp._concurrency.parallel_map`, ``max_workers=3`` per spec § 4.3 —
+each upload is a multi-MB binary, so the cap is conservative). All uploads
+run to completion *before* the product PUT decision; if any single upload
+fails, the final product PUT is skipped — better to surface the failure
+cleanly than leave the product with a half-set of images. Successful uploads
+remain in Voog's asset library as orphans (up to ``len(files) - 1`` of them
+if a single upload fails, vs. 0–N-1 under the old first-failure-break loop).
+Surfaced in ``uploaded`` for the caller to re-link via admin UI, re-run the
+tool with the failed file(s) removed, or DELETE ``/assets/{id}`` to clean up.
 
 **Why this lives in its own module:** the 3-step protocol is markedly more
 complex than the rest of :mod:`voog_mcp.tools.products` (list/get/update),
@@ -33,6 +38,7 @@ from pathlib import Path
 
 from mcp.types import CallToolResult, TextContent, Tool
 
+from voog_mcp._concurrency import parallel_map
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
 
@@ -162,30 +168,48 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
             f"existing image(s). Pass force=true to replace them."
         )
 
-    # 3-step upload per file. Stop on first failure — partial uploads are
-    # still surfaced in `uploaded` so the caller can re-link if desired.
+    # 3-step upload per file, in parallel (collect-then-decide per spec § 4.6).
+    # All uploads run to completion before deciding on the product PUT — the
+    # old first-failure-break loop is gone, so up to len(paths)-1 successful
+    # uploads can be left as orphans in Voog's asset library if any upload
+    # fails. max_workers=3: each upload is a multi-MB binary; 3 in flight
+    # caps net I/O at ~15 MB for typical 5 MB images (spec § 4.3).
     uploaded: list[dict] = []
     failed: list[dict] = []
-    for path in paths:
-        try:
-            asset = _upload_asset(path, client)
-        except Exception as e:
-            failed.append({"filename": path.name, "error": str(e)})
-            break
-        uploaded.append({
-            "filename": path.name,
-            "asset_id": asset["id"],
-            "url": asset.get("url", ""),
-        })
+    upload_results = parallel_map(
+        lambda p: _upload_asset(p, client),
+        paths,
+        max_workers=3,
+    )
+    for path, asset, exc in upload_results:
+        if exc is not None:
+            failed.append({"filename": path.name, "error": str(exc)})
+        else:
+            uploaded.append({
+                "filename": path.name,
+                "asset_id": asset["id"],
+                "url": asset.get("url", ""),
+            })
 
     if failed:
         # Don't update the product if anything failed — half-set of images
-        # is worse than no update. Surface the orphan uploads in `details`.
-        return error_response(
+        # is worse than no update. Surface the orphan uploads in `details`
+        # AND give the caller explicit recovery guidance: under parallel
+        # collect-then-decide, orphan count can reach N-1 (was 0..N-1 under
+        # first-failure-break), so callers need to know what to do with them.
+        error_message = (
             f"product_set_images: {len(failed)} of {len(paths)} upload(s) "
-            f"failed. Product {product_id} NOT updated. "
-            f"Successful uploads remain in Voog's asset library — re-run "
-            f"with the failed files removed, or re-link manually via admin UI.",
+            f"failed. Product {product_id} NOT updated.\n"
+            "Orphan asset_id(s) in details.uploaded — these exist in Voog's "
+            "asset library but are NOT linked to any product. Recovery "
+            "options:\n"
+            "  1) Re-run product_set_images with the failed file(s) removed "
+            "— successful orphans will be re-uploaded as new asset_ids.\n"
+            "  2) Manually link the orphan asset_id(s) via Voog admin UI.\n"
+            "  3) Delete orphan asset_id(s) via DELETE /assets/{id}."
+        )
+        return error_response(
+            error_message,
             details={
                 "product_id": product_id,
                 "old_asset_ids": old_asset_ids,
