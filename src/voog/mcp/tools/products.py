@@ -23,17 +23,17 @@ same shape — consistent UX, and the shape can't drift between the two surfaces
 and the 3-step asset upload protocol). The ``voog.py`` CLI shim still works
 for that operation.
 """
+
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
-from voog.errors import success_response, error_response
+from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
 from voog.projections import (
     PRODUCTS_DETAIL_INCLUDE,
     PRODUCTS_LIST_INCLUDE,
     simplify_products,
 )
-
 
 # Voog API supports translation-keyed updates only on these fields. Each
 # entry in `fields` (the input arg) must be `<field>-<lang>`, e.g. `name-et`,
@@ -108,8 +108,8 @@ def get_tools() -> list[Tool]:
                         "description": (
                             "Flat field-language map. Keys must match "
                             "`<field>-<lang>` where field ∈ {name, slug}. "
-                            "Example: {\"name-et\": \"Suvekott\", "
-                            "\"slug-en\": \"summer-bag\"}"
+                            'Example: {"name-et": "Suvekott", '
+                            '"slug-en": "summer-bag"}'
                         ),
                         "additionalProperties": {"type": "string"},
                     },
@@ -125,7 +125,9 @@ def get_tools() -> list[Tool]:
     ]
 
 
-def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
+def call_tool(
+    name: str, arguments: dict | None, client: VoogClient
+) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
     if name == "products_list":
@@ -183,17 +185,14 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
         field, lang = key.split("-", 1)
         if field not in TRANSLATABLE_FIELDS:
             return error_response(
-                f"product_update: field {field!r} not supported. "
-                f"Allowed: {TRANSLATABLE_FIELDS}"
+                f"product_update: field {field!r} not supported. Allowed: {TRANSLATABLE_FIELDS}"
             )
         # Reject malformed lang segment: empty (e.g. 'name-') or starts with
         # '-' (e.g. 'name--et' splits to lang='-et'). Voog would reject these
         # eventually with a generic 422; catching them here gives the caller
         # a precise error message.
         if not lang or lang.startswith("-"):
-            return error_response(
-                f"product_update: lang segment in {key!r} is empty or malformed"
-            )
+            return error_response(f"product_update: lang segment in {key!r} is empty or malformed")
         if not value:
             return error_response(
                 f"product_update: empty value for {key!r} (Voog rejects empty translations)"

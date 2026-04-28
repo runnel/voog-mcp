@@ -26,8 +26,9 @@ modules don't need to reach into ``mcp.server.lowlevel.helper_types`` directly.
 Errors propagate (no wrapping into MCP error responses) — the server layer
 turns raised exceptions into JSON-RPC errors.
 """
+
 import json
-from typing import Callable
+from collections.abc import Callable
 
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 

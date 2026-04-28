@@ -18,18 +18,18 @@ The list view's curated shape comes from :func:`voog_mcp.projections.simplify_pa
 shared with :mod:`voog_mcp.tools.pages` so the ``pages_list`` tool and the
 ``voog://{site}/pages`` resource can't drift out of sync.
 """
+
 import re
 
 from mcp.types import Resource
 
 from voog.client import VoogClient
-from voog.projections import simplify_pages
 from voog.mcp.resources._helpers import (
     ReadResourceContents,
     json_response,
     parse_id,
 )
-
+from voog.projections import simplify_pages
 
 URI_TEMPLATE = "voog://{site}/pages"
 _URI_RE = re.compile(r"^voog://[^/]+/pages(/.*)?$")
@@ -46,7 +46,7 @@ def matches(uri: str) -> bool:
 
 def _strip_site(uri: str) -> str:
     """voog://stella/pages/42 → /pages/42"""
-    rest = uri[len("voog://"):]
+    rest = uri[len("voog://") :]
     _, _, path = rest.partition("/")
     return "/" + path
 
@@ -77,7 +77,7 @@ def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
     if not local.startswith("/pages/"):
         raise ValueError(f"pages resource: unsupported URI {uri!r}")
 
-    sub = local[len("/pages/"):]
+    sub = local[len("/pages/") :]
     parts = sub.split("/")
 
     if len(parts) == 1:

@@ -1,11 +1,9 @@
 """Tests for voog_mcp.tools.redirects."""
+
 import json
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest.mock import MagicMock
-
 
 from tests._test_helpers import _ann_get
 from voog.mcp.tools import redirects as redirects_tools
@@ -57,7 +55,12 @@ class TestRedirectsTools(unittest.TestCase):
 
     def test_redirect_add_calls_client_with_defaults(self):
         client = MagicMock()
-        client.post.return_value = {"id": 99, "source": "/a", "destination": "/b", "redirect_type": 301}
+        client.post.return_value = {
+            "id": 99,
+            "source": "/a",
+            "destination": "/b",
+            "redirect_type": 301,
+        }
         result = redirects_tools.call_tool(
             "redirect_add",
             {"source": "/a", "destination": "/b"},
@@ -130,9 +133,13 @@ class TestRedirectsTools(unittest.TestCase):
 class TestAllToolsRequireSite(unittest.TestCase):
     def test_all_tools_require_site(self):
         from voog.mcp.tools import redirects as mod
+
         for tool in mod.get_tools():
-            self.assertIn("site", tool.inputSchema.get("required", []),
-                          f"tool {tool.name} must require 'site'")
+            self.assertIn(
+                "site",
+                tool.inputSchema.get("required", []),
+                f"tool {tool.name} must require 'site'",
+            )
 
 
 if __name__ == "__main__":

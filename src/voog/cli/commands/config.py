@@ -1,4 +1,5 @@
 """voog config — manage global multi-site configuration."""
+
 from __future__ import annotations
 
 import json
@@ -8,11 +9,10 @@ from pathlib import Path
 
 from voog.client import VoogClient
 from voog.config import (
-    ConfigError,
     default_global_config_path,
-    load_global_config,
-    load_env_file,
     find_env_file,
+    load_env_file,
+    load_global_config,
 )
 
 
@@ -26,9 +26,7 @@ def add_arguments(subparsers):
     list_p = sub.add_parser("list-sites", help="List configured sites")
     list_p.set_defaults(func=list_sites)
 
-    check_p = sub.add_parser(
-        "check", help="Verify all configured tokens (HEAD per site)"
-    )
+    check_p = sub.add_parser("check", help="Verify all configured tokens (HEAD per site)")
     check_p.set_defaults(func=check)
 
     # Top-level dispatcher (sub_parsers required, so this is rarely hit)
@@ -51,9 +49,7 @@ def init(args) -> int:
         if not name:
             break
         host = input(f"  Host for '{name}' (e.g., example.com): ").strip()
-        env_var = input(
-            f"  Env var that holds the API token for '{name}': "
-        ).strip()
+        env_var = input(f"  Env var that holds the API token for '{name}': ").strip()
         sites[name] = {"host": host, "api_key_env": env_var}
 
     if not sites:
@@ -71,9 +67,7 @@ def init(args) -> int:
                 return 1
             default = choice
 
-    cfg_path.write_text(
-        json.dumps({"sites": sites, "default_site": default}, indent=2)
-    )
+    cfg_path.write_text(json.dumps({"sites": sites, "default_site": default}, indent=2))
     print(f"\nWrote {cfg_path}")
 
     env_path = cfg_path.parent / ".env"

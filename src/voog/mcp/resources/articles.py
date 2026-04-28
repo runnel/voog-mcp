@@ -7,19 +7,19 @@ Two URI shapes:
                                          language_code, page_id — body field stripped)
   - ``voog://{site}/articles/{id}``   — article body (HTML) as ``text/html``
 """
+
 import re
 
 from mcp.types import Resource
 
 from voog.client import VoogClient
-from voog.projections import simplify_articles
 from voog.mcp.resources._helpers import (
     ReadResourceContents,
     json_response,
     parse_id,
     text_response,
 )
-
+from voog.projections import simplify_articles
 
 URI_TEMPLATE = "voog://{site}/articles"
 _URI_RE = re.compile(r"^voog://[^/]+/articles(/.*)?$")
@@ -36,7 +36,7 @@ def matches(uri: str) -> bool:
 
 def _strip_site(uri: str) -> str:
     """voog://stella/articles/42 → /articles/42"""
-    rest = uri[len("voog://"):]
+    rest = uri[len("voog://") :]
     _, _, path = rest.partition("/")
     return "/" + path
 
@@ -67,7 +67,7 @@ def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
     if not local.startswith("/articles/"):
         raise ValueError(f"articles resource: unsupported URI {uri!r}")
 
-    sub = local[len("/articles/"):]
+    sub = local[len("/articles/") :]
     parts = sub.split("/")
 
     if len(parts) == 1:

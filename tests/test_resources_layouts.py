@@ -1,11 +1,9 @@
 """Tests for voog_mcp.resources.layouts."""
+
 import json
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest.mock import MagicMock
-
 
 from voog.mcp.resources import layouts as layouts_resources
 
@@ -155,9 +153,7 @@ class TestLayoutsResourcesUnknownUri(unittest.TestCase):
         # voog://stella/layouts/{id}/anything is NOT a valid layouts URI
         client = MagicMock()
         with self.assertRaises(ValueError):
-            layouts_resources.read_resource(
-                "voog://stella/layouts/977702/contents", client
-            )
+            layouts_resources.read_resource("voog://stella/layouts/977702/contents", client)
 
     def test_completely_unrelated_uri_rejected(self):
         client = MagicMock()
@@ -174,9 +170,7 @@ class TestLayoutsResourcesErrorPropagation(unittest.TestCase):
 
     def test_single_layout_propagates_api_errors(self):
         client = MagicMock()
-        client.get.side_effect = urllib.error.HTTPError(
-            "url", 404, "Not Found", {}, None
-        )
+        client.get.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         with self.assertRaises(urllib.error.HTTPError):
             layouts_resources.read_resource("voog://stella/layouts/999", client)
 
@@ -186,17 +180,14 @@ class TestServerResourceRegistry(unittest.TestCase):
 
     def test_layouts_in_resource_groups(self):
         from voog.mcp import server
+
         self.assertIn(layouts_resources, server.RESOURCE_GROUPS)
 
     def test_no_uri_collisions_after_layouts_added(self):
         from voog.mcp import server
-        all_uris = [
-            str(r.uri)
-            for g in server.RESOURCE_GROUPS
-            for r in g.get_resources()
-        ]
-        self.assertEqual(len(all_uris), len(set(all_uris)),
-                         f"Duplicate resource URIs: {all_uris}")
+
+        all_uris = [str(r.uri) for g in server.RESOURCE_GROUPS for r in g.get_resources()]
+        self.assertEqual(len(all_uris), len(set(all_uris)), f"Duplicate resource URIs: {all_uris}")
 
 
 if __name__ == "__main__":

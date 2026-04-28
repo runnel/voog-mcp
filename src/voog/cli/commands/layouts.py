@@ -1,4 +1,5 @@
 """voog layouts — rename layouts, replace assets, create layouts/components."""
+
 from __future__ import annotations
 
 import json
@@ -30,7 +31,8 @@ def add_arguments(subparsers):
         help="Create a new layout or component in Voog (POST /layouts)",
     )
     create_p.add_argument(
-        "args", nargs="+",
+        "args",
+        nargs="+",
         metavar="[kind] path",
         help="[layout|component] path/to/file.tpl [--content-type=page]",
     )
@@ -85,10 +87,8 @@ def cmd_layout_rename(args, client: VoogClient) -> int:
     # 4. Update manifest
     info = manifest.pop(old_path)
     manifest[new_path] = info
-    manifest_path.write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
-    print(f"  manifest.json updated")
+    manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    print("  manifest.json updated")
     return 0
 
 
@@ -115,9 +115,7 @@ def cmd_asset_replace(args, client: VoogClient) -> int:
     # 2. Find manifest entry
     manifest_path = local_dir / "manifest.json"
     manifest = (
-        json.loads(manifest_path.read_text(encoding="utf-8"))
-        if manifest_path.exists()
-        else {}
+        json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
     )
 
     old_path = None
@@ -142,11 +140,14 @@ def cmd_asset_replace(args, client: VoogClient) -> int:
 
     # 3. POST new asset
     print(f"POST /layout_assets filename={new_filename!r}...")
-    result = client.post("/layout_assets", {
-        "filename": new_filename,
-        "asset_type": asset_type,
-        "data": content,
-    })
+    result = client.post(
+        "/layout_assets",
+        {
+            "filename": new_filename,
+            "asset_type": asset_type,
+            "data": content,
+        },
+    )
     new_id = result.get("id")
     if not new_id:
         sys.stderr.write(f"error: POST response missing id: {result!r}\n")
@@ -175,9 +176,9 @@ def cmd_asset_replace(args, client: VoogClient) -> int:
 
     # 5. Warn about leftover old asset
     print(f"  warning: old asset id {asset_id} ({old_filename!r}) is still present in Voog.")
-    print(f"  After updating + pushing templates that reference the old name, delete with:")
+    print("  After updating + pushing templates that reference the old name, delete with:")
     print(f"  curl -X DELETE 'https://{client.host}/admin/api/layout_assets/{asset_id}' \\")
-    print(f"       -H \"X-API-Token: $VOOG_API_KEY\"")
+    print('       -H "X-API-Token: $VOOG_API_KEY"')
     return 0
 
 
@@ -251,9 +252,7 @@ def cmd_layout_create(args, client: VoogClient) -> int:
     # Collision check
     manifest_path = local_dir / "manifest.json"
     manifest = (
-        json.loads(manifest_path.read_text(encoding="utf-8"))
-        if manifest_path.exists()
-        else {}
+        json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
     )
     if rel_path in manifest:
         existing_id = manifest[rel_path].get("id")
@@ -291,5 +290,5 @@ def cmd_layout_create(args, client: VoogClient) -> int:
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
     print(f"  Created {kind}: {rel_path} (id:{new_id})")
-    print(f"  manifest.json updated.")
+    print("  manifest.json updated.")
     return 0

@@ -1,11 +1,9 @@
 """Tests for voog_mcp.tools.pages."""
+
 import json
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest.mock import MagicMock
-
 
 from tests._test_helpers import _ann_get
 from voog.mcp.tools import pages as pages_tools
@@ -23,15 +21,18 @@ class TestPagesTools(unittest.TestCase):
         for tool in pages_tools.get_tools():
             ann = tool.annotations
             self.assertIs(
-                _ann_get(ann, "readOnlyHint", "read_only_hint"), True,
+                _ann_get(ann, "readOnlyHint", "read_only_hint"),
+                True,
                 f"{tool.name} must have readOnlyHint=True explicitly",
             )
             self.assertIs(
-                _ann_get(ann, "destructiveHint", "destructive_hint"), False,
+                _ann_get(ann, "destructiveHint", "destructive_hint"),
+                False,
                 f"{tool.name} must have destructiveHint=False explicitly",
             )
             self.assertIs(
-                _ann_get(ann, "idempotentHint", "idempotent_hint"), True,
+                _ann_get(ann, "idempotentHint", "idempotent_hint"),
+                True,
                 f"{tool.name} must have idempotentHint=True explicitly",
             )
 
@@ -61,14 +62,20 @@ class TestPagesTools(unittest.TestCase):
 
     def test_simplify_pages_projects_fields(self):
         from voog.projections import simplify_pages
-        raw = [{
-            "id": 1, "path": "foo", "title": "Foo", "hidden": False,
-            "layout": {"id": 10, "title": "Default"},
-            "content_type": "page",
-            "parent_id": None,
-            "language": {"code": "et"},
-            "public_url": "https://runnel.ee/foo",
-        }]
+
+        raw = [
+            {
+                "id": 1,
+                "path": "foo",
+                "title": "Foo",
+                "hidden": False,
+                "layout": {"id": 10, "title": "Default"},
+                "content_type": "page",
+                "parent_id": None,
+                "language": {"code": "et"},
+                "public_url": "https://runnel.ee/foo",
+            }
+        ]
         out = simplify_pages(raw)
         self.assertEqual(out[0]["id"], 1)
         self.assertEqual(out[0]["layout_id"], 10)
@@ -77,6 +84,7 @@ class TestPagesTools(unittest.TestCase):
 
     def test_simplify_pages_handles_missing_fields(self):
         from voog.projections import simplify_pages
+
         raw = [{"id": 2, "path": "x", "title": "X"}]  # no layout, no language
         out = simplify_pages(raw)
         self.assertEqual(out[0]["id"], 2)
@@ -106,9 +114,13 @@ class TestPagesTools(unittest.TestCase):
 class TestAllToolsRequireSite(unittest.TestCase):
     def test_all_tools_require_site(self):
         from voog.mcp.tools import pages as mod
+
         for tool in mod.get_tools():
-            self.assertIn("site", tool.inputSchema.get("required", []),
-                          f"tool {tool.name} must require 'site'")
+            self.assertIn(
+                "site",
+                tool.inputSchema.get("required", []),
+                f"tool {tool.name} must require 'site'",
+            )
 
 
 if __name__ == "__main__":

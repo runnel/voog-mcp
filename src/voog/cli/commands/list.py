@@ -1,4 +1,5 @@
 """voog list — show tracked files from manifest.json."""
+
 from __future__ import annotations
 
 import json

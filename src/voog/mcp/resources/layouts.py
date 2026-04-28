@@ -7,19 +7,19 @@ Two URI shapes:
                                          stripped from the list view)
   - ``voog://{site}/layouts/{id}``    — raw layout body (.tpl source) as ``text/plain``
 """
+
 import re
 
 from mcp.types import Resource
 
 from voog.client import VoogClient
-from voog.projections import simplify_layouts
 from voog.mcp.resources._helpers import (
     ReadResourceContents,
     json_response,
     parse_id,
     text_response,
 )
-
+from voog.projections import simplify_layouts
 
 URI_TEMPLATE = "voog://{site}/layouts"
 _URI_RE = re.compile(r"^voog://[^/]+/layouts(/.*)?$")
@@ -36,7 +36,7 @@ def matches(uri: str) -> bool:
 
 def _strip_site(uri: str) -> str:
     """voog://stella/layouts/42 → /layouts/42"""
-    rest = uri[len("voog://"):]
+    rest = uri[len("voog://") :]
     _, _, path = rest.partition("/")
     return "/" + path
 
@@ -66,7 +66,7 @@ def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
     if not local.startswith("/layouts/"):
         raise ValueError(f"layouts resource: unsupported URI {uri!r}")
 
-    sub = local[len("/layouts/"):]
+    sub = local[len("/layouts/") :]
     parts = sub.split("/")
 
     if len(parts) == 1:

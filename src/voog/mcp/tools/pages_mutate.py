@@ -18,11 +18,12 @@ sets it. The ``force`` parameter on ``page_delete`` is a defensive in-band
 opt-in alongside the MCP annotation, so the actual API call is gated on a
 boolean flag the LLM has to explicitly pass.
 """
+
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog._concurrency import parallel_map
 from voog.client import VoogClient
-from voog.errors import success_response, error_response
+from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
 
 
@@ -114,7 +115,9 @@ def get_tools() -> list[Tool]:
     ]
 
 
-def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
+def call_tool(
+    name: str, arguments: dict | None, client: VoogClient
+) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
     if name == "page_set_hidden":

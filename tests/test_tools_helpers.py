@@ -1,10 +1,9 @@
 """Tests for voog_mcp.tools._helpers shared primitives."""
+
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
-
 
 from voog.mcp.tools._helpers import validate_output_dir, write_json
 
@@ -23,9 +22,7 @@ class TestValidateOutputDir(unittest.TestCase):
         self.assertIn("relative/dir", err)
 
     def test_absolute_path_returns_none(self):
-        self.assertIsNone(
-            validate_output_dir("/abs/path", tool_name="t", param_name="output_dir")
-        )
+        self.assertIsNone(validate_output_dir("/abs/path", tool_name="t", param_name="output_dir"))
 
     def test_param_name_appears_in_both_error_paths(self):
         empty_err = validate_output_dir("", tool_name="x", param_name="my_dir")

@@ -1,4 +1,5 @@
 """voog products — list and manage products."""
+
 from __future__ import annotations
 
 import json
@@ -7,7 +8,6 @@ import urllib.request
 from pathlib import Path
 
 from voog.client import VoogClient
-
 
 CONTENT_TYPES = {
     ".jpg": "image/jpeg",
@@ -25,7 +25,8 @@ def add_arguments(subparsers):
     info_p = subparsers.add_parser("product", help="Get or update a product")
     info_p.add_argument("product_id", type=int)
     info_p.add_argument(
-        "fields", nargs="*",
+        "fields",
+        nargs="*",
         help="Field/value pairs: name-et 'X' name-en 'Y' slug-et 'x' slug-en 'y'",
     )
     info_p.set_defaults(func=cmd_product)
@@ -83,9 +84,7 @@ def cmd_product(args, client: VoogClient) -> int:
             return 2
         attr, lang = key.split("-", 1)
         if attr not in ("name", "slug"):
-            sys.stderr.write(
-                f"error: unknown field {attr!r}. Allowed: name, slug\n"
-            )
+            sys.stderr.write(f"error: unknown field {attr!r}. Allowed: name, slug\n")
             return 2
         translations[attr][lang] = value
 
@@ -95,7 +94,7 @@ def cmd_product(args, client: VoogClient) -> int:
     payload = {"product": {"translations": translations}}
     result = client.put(f"/products/{pid}", payload, base=client.ecommerce_url)
 
-    print(f"  Updated:")
+    print("  Updated:")
     print(f"  name: {result.get('name', '')!r}")
     print(f"  slug: {result.get('slug', '')}")
 
@@ -109,10 +108,7 @@ def cmd_product(args, client: VoogClient) -> int:
     for field in ("name", "slug"):
         if field in tr:
             vals = tr[field]
-            print(
-                f"  {field}: "
-                + ", ".join(f"{l}={v!r}" for l, v in (vals or {}).items())
-            )
+            print(f"  {field}: " + ", ".join(f"{lang}={v!r}" for lang, v in (vals or {}).items()))
     return 0
 
 
@@ -167,9 +163,7 @@ def cmd_product_image(args, client: VoogClient) -> int:
             sys.stderr.write(f"\nerror: upload failed for {p.name}: {e}\n")
             return 1
         asset_ids.append(asset["id"])
-        dims = (
-            f"{asset['width']}x{asset['height']}" if asset.get("width") else "processing"
-        )
+        dims = f"{asset['width']}x{asset['height']}" if asset.get("width") else "processing"
         print(f" done (id:{asset['id']}, {dims})")
 
     # Update product
@@ -180,10 +174,8 @@ def cmd_product_image(args, client: VoogClient) -> int:
     )
 
     img = result.get("image") or {}
-    dims = (
-        f"{img['width']}x{img['height']}" if img.get("width") else "processing"
-    )
-    print(f"\n  Images updated!")
+    dims = f"{img['width']}x{img['height']}" if img.get("width") else "processing"
+    print("\n  Images updated!")
     print(f"  Main image: id:{asset_ids[0]} ({dims})")
     print(f"  Total images: {len(asset_ids)}")
     print(f"  Asset IDs: {result.get('asset_ids', [])}")
@@ -196,11 +188,14 @@ def _upload_asset(path: Path, client: VoogClient) -> dict:
     size = path.stat().st_size
 
     # 1. Create asset record
-    asset = client.post("/assets", {
-        "filename": path.name,
-        "content_type": content_type,
-        "size": size,
-    })
+    asset = client.post(
+        "/assets",
+        {
+            "filename": path.name,
+            "content_type": content_type,
+            "size": size,
+        },
+    )
     asset_id = asset["id"]
     upload_url = asset["upload_url"]
 

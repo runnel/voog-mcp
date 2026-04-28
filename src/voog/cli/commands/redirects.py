@@ -1,7 +1,6 @@
 """voog redirects — manage 301/302/307/410 redirect rules."""
-from __future__ import annotations
 
-import sys
+from __future__ import annotations
 
 from voog.client import VoogClient
 
@@ -14,7 +13,10 @@ def add_arguments(subparsers):
     add_p.add_argument("source")
     add_p.add_argument("target")
     add_p.add_argument(
-        "status_code", nargs="?", type=int, default=301,
+        "status_code",
+        nargs="?",
+        type=int,
+        default=301,
         choices=[301, 302, 307, 410],
     )
     add_p.set_defaults(func=cmd_add)
@@ -48,5 +50,7 @@ def cmd_add(args, client: VoogClient) -> int:
         }
     }
     rule = client.post("/redirect_rules", payload)
-    print(f"  created redirect {rule.get('id')}: {args.source} -> {args.target} [{args.status_code}]")
+    print(
+        f"  created redirect {rule.get('id')}: {args.source} -> {args.target} [{args.status_code}]"
+    )
     return 0

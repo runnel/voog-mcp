@@ -8,6 +8,7 @@ Each command lives in ``voog.cli.commands.<name>`` and exports:
 ``main()`` resolves the site, instantiates the client, and dispatches.
 Exit codes: 0 = success, 1 = config error, 2 = usage / API error.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -15,6 +16,36 @@ import os
 import sys
 from pathlib import Path
 
+from voog.cli.commands import (
+    config as config_cmd,
+)
+from voog.cli.commands import (
+    layouts as layouts_cmd,
+)
+from voog.cli.commands import (
+    list as list_cmd,
+)
+from voog.cli.commands import (
+    pages as pages_cmd,
+)
+from voog.cli.commands import (
+    products as products_cmd,
+)
+from voog.cli.commands import (
+    pull as pull_cmd,
+)
+from voog.cli.commands import (
+    push as push_cmd,
+)
+from voog.cli.commands import (
+    redirects as redirects_cmd,
+)
+from voog.cli.commands import (
+    serve as serve_cmd,
+)
+from voog.cli.commands import (
+    snapshot as snapshot_cmd,
+)
 from voog.client import VoogClient
 from voog.config import (
     ConfigError,
@@ -26,19 +57,6 @@ from voog.config import (
     load_global_config,
     resolve_site,
 )
-from voog.cli.commands import (
-    config as config_cmd,
-    layouts as layouts_cmd,
-    list as list_cmd,
-    pages as pages_cmd,
-    products as products_cmd,
-    pull as pull_cmd,
-    push as push_cmd,
-    redirects as redirects_cmd,
-    serve as serve_cmd,
-    snapshot as snapshot_cmd,
-)
-
 
 COMMANDS = [
     config_cmd,
@@ -92,9 +110,7 @@ def _build_client(args: argparse.Namespace) -> VoogClient:
         env = load_env_file(env_path) if env_path else {}
         token = env.get(pointer.legacy_api_key_env) or os.environ.get(pointer.legacy_api_key_env)
         if not token:
-            raise ConfigError(
-                f"env var '{pointer.legacy_api_key_env}' is not set"
-            )
+            raise ConfigError(f"env var '{pointer.legacy_api_key_env}' is not set")
         return VoogClient(host=pointer.legacy_host, api_token=token)
 
     site = resolve_site(global_cfg, flag_site=args.site, cwd=cwd)

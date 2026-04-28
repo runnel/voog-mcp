@@ -1,4 +1,5 @@
 """voog pull — download all template files from a Voog site."""
+
 from __future__ import annotations
 
 import json

@@ -1,11 +1,9 @@
 """Tests for voog_mcp.resources.articles."""
+
 import json
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest.mock import MagicMock
-
 
 from voog.mcp.resources import articles as articles_resources
 
@@ -168,9 +166,7 @@ class TestArticlesResourcesUnknownUri(unittest.TestCase):
     def test_subpath_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            articles_resources.read_resource(
-                "voog://stella/articles/5001/comments", client
-            )
+            articles_resources.read_resource("voog://stella/articles/5001/comments", client)
 
     def test_completely_unrelated_uri_rejected(self):
         client = MagicMock()
@@ -187,9 +183,7 @@ class TestArticlesResourcesErrorPropagation(unittest.TestCase):
 
     def test_single_article_propagates_api_errors(self):
         client = MagicMock()
-        client.get.side_effect = urllib.error.HTTPError(
-            "url", 404, "Not Found", {}, None
-        )
+        client.get.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         with self.assertRaises(urllib.error.HTTPError):
             articles_resources.read_resource("voog://stella/articles/999", client)
 
@@ -199,17 +193,14 @@ class TestServerResourceRegistry(unittest.TestCase):
 
     def test_articles_in_resource_groups(self):
         from voog.mcp import server
+
         self.assertIn(articles_resources, server.RESOURCE_GROUPS)
 
     def test_no_uri_collisions_after_articles_added(self):
         from voog.mcp import server
-        all_uris = [
-            str(r.uri)
-            for g in server.RESOURCE_GROUPS
-            for r in g.get_resources()
-        ]
-        self.assertEqual(len(all_uris), len(set(all_uris)),
-                         f"Duplicate resource URIs: {all_uris}")
+
+        all_uris = [str(r.uri) for g in server.RESOURCE_GROUPS for r in g.get_resources()]
+        self.assertEqual(len(all_uris), len(set(all_uris)), f"Duplicate resource URIs: {all_uris}")
 
 
 if __name__ == "__main__":

@@ -24,22 +24,22 @@ The list view's curated shape comes from :func:`voog_mcp.projections.simplify_pr
 shared with :mod:`voog_mcp.tools.products` so the ``products_list`` tool and
 the ``voog://{site}/products`` resource can't drift out of sync.
 """
+
 import re
 
 from mcp.types import Resource
 
 from voog.client import VoogClient
-from voog.projections import (
-    PRODUCTS_DETAIL_INCLUDE,
-    PRODUCTS_LIST_INCLUDE,
-    simplify_products,
-)
 from voog.mcp.resources._helpers import (
     ReadResourceContents,
     json_response,
     parse_id,
 )
-
+from voog.projections import (
+    PRODUCTS_DETAIL_INCLUDE,
+    PRODUCTS_LIST_INCLUDE,
+    simplify_products,
+)
 
 URI_TEMPLATE = "voog://{site}/products"
 _URI_RE = re.compile(r"^voog://[^/]+/products(/.*)?$")
@@ -56,7 +56,7 @@ def matches(uri: str) -> bool:
 
 def _strip_site(uri: str) -> str:
     """voog://stella/products/42 → /products/42"""
-    rest = uri[len("voog://"):]
+    rest = uri[len("voog://") :]
     _, _, path = rest.partition("/")
     return "/" + path
 
@@ -91,7 +91,7 @@ def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
     if not local.startswith("/products/"):
         raise ValueError(f"products resource: unsupported URI {uri!r}")
 
-    sub = local[len("/products/"):]
+    sub = local[len("/products/") :]
     parts = sub.split("/")
 
     if len(parts) == 1:

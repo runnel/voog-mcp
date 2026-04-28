@@ -27,18 +27,20 @@ def simplify_pages(pages: list) -> list:
     for p in pages:
         lang = p.get("language") or {}
         layout = p.get("layout") or {}
-        simplified.append({
-            "id": p.get("id"),
-            "path": p.get("path"),
-            "title": p.get("title"),
-            "hidden": p.get("hidden"),
-            "layout_id": p.get("layout_id") or layout.get("id"),
-            "layout_name": p.get("layout_name") or p.get("layout_title") or layout.get("title"),
-            "content_type": p.get("content_type"),
-            "parent_id": p.get("parent_id"),
-            "language_code": lang.get("code"),
-            "public_url": p.get("public_url"),
-        })
+        simplified.append(
+            {
+                "id": p.get("id"),
+                "path": p.get("path"),
+                "title": p.get("title"),
+                "hidden": p.get("hidden"),
+                "layout_id": p.get("layout_id") or layout.get("id"),
+                "layout_name": p.get("layout_name") or p.get("layout_title") or layout.get("title"),
+                "content_type": p.get("content_type"),
+                "parent_id": p.get("parent_id"),
+                "language_code": lang.get("code"),
+                "public_url": p.get("public_url"),
+            }
+        )
     return simplified
 
 
@@ -53,19 +55,21 @@ def simplify_products(products: list) -> list:
     """
     simplified = []
     for product in products:
-        simplified.append({
-            "id": product.get("id"),
-            "name": product.get("name"),
-            "slug": product.get("slug"),
-            "sku": product.get("sku"),
-            "status": product.get("status"),
-            "in_stock": product.get("in_stock"),
-            "on_sale": product.get("on_sale"),
-            "price": product.get("price"),
-            "effective_price": product.get("effective_price"),
-            "translations": product.get("translations"),
-            "updated_at": product.get("updated_at"),
-        })
+        simplified.append(
+            {
+                "id": product.get("id"),
+                "name": product.get("name"),
+                "slug": product.get("slug"),
+                "sku": product.get("sku"),
+                "status": product.get("status"),
+                "in_stock": product.get("in_stock"),
+                "on_sale": product.get("on_sale"),
+                "price": product.get("price"),
+                "effective_price": product.get("effective_price"),
+                "translations": product.get("translations"),
+                "updated_at": product.get("updated_at"),
+            }
+        )
     return simplified
 
 
@@ -80,18 +84,20 @@ def simplify_articles(articles: list) -> list:
     for article in articles:
         lang = article.get("language") or {}
         page = article.get("page") or {}
-        simplified.append({
-            "id": article.get("id"),
-            "title": article.get("title"),
-            "path": article.get("path"),
-            "public_url": article.get("public_url"),
-            "published": article.get("published"),
-            "published_at": article.get("published_at"),
-            "updated_at": article.get("updated_at"),
-            "created_at": article.get("created_at"),
-            "language_code": lang.get("code"),
-            "page_id": page.get("id"),
-        })
+        simplified.append(
+            {
+                "id": article.get("id"),
+                "title": article.get("title"),
+                "path": article.get("path"),
+                "public_url": article.get("public_url"),
+                "published": article.get("published"),
+                "published_at": article.get("published_at"),
+                "updated_at": article.get("updated_at"),
+                "created_at": article.get("created_at"),
+                "language_code": lang.get("code"),
+                "page_id": page.get("id"),
+            }
+        )
     return simplified
 
 
@@ -104,11 +110,13 @@ def simplify_layouts(layouts: list) -> list:
     """
     simplified = []
     for layout in layouts:
-        simplified.append({
-            "id": layout.get("id"),
-            "title": layout.get("title"),
-            "component": layout.get("component"),
-            "content_type": layout.get("content_type"),
-            "updated_at": layout.get("updated_at"),
-        })
+        simplified.append(
+            {
+                "id": layout.get("id"),
+                "title": layout.get("title"),
+                "component": layout.get("component"),
+                "content_type": layout.get("content_type"),
+                "updated_at": layout.get("updated_at"),
+            }
+        )
     return simplified

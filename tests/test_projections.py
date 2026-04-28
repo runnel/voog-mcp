@@ -4,6 +4,7 @@ These are the canonical projections used by both the tools surface and the
 resources surface. They live in their own module so the two surfaces can't
 silently drift apart (review fix: prompt 6).
 """
+
 import unittest
 
 from voog.projections import (
@@ -33,18 +34,21 @@ class TestSimplifyPages(unittest.TestCase):
         }
         result = simplify_pages([page])
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0], {
-            "id": 1,
-            "path": "/about",
-            "title": "About",
-            "hidden": False,
-            "layout_id": 10,
-            "layout_name": "Default",
-            "content_type": "common_page",
-            "parent_id": None,
-            "language_code": "et",
-            "public_url": "https://example.com/about",
-        })
+        self.assertEqual(
+            result[0],
+            {
+                "id": 1,
+                "path": "/about",
+                "title": "About",
+                "hidden": False,
+                "layout_id": 10,
+                "layout_name": "Default",
+                "content_type": "common_page",
+                "parent_id": None,
+                "language_code": "et",
+                "public_url": "https://example.com/about",
+            },
+        )
 
     def test_missing_fields_graceful(self):
         # Missing optional fields and nested dicts → output uses .get() defaults.

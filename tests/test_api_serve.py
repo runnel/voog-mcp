@@ -1,4 +1,5 @@
 """Tests for voog.api.serve — local asset auto-discovery."""
+
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory

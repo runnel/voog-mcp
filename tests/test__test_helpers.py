@@ -5,10 +5,8 @@ The whole reason this helper was lifted to a shared module was that the
 pin the three surface shapes (Pydantic-model, plain-object, dict) AND
 the False-vs-absent distinction so the regression can't come back.
 """
-import sys
-import unittest
-from pathlib import Path
 
+import unittest
 
 from tests._test_helpers import _ann_get
 

@@ -12,6 +12,7 @@ Three small primitives used by both ``snapshot.py`` and ``layouts_sync.py``:
                                     so disk artefacts stay byte-identical
                                     across tools (snapshot diffs, manifests).
 """
+
 import json
 from pathlib import Path
 

@@ -33,6 +33,7 @@ tool with the failed file(s) removed, or DELETE ``/assets/{id}`` to clean up.
 complex than the rest of :mod:`voog_mcp.tools.products` (list/get/update),
 and isolating it keeps that module's read+translate flow easy to follow.
 """
+
 import urllib.request
 from pathlib import Path
 
@@ -40,9 +41,8 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog._concurrency import parallel_map
 from voog.client import VoogClient
-from voog.errors import success_response, error_response
+from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
-
 
 CONTENT_TYPES = {
     ".jpg": "image/jpeg",
@@ -108,7 +108,9 @@ def get_tools() -> list[Tool]:
     ]
 
 
-def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
+def call_tool(
+    name: str, arguments: dict | None, client: VoogClient
+) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
     if name == "product_set_images":
@@ -123,9 +125,7 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
     force = bool(arguments.get("force", False))
 
     if not isinstance(product_id, int):
-        return error_response(
-            "product_set_images: product_id must be an integer"
-        )
+        return error_response("product_set_images: product_id must be an integer")
     if not files:
         return error_response(
             "product_set_images: files must be a non-empty array of absolute paths"
@@ -136,13 +136,9 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
     for f in files:
         p = Path(f)
         if not p.is_absolute():
-            return error_response(
-                f"product_set_images: path must be absolute (got {f!r})"
-            )
+            return error_response(f"product_set_images: path must be absolute (got {f!r})")
         if not p.exists():
-            return error_response(
-                f"product_set_images: file not found: {f}"
-            )
+            return error_response(f"product_set_images: file not found: {f}")
         ext = p.suffix.lower()
         if ext not in CONTENT_TYPES:
             return error_response(
@@ -159,9 +155,7 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
             base=client.ecommerce_url,
         )
     except Exception as e:
-        return error_response(
-            f"product_set_images: cannot fetch product {product_id}: {e}"
-        )
+        return error_response(f"product_set_images: cannot fetch product {product_id}: {e}")
     old_asset_ids = product.get("asset_ids") or []
 
     if old_asset_ids and not force:
@@ -187,11 +181,13 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
         if exc is not None:
             failed.append({"filename": path.name, "error": str(exc)})
         else:
-            uploaded.append({
-                "filename": path.name,
-                "asset_id": asset["id"],
-                "url": asset.get("url", ""),
-            })
+            uploaded.append(
+                {
+                    "filename": path.name,
+                    "asset_id": asset["id"],
+                    "url": asset.get("url", ""),
+                }
+            )
 
     if failed:
         # Don't update the product if anything failed — half-set of images
@@ -241,8 +237,7 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
         )
 
     summary = (
-        f"🖼️ product {product_id}: {len(new_asset_ids)} image(s) set "
-        f"(main: id:{new_asset_ids[0]})"
+        f"🖼️ product {product_id}: {len(new_asset_ids)} image(s) set (main: id:{new_asset_ids[0]})"
     )
     return success_response(
         {
@@ -266,11 +261,14 @@ def _upload_asset(path: Path, client: VoogClient) -> dict:
     size = path.stat().st_size
 
     # 1. Create asset record (admin/api default base, NOT ecommerce)
-    asset = client.post("/assets", {
-        "filename": path.name,
-        "content_type": content_type,
-        "size": size,
-    })
+    asset = client.post(
+        "/assets",
+        {
+            "filename": path.name,
+            "content_type": content_type,
+            "size": size,
+        },
+    )
     asset_id = asset["id"]
     upload_url = asset["upload_url"]
 

@@ -6,6 +6,7 @@ Asset discovery: scans ``<repo>/javascripts/*.js`` and ``<repo>/stylesheets/*.cs
 at startup. Filename collisions across folders are not handled (last-write-wins
 in dict order — kept simple).
 """
+
 from __future__ import annotations
 
 from pathlib import Path

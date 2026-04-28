@@ -1,4 +1,5 @@
 """voog site-snapshot / pages-snapshot — read-only backup of Voog resources."""
+
 from __future__ import annotations
 
 import sys
@@ -25,15 +26,15 @@ def add_arguments(subparsers):
 
 def cmd_site_snapshot(args, client: VoogClient) -> int:
     """Comprehensive backup — all list endpoints, singletons, per-page/article/product details."""
+    import urllib.request
+
     from voog.mcp.tools.snapshot import (
-        _snapshot_filename_for,
-        _pick_sample_page_paths,
-        _slugify_path,
         SITE_SNAPSHOT_LIST_ENDPOINTS,
         SITE_SNAPSHOT_SINGLETONS,
+        _pick_sample_page_paths,
+        _slugify_path,
+        _snapshot_filename_for,
     )
-    import json
-    import urllib.request
 
     out = Path(args.output_dir)
     if out.exists():
@@ -205,4 +206,5 @@ def cmd_pages_snapshot(args, client: VoogClient) -> int:
 
 def _write_json(path: Path, data) -> None:
     import json
+
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")

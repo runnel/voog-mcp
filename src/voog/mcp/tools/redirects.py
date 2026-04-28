@@ -1,10 +1,10 @@
 """MCP tools for Voog redirect rules."""
+
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
-from voog.errors import success_response, error_response
+from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
-
 
 VALID_REDIRECT_TYPES = [301, 302, 307, 410]
 
@@ -39,7 +39,10 @@ def get_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "site": {"type": "string", "description": "Site name from voog_list_sites"},
-                    "source": {"type": "string", "description": "Source path (e.g. /en/products/old)"},
+                    "source": {
+                        "type": "string",
+                        "description": "Source path (e.g. /en/products/old)",
+                    },
                     "destination": {
                         "type": "string",
                         "description": (
@@ -71,7 +74,9 @@ def get_tools() -> list[Tool]:
     ]
 
 
-def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
+def call_tool(
+    name: str, arguments: dict | None, client: VoogClient
+) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
     if name == "redirects_list":

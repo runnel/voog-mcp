@@ -1,6 +1,7 @@
 """Unit tests for VoogClient."""
+
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from voog.client import VoogClient
 
@@ -91,9 +92,7 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
     def test_no_params_uses_only_pagination(self):
         client = self._make_client()
         client.get_all("/pages")
-        client.get.assert_called_once_with(
-            "/pages", base=None, params={"per_page": 100, "page": 1}
-        )
+        client.get.assert_called_once_with("/pages", base=None, params={"per_page": 100, "page": 1})
 
     def test_caller_params_merged_with_pagination(self):
         client = self._make_client()
@@ -124,10 +123,12 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
         # infinite-loop on endpoints with ≥1 full page. The iteration
         # counter always wins.
         client = VoogClient(host="runnel.ee", api_token="t")
-        client.get = MagicMock(side_effect=[
-            [{"id": i} for i in range(100)],  # page 1, full
-            [{"id": 100}],                    # page 2, partial → loop exits
-        ])
+        client.get = MagicMock(
+            side_effect=[
+                [{"id": i} for i in range(100)],  # page 1, full
+                [{"id": 100}],  # page 2, partial → loop exits
+            ]
+        )
         client.get_all("/x", params={"page": 99})  # caller's `page` ignored
         first_call = client.get.call_args_list[0]
         second_call = client.get.call_args_list[1]
@@ -138,10 +139,12 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
     def test_pagination_increments_page_across_calls(self):
         client = VoogClient(host="runnel.ee", api_token="t")
         # First page returns full 100, second returns partial → loop exits
-        client.get = MagicMock(side_effect=[
-            [{"id": i} for i in range(100)],
-            [{"id": 100}],
-        ])
+        client.get = MagicMock(
+            side_effect=[
+                [{"id": i} for i in range(100)],
+                [{"id": 100}],
+            ]
+        )
         result = client.get_all("/x", params={"include": "y"})
         self.assertEqual(len(result), 101)
         # Page 1 and 2 both got the include param

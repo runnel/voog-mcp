@@ -1,5 +1,5 @@
 """Tests for voog.cli.main — argparse dispatch and exit codes."""
-import sys
+
 import unittest
 from io import StringIO
 from unittest.mock import patch

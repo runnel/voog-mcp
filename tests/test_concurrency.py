@@ -1,4 +1,5 @@
 """Tests for voog._concurrency.parallel_map."""
+
 import random
 import time
 import unittest
@@ -85,7 +86,7 @@ class TestParallelMapPartialFailure(unittest.TestCase):
 
         results = parallel_map(always_fail, [1, 2, 3])
         self.assertEqual(len(results), 3)
-        for (item, res, exc), expected_item in zip(results, [1, 2, 3]):
+        for (item, res, exc), expected_item in zip(results, [1, 2, 3], strict=True):
             self.assertEqual(item, expected_item)
             self.assertIsNone(res)
             self.assertIsInstance(exc, RuntimeError)

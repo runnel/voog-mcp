@@ -22,6 +22,7 @@ filesystem. Annotations: ``readOnlyHint=False`` (we write disk),
 guarantees no data loss), ``idempotentHint=True`` (re-running on the same
 site produces equivalent output).
 """
+
 import re
 import urllib.error
 import urllib.request
@@ -31,9 +32,8 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog._concurrency import parallel_map
 from voog.client import VoogClient
-from voog.errors import success_response, error_response
-from voog.mcp.tools._helpers import validate_output_dir, write_json, strip_site
-
+from voog.errors import error_response, success_response
+from voog.mcp.tools._helpers import strip_site, validate_output_dir, write_json
 
 # Standard /admin/api/ list endpoints. Each is paginated via client.get_all.
 SITE_SNAPSHOT_LIST_ENDPOINTS = [
@@ -120,7 +120,9 @@ def get_tools() -> list[Tool]:
     ]
 
 
-def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
+def call_tool(
+    name: str, arguments: dict | None, client: VoogClient
+) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
     if name == "pages_snapshot":
@@ -219,7 +221,9 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
     # Sequencing: pages_data / articles_data are consumed by loops 3+4 below,
     # so we still await this loop's completion before fanning out per-resource.
     list_results = parallel_map(
-        client.get_all, SITE_SNAPSHOT_LIST_ENDPOINTS, max_workers=8,
+        client.get_all,
+        SITE_SNAPSHOT_LIST_ENDPOINTS,
+        max_workers=8,
     )
     for endpoint, data, exc in list_results:
         filename = _snapshot_filename_for(endpoint)
@@ -299,7 +303,9 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
             )
 
         product_detail_results = parallel_map(
-            _fetch_product_detail, product_ids, max_workers=8,
+            _fetch_product_detail,
+            product_ids,
+            max_workers=8,
         )
         for pid, detail, exc in product_detail_results:
             filename = f"product_{pid}.json"
@@ -328,10 +334,12 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
             with urllib.request.urlopen(req, timeout=30) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
         except Exception as e:
-            skipped.append({
-                "file": f"voog_style_rendered_{slug}.html",
-                "reason": f"public fetch failed: {e}",
-            })
+            skipped.append(
+                {
+                    "file": f"voog_style_rendered_{slug}.html",
+                    "reason": f"public fetch failed: {e}",
+                }
+            )
             continue
         (out / f"voog_style_rendered_{slug}.html").write_text(html, encoding="utf-8")
         files_written += 1

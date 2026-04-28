@@ -1,4 +1,5 @@
 """Tests for voog.errors."""
+
 import json
 import unittest
 

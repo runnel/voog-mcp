@@ -1,9 +1,7 @@
 """Tests for voog config subcommands."""
-import json
+
 import unittest
 from io import StringIO
-from pathlib import Path
-from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from voog.cli.commands import config as config_cmd

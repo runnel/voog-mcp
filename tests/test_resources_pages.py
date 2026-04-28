@@ -1,11 +1,9 @@
 """Tests for voog_mcp.resources.pages."""
+
 import json
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest.mock import MagicMock
-
 
 from voog.mcp.resources import pages as pages_resources
 
@@ -140,9 +138,7 @@ class TestPagesResourcesReadContents(unittest.TestCase):
             {"id": 1, "name": "title", "value": "Hello"},
             {"id": 2, "name": "body", "value": "World"},
         ]
-        result = pages_resources.read_resource(
-            "voog://stella/pages/152377/contents", client
-        )
+        result = pages_resources.read_resource("voog://stella/pages/152377/contents", client)
         client.get.assert_called_once_with("/pages/152377/contents")
         contents = list(result)
         self.assertEqual(contents[0].mime_type, "application/json")
@@ -152,9 +148,7 @@ class TestPagesResourcesReadContents(unittest.TestCase):
     def test_read_contents_rejects_non_integer_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            pages_resources.read_resource(
-                "voog://stella/pages/abc/contents", client
-            )
+            pages_resources.read_resource("voog://stella/pages/abc/contents", client)
 
 
 class TestPagesResourcesUnknownUri(unittest.TestCase):
@@ -166,16 +160,12 @@ class TestPagesResourcesUnknownUri(unittest.TestCase):
     def test_unknown_subpath_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            pages_resources.read_resource(
-                "voog://stella/pages/152377/unknown", client
-            )
+            pages_resources.read_resource("voog://stella/pages/152377/unknown", client)
 
     def test_unknown_extra_segments_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            pages_resources.read_resource(
-                "voog://stella/pages/152377/contents/extra", client
-            )
+            pages_resources.read_resource("voog://stella/pages/152377/contents/extra", client)
 
     def test_completely_unrelated_uri_rejected(self):
         client = MagicMock()
@@ -192,9 +182,7 @@ class TestPagesResourcesErrorPropagation(unittest.TestCase):
 
     def test_single_page_propagates_api_errors(self):
         client = MagicMock()
-        client.get.side_effect = urllib.error.HTTPError(
-            "url", 404, "Not Found", {}, None
-        )
+        client.get.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         with self.assertRaises(urllib.error.HTTPError):
             pages_resources.read_resource("voog://stella/pages/999", client)
 
@@ -204,17 +192,14 @@ class TestServerResourceRegistry(unittest.TestCase):
 
     def test_pages_in_resource_groups(self):
         from voog.mcp import server
+
         self.assertIn(pages_resources, server.RESOURCE_GROUPS)
 
     def test_no_uri_collisions_after_pages_added(self):
         from voog.mcp import server
-        all_uris = [
-            str(r.uri)
-            for g in server.RESOURCE_GROUPS
-            for r in g.get_resources()
-        ]
-        self.assertEqual(len(all_uris), len(set(all_uris)),
-                         f"Duplicate resource URIs: {all_uris}")
+
+        all_uris = [str(r.uri) for g in server.RESOURCE_GROUPS for r in g.get_resources()]
+        self.assertEqual(len(all_uris), len(set(all_uris)), f"Duplicate resource URIs: {all_uris}")
 
 
 if __name__ == "__main__":

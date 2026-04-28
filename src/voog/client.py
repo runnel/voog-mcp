@@ -1,4 +1,5 @@
 """Voog Admin API + Ecommerce v1 API client."""
+
 # PEP 563 lazy annotations — voog.py is invoked under the system python3 (3.9
 # on macOS) which evaluates ``str | None`` at runtime as a TypeError. The MCP
 # server runs on the project venv (3.11+) where the syntax is native, but
@@ -29,7 +30,15 @@ class VoogClient:
             "User-Agent": "voog-mcp/0.1.0",
         }
 
-    def _request(self, method: str, path: str, *, base: str | None = None, data=None, params: dict | None = None):
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        base: str | None = None,
+        data=None,
+        params: dict | None = None,
+    ):
         url = f"{base or self.base_url}{path}"
         if params:
             url += f"?{urllib.parse.urlencode(params)}"

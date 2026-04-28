@@ -1,11 +1,9 @@
 """Tests for voog_mcp.resources.redirects."""
+
 import json
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest.mock import MagicMock
-
 
 from voog.mcp.resources import redirects as redirects_resources
 
@@ -38,7 +36,13 @@ class TestRedirectsResources(unittest.TestCase):
     def test_read_resource_returns_redirects_list_as_json(self):
         client = MagicMock()
         client.get_all.return_value = [
-            {"id": 1, "source": "/old", "destination": "/new", "redirect_type": 301, "active": True},
+            {
+                "id": 1,
+                "source": "/old",
+                "destination": "/new",
+                "redirect_type": 301,
+                "active": True,
+            },
             {"id": 2, "source": "/x", "destination": "/y", "redirect_type": 302, "active": True},
         ]
         result = redirects_resources.read_resource("voog://stella/redirects", client)
@@ -98,27 +102,28 @@ class TestServerResourceRegistry(unittest.TestCase):
 
     def test_resource_groups_includes_redirects(self):
         from voog.mcp import server
+
         self.assertIn(redirects_resources, server.RESOURCE_GROUPS)
 
     def test_no_uri_collisions_across_groups(self):
         from voog.mcp import server
-        all_uris = [
-            str(r.uri)
-            for g in server.RESOURCE_GROUPS
-            for r in g.get_resources()
-        ]
-        self.assertEqual(len(all_uris), len(set(all_uris)),
-                         f"Duplicate resource URIs: {all_uris}")
+
+        all_uris = [str(r.uri) for g in server.RESOURCE_GROUPS for r in g.get_resources()]
+        self.assertEqual(len(all_uris), len(set(all_uris)), f"Duplicate resource URIs: {all_uris}")
 
     def test_each_group_exports_required_callables(self):
         from voog.mcp import server
+
         for g in server.RESOURCE_GROUPS:
-            self.assertTrue(callable(getattr(g, "get_resources", None)),
-                            f"{g.__name__} missing get_resources()")
-            self.assertTrue(callable(getattr(g, "matches", None)),
-                            f"{g.__name__} missing matches()")
-            self.assertTrue(callable(getattr(g, "read_resource", None)),
-                            f"{g.__name__} missing read_resource()")
+            self.assertTrue(
+                callable(getattr(g, "get_resources", None)), f"{g.__name__} missing get_resources()"
+            )
+            self.assertTrue(
+                callable(getattr(g, "matches", None)), f"{g.__name__} missing matches()"
+            )
+            self.assertTrue(
+                callable(getattr(g, "read_resource", None)), f"{g.__name__} missing read_resource()"
+            )
 
 
 if __name__ == "__main__":

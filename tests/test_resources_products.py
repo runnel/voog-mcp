@@ -1,11 +1,9 @@
 """Tests for voog_mcp.resources.products."""
+
 import json
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest.mock import MagicMock
-
 
 from voog.mcp.resources import products as products_resources
 
@@ -192,9 +190,7 @@ class TestProductsResourcesUnknownUri(unittest.TestCase):
         # voog://stella/products/{id}/variants is NOT a supported URI in v1
         client = MagicMock()
         with self.assertRaises(ValueError):
-            products_resources.read_resource(
-                "voog://stella/products/42/variants", client
-            )
+            products_resources.read_resource("voog://stella/products/42/variants", client)
 
     def test_completely_unrelated_uri_rejected(self):
         client = MagicMock()
@@ -213,9 +209,7 @@ class TestProductsResourcesErrorPropagation(unittest.TestCase):
     def test_single_product_propagates_api_errors(self):
         client = MagicMock()
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
-        client.get.side_effect = urllib.error.HTTPError(
-            "url", 404, "Not Found", {}, None
-        )
+        client.get.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         with self.assertRaises(urllib.error.HTTPError):
             products_resources.read_resource("voog://stella/products/999", client)
 
@@ -225,31 +219,40 @@ class TestServerResourceRegistry(unittest.TestCase):
 
     def test_products_in_resource_groups(self):
         from voog.mcp import server
+
         self.assertIn(products_resources, server.RESOURCE_GROUPS)
 
     def test_no_uri_collisions_after_products_added(self):
         from voog.mcp import server
-        all_uris = [
-            str(r.uri)
-            for g in server.RESOURCE_GROUPS
-            for r in g.get_resources()
-        ]
-        self.assertEqual(len(all_uris), len(set(all_uris)),
-                         f"Duplicate resource URIs: {all_uris}")
+
+        all_uris = [str(r.uri) for g in server.RESOURCE_GROUPS for r in g.get_resources()]
+        self.assertEqual(len(all_uris), len(set(all_uris)), f"Duplicate resource URIs: {all_uris}")
 
     def test_phase_d_complete(self):
         # Sentinel: after Task 18, RESOURCE_GROUPS should cover all 5 spec § 5 groups.
         from voog.mcp import server
         from voog.mcp.resources import (
             articles as articles_resources,
+        )
+        from voog.mcp.resources import (
             layouts as layouts_resources,
+        )
+        from voog.mcp.resources import (
             pages as pages_resources,
+        )
+        from voog.mcp.resources import (
             products as products_resources_mod,
+        )
+        from voog.mcp.resources import (
             redirects as redirects_resources,
         )
+
         expected = {
-            articles_resources, layouts_resources, pages_resources,
-            products_resources_mod, redirects_resources,
+            articles_resources,
+            layouts_resources,
+            pages_resources,
+            products_resources_mod,
+            redirects_resources,
         }
         actual = set(server.RESOURCE_GROUPS)
         self.assertEqual(actual, expected)

@@ -1,4 +1,5 @@
 """voog serve — local proxy that swaps known assets with cwd files."""
+
 from __future__ import annotations
 
 import re
@@ -32,7 +33,7 @@ def run(args, client: VoogClient) -> int:
 
     handler_cls = _build_handler(client.host, local_dir, local_assets)
     httpd = HTTPServer(("localhost", args.port), handler_cls)
-    print(f"\nReady. Ctrl+C to stop.")
+    print("\nReady. Ctrl+C to stop.")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -69,9 +70,11 @@ def _build_handler(host: str, local_dir: Path, local_assets: dict[str, str]):
                 status = e.code
             if "text/html" in ct and asset_pattern:
                 body = asset_pattern.sub(
-                    lambda m: f'src="/_local/{local_assets[m.group(1)]}"'
-                    if m.group(0).startswith("src=")
-                    else f'href="/_local/{local_assets[m.group(1)]}"',
+                    lambda m: (
+                        f'src="/_local/{local_assets[m.group(1)]}"'
+                        if m.group(0).startswith("src=")
+                        else f'href="/_local/{local_assets[m.group(1)]}"'
+                    ),
                     body.decode("utf-8", errors="replace"),
                 ).encode("utf-8")
             self.send_response(status)
@@ -81,7 +84,7 @@ def _build_handler(host: str, local_dir: Path, local_assets: dict[str, str]):
             self.wfile.write(body)
 
         def _serve_local(self):
-            rel_path = self.path[len("/_local/"):]
+            rel_path = self.path[len("/_local/") :]
             if ".." in rel_path:
                 self.send_error(403, "Forbidden")
                 return

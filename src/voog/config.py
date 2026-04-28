@@ -27,6 +27,7 @@ CLI site resolution order: ``--site`` flag → repo pointer → default_site
 → raise ConfigError. The MCP server does not call ``resolve_site``: it
 takes ``site=`` explicitly on every tool call.
 """
+
 from __future__ import annotations
 
 import json
@@ -65,6 +66,7 @@ class GlobalConfig:
 class RepoSitePointer:
     """Result of finding a voog-site.json. Either site_name is set
     (modern format) or legacy_host + legacy_api_key_env are set."""
+
     site_name: str | None = None
     legacy_host: str | None = None
     legacy_api_key_env: str | None = None
@@ -94,16 +96,12 @@ def load_global_config(path: Path | None = None) -> GlobalConfig:
         host = entry.get("host")
         api_key_env = entry.get("api_key_env")
         if not host or not api_key_env:
-            raise ConfigError(
-                f"site '{name}' must have both 'host' and 'api_key_env' fields"
-            )
+            raise ConfigError(f"site '{name}' must have both 'host' and 'api_key_env' fields")
         sites[name] = SiteConfig(name=name, host=host, api_key_env=api_key_env)
 
     default_site = raw.get("default_site")
     if default_site is not None and default_site not in sites:
-        raise ConfigError(
-            f"default_site '{default_site}' is not in sites: {sorted(sites)}"
-        )
+        raise ConfigError(f"default_site '{default_site}' is not in sites: {sorted(sites)}")
 
     env_file = raw.get("env_file")
     return GlobalConfig(sites=sites, default_site=default_site, env_file=env_file)
@@ -137,7 +135,7 @@ def find_repo_site_pointer(cwd: Path) -> RepoSitePointer | None:
                     path=candidate,
                 )
             raise ConfigError(
-                f"{candidate} must contain either {{\"site\": \"<name>\"}} "
+                f'{candidate} must contain either {{"site": "<name>"}} '
                 "or the legacy {host, api_key_env} format"
             )
         if cur.parent == cur:

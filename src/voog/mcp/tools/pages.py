@@ -1,8 +1,9 @@
 """MCP tools for Voog pages (read-only)."""
+
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
-from voog.errors import success_response, error_response
+from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
 from voog.projections import simplify_pages
 
@@ -45,7 +46,9 @@ def get_tools() -> list[Tool]:
     ]
 
 
-def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
+def call_tool(
+    name: str, arguments: dict | None, client: VoogClient
+) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
     if name == "pages_list":
         try:

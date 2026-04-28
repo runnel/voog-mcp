@@ -1,4 +1,5 @@
 """voog push — upload modified template files to Voog."""
+
 from __future__ import annotations
 
 import json

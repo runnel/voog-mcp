@@ -2,13 +2,13 @@
 
 Single URI shape: ``voog://{site}/redirects``. Returns a list of redirect-rule objects.
 """
+
 import re
 
 from mcp.types import Resource
 
 from voog.client import VoogClient
 from voog.mcp.resources._helpers import ReadResourceContents, json_response
-
 
 URI_TEMPLATE = "voog://{site}/redirects"
 _URI_RE = re.compile(r"^voog://[^/]+/redirects$")
@@ -36,7 +36,7 @@ def matches(uri: str) -> bool:
 
 def _strip_site(uri: str) -> str:
     """voog://stella/redirects → /redirects"""
-    rest = uri[len("voog://"):]
+    rest = uri[len("voog://") :]
     _, _, path = rest.partition("/")
     return "/" + path
 

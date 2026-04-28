@@ -1,12 +1,11 @@
 """Tests for voog_mcp.tools.layouts_sync — layouts_pull + layouts_push."""
+
 import json
-import sys
 import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
 
 from tests._test_helpers import _ann_get
 from voog.mcp.tools import layouts_sync as layouts_sync_tools
@@ -56,15 +55,18 @@ class TestGetTools(unittest.TestCase):
         for tool in tools:
             ann = tool.annotations
             self.assertIs(
-                _ann_get(ann, "readOnlyHint", "read_only_hint"), False,
+                _ann_get(ann, "readOnlyHint", "read_only_hint"),
+                False,
                 f"{tool.name} writes to disk and/or API → readOnlyHint=False",
             )
             self.assertIs(
-                _ann_get(ann, "destructiveHint", "destructive_hint"), False,
+                _ann_get(ann, "destructiveHint", "destructive_hint"),
+                False,
                 f"{tool.name} is non-destructive (no data loss)",
             )
             self.assertIs(
-                _ann_get(ann, "idempotentHint", "idempotent_hint"), True,
+                _ann_get(ann, "idempotentHint", "idempotent_hint"),
+                True,
                 f"{tool.name} is idempotent (same input → same end state)",
             )
 
@@ -74,7 +76,12 @@ class TestLayoutsPull(unittest.TestCase):
         client = _make_client()
         # /layouts list
         client.get_all.return_value = [
-            {"id": 100, "title": "default", "component": False, "updated_at": "2026-01-01T00:00:00Z"},
+            {
+                "id": 100,
+                "title": "default",
+                "component": False,
+                "updated_at": "2026-01-01T00:00:00Z",
+            },
             {"id": 200, "title": "header", "component": True, "updated_at": "2026-01-02T00:00:00Z"},
         ]
         # per-id detail with body — keyed by URL because parallel_map fetches
@@ -88,7 +95,9 @@ class TestLayoutsPull(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "tree"
             result = layouts_sync_tools.call_tool(
-                "layouts_pull", {"target_dir": str(target)}, client,
+                "layouts_pull",
+                {"target_dir": str(target)},
+                client,
             )
             # Layout file in layouts/
             self.assertTrue((target / "layouts" / "default.tpl").exists())
@@ -130,7 +139,9 @@ class TestLayoutsPull(unittest.TestCase):
             (target / "layouts").mkdir(parents=True)
             (target / "layouts" / "stale.tpl").write_text("OLD", encoding="utf-8")
             result = layouts_sync_tools.call_tool(
-                "layouts_pull", {"target_dir": str(target)}, client,
+                "layouts_pull",
+                {"target_dir": str(target)},
+                client,
             )
             client.get_all.assert_not_called()
             client.get.assert_not_called()
@@ -155,7 +166,9 @@ class TestLayoutsPull(unittest.TestCase):
             target = Path(tmpdir) / "fresh"
             target.mkdir(parents=True)  # exists but empty — OK
             result = layouts_sync_tools.call_tool(
-                "layouts_pull", {"target_dir": str(target)}, client,
+                "layouts_pull",
+                {"target_dir": str(target)},
+                client,
             )
             self.assertTrue((target / "layouts" / "x.tpl").exists())
             payload = json.loads(result[1].text)
@@ -173,7 +186,9 @@ class TestLayoutsPull(unittest.TestCase):
             target.mkdir(parents=True)
             (target / "README.md").write_text("docs", encoding="utf-8")
             layouts_sync_tools.call_tool(
-                "layouts_pull", {"target_dir": str(target)}, client,
+                "layouts_pull",
+                {"target_dir": str(target)},
+                client,
             )
             self.assertTrue((target / "layouts" / "x.tpl").exists())
             self.assertTrue((target / "README.md").exists())  # not clobbered
@@ -184,7 +199,9 @@ class TestLayoutsPull(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "deep" / "nested" / "tree"
             layouts_sync_tools.call_tool(
-                "layouts_pull", {"target_dir": str(target)}, client,
+                "layouts_pull",
+                {"target_dir": str(target)},
+                client,
             )
             self.assertTrue((target / "manifest.json").exists())
 
@@ -194,7 +211,9 @@ class TestLayoutsPull(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "tree"
             result = layouts_sync_tools.call_tool(
-                "layouts_pull", {"target_dir": str(target)}, client,
+                "layouts_pull",
+                {"target_dir": str(target)},
+                client,
             )
             self.assertTrue(result.isError)
             payload = json.loads(result.content[0].text)
@@ -228,7 +247,9 @@ class TestLayoutsPull(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "tree"
             result = layouts_sync_tools.call_tool(
-                "layouts_pull", {"target_dir": str(target)}, client,
+                "layouts_pull",
+                {"target_dir": str(target)},
+                client,
             )
             self.assertTrue((target / "layouts" / "ok.tpl").exists())
             self.assertFalse((target / "layouts" / "bad.tpl").exists())
@@ -241,7 +262,9 @@ class TestLayoutsPull(unittest.TestCase):
     def test_empty_target_dir_rejected(self):
         client = _make_client()
         result = layouts_sync_tools.call_tool(
-            "layouts_pull", {"target_dir": ""}, client,
+            "layouts_pull",
+            {"target_dir": ""},
+            client,
         )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
@@ -251,7 +274,9 @@ class TestLayoutsPull(unittest.TestCase):
     def test_relative_path_rejected(self):
         client = _make_client()
         result = layouts_sync_tools.call_tool(
-            "layouts_pull", {"target_dir": "tree/foo"}, client,
+            "layouts_pull",
+            {"target_dir": "tree/foo"},
+            client,
         )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
@@ -262,7 +287,9 @@ class TestLayoutsPull(unittest.TestCase):
     def test_dot_relative_path_rejected(self):
         client = _make_client()
         result = layouts_sync_tools.call_tool(
-            "layouts_pull", {"target_dir": "./tree"}, client,
+            "layouts_pull",
+            {"target_dir": "./tree"},
+            client,
         )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
@@ -290,12 +317,16 @@ class TestLayoutsPull(unittest.TestCase):
             ("/layouts/33", {"body": "c-body"}, None),
         ]
         with patch.object(
-            layouts_sync_tools, "parallel_map", return_value=fake_results,
+            layouts_sync_tools,
+            "parallel_map",
+            return_value=fake_results,
         ) as mock_pmap:
             with tempfile.TemporaryDirectory() as tmpdir:
                 target = Path(tmpdir) / "tree"
                 layouts_sync_tools.call_tool(
-                    "layouts_pull", {"target_dir": str(target)}, client,
+                    "layouts_pull",
+                    {"target_dir": str(target)},
+                    client,
                 )
 
         # parallel_map called exactly once with the right args
@@ -329,12 +360,16 @@ class TestLayoutsPull(unittest.TestCase):
             ("/layouts/3", {"body": "b-body"}, None),
         ]
         with patch.object(
-            layouts_sync_tools, "parallel_map", return_value=fake_results,
+            layouts_sync_tools,
+            "parallel_map",
+            return_value=fake_results,
         ):
             with tempfile.TemporaryDirectory() as tmpdir:
                 target = Path(tmpdir) / "tree"
                 result = layouts_sync_tools.call_tool(
-                    "layouts_pull", {"target_dir": str(target)}, client,
+                    "layouts_pull",
+                    {"target_dir": str(target)},
+                    client,
                 )
 
                 # Two .tpl files written, the broken one absent
@@ -362,7 +397,8 @@ def _make_pulled_tree(target: Path, manifest: dict, contents: dict):
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text(text, encoding="utf-8")
     (target / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8",
+        json.dumps(manifest, indent=2, ensure_ascii=False),
+        encoding="utf-8",
     )
 
 
@@ -384,18 +420,27 @@ class TestLayoutsPush(unittest.TestCase):
                 },
             )
             result = layouts_sync_tools.call_tool(
-                "layouts_push", {"target_dir": str(target), "files": None}, client,
+                "layouts_push",
+                {"target_dir": str(target), "files": None},
+                client,
             )
         # 2 PUT calls
         self.assertEqual(client.put.call_count, 2)
-        calls = sorted([
-            (c.args[0], c.args[1]["body"]) if len(c.args) > 1 else (c.args[0], c.kwargs["data"]["body"])
-            for c in client.put.call_args_list
-        ])
-        self.assertEqual(calls, [
-            ("/layouts/100", "<html>v2</html>"),
-            ("/layouts/200", "<nav>v2</nav>"),
-        ])
+        calls = sorted(
+            [
+                (c.args[0], c.args[1]["body"])
+                if len(c.args) > 1
+                else (c.args[0], c.kwargs["data"]["body"])
+                for c in client.put.call_args_list
+            ]
+        )
+        self.assertEqual(
+            calls,
+            [
+                ("/layouts/100", "<html>v2</html>"),
+                ("/layouts/200", "<nav>v2</nav>"),
+            ],
+        )
         breakdown = json.loads(result[1].text)
         self.assertEqual(breakdown["total"], 2)
         self.assertEqual(breakdown["succeeded"], 2)
@@ -436,7 +481,9 @@ class TestLayoutsPush(unittest.TestCase):
             target = Path(tmpdir) / "tree"
             target.mkdir(parents=True)
             result = layouts_sync_tools.call_tool(
-                "layouts_push", {"target_dir": str(target)}, client,
+                "layouts_push",
+                {"target_dir": str(target)},
+                client,
             )
             client.put.assert_not_called()
             self.assertTrue(result.isError)
@@ -463,7 +510,9 @@ class TestLayoutsPush(unittest.TestCase):
                 },
             )
             result = layouts_sync_tools.call_tool(
-                "layouts_push", {"target_dir": str(target)}, client,
+                "layouts_push",
+                {"target_dir": str(target)},
+                client,
             )
         # Only one PUT (the existing file)
         self.assertEqual(client.put.call_count, 1)
@@ -478,6 +527,7 @@ class TestLayoutsPush(unittest.TestCase):
 
     def test_per_file_put_failure_captured(self):
         client = _make_client()
+
         # /layouts/1 (a.tpl) succeeds, /layouts/2 (b.tpl) fails. Keyed by
         # path so the success/failure binding stays invariant under
         # ThreadPoolExecutor's non-deterministic call order.
@@ -503,7 +553,9 @@ class TestLayoutsPush(unittest.TestCase):
                 },
             )
             result = layouts_sync_tools.call_tool(
-                "layouts_push", {"target_dir": str(target)}, client,
+                "layouts_push",
+                {"target_dir": str(target)},
+                client,
             )
         breakdown = json.loads(result[1].text)
         self.assertEqual(breakdown["total"], 2)
@@ -537,7 +589,9 @@ class TestLayoutsPush(unittest.TestCase):
                 },
             )
             result = layouts_sync_tools.call_tool(
-                "layouts_push", {"target_dir": str(target)}, client,
+                "layouts_push",
+                {"target_dir": str(target)},
+                client,
             )
         # Only the layout entry was PUT — asset entry must NOT have been dispatched
         self.assertEqual(client.put.call_count, 1)
@@ -576,7 +630,9 @@ class TestLayoutsPush(unittest.TestCase):
     def test_relative_path_rejected(self):
         client = _make_client()
         result = layouts_sync_tools.call_tool(
-            "layouts_push", {"target_dir": "tree/foo"}, client,
+            "layouts_push",
+            {"target_dir": "tree/foo"},
+            client,
         )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
@@ -586,7 +642,9 @@ class TestLayoutsPush(unittest.TestCase):
     def test_empty_target_dir_rejected(self):
         client = _make_client()
         result = layouts_sync_tools.call_tool(
-            "layouts_push", {"target_dir": ""}, client,
+            "layouts_push",
+            {"target_dir": ""},
+            client,
         )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
@@ -615,7 +673,9 @@ class TestLayoutsPush(unittest.TestCase):
                 wraps=layouts_sync_tools.parallel_map,
             ) as wrapped:
                 layouts_sync_tools.call_tool(
-                    "layouts_push", {"target_dir": str(target)}, client,
+                    "layouts_push",
+                    {"target_dir": str(target)},
+                    client,
                 )
         wrapped.assert_called_once()
         _args, kwargs = wrapped.call_args
@@ -649,7 +709,9 @@ class TestLayoutsPush(unittest.TestCase):
                 },
             )
             result = layouts_sync_tools.call_tool(
-                "layouts_push", {"target_dir": str(target)}, client,
+                "layouts_push",
+                {"target_dir": str(target)},
+                client,
             )
         breakdown = json.loads(result[1].text)
         self.assertEqual(breakdown["total"], 4)
@@ -668,7 +730,9 @@ class TestUnknownTool(unittest.TestCase):
     def test_unknown_name_returns_error(self):
         client = _make_client()
         result = layouts_sync_tools.call_tool(
-            "nonexistent", {}, client,
+            "nonexistent",
+            {},
+            client,
         )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -678,25 +742,26 @@ class TestUnknownTool(unittest.TestCase):
 class TestServerToolRegistry(unittest.TestCase):
     def test_layouts_sync_in_tool_groups(self):
         from voog.mcp import server
+
         self.assertIn(layouts_sync_tools, server.TOOL_GROUPS)
 
     def test_no_tool_name_collisions(self):
         from voog.mcp import server
-        all_names = [
-            tool.name
-            for group in server.TOOL_GROUPS
-            for tool in group.get_tools()
-        ]
-        self.assertEqual(len(all_names), len(set(all_names)),
-                         f"Duplicate tool names: {all_names}")
+
+        all_names = [tool.name for group in server.TOOL_GROUPS for tool in group.get_tools()]
+        self.assertEqual(len(all_names), len(set(all_names)), f"Duplicate tool names: {all_names}")
 
 
 class TestAllToolsRequireSite(unittest.TestCase):
     def test_all_tools_require_site(self):
         from voog.mcp.tools import layouts_sync as mod
+
         for tool in mod.get_tools():
-            self.assertIn("site", tool.inputSchema.get("required", []),
-                          f"tool {tool.name} must require 'site'")
+            self.assertIn(
+                "site",
+                tool.inputSchema.get("required", []),
+                f"tool {tool.name} must require 'site'",
+            )
 
 
 if __name__ == "__main__":

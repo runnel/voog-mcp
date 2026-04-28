@@ -1,4 +1,5 @@
 """voog pages — list, get, create, modify, delete, and pull pages."""
+
 from __future__ import annotations
 
 import json
@@ -27,15 +28,23 @@ def add_arguments(subparsers):
     create_p.add_argument("slug")
     create_p.add_argument("language_id", type=int)
     create_p.add_argument(
-        "--layout-id", type=int, default=None, dest="layout_id",
+        "--layout-id",
+        type=int,
+        default=None,
+        dest="layout_id",
         metavar="N",
     )
     create_p.add_argument(
-        "--parent-id", type=int, default=None, dest="parent_id",
+        "--parent-id",
+        type=int,
+        default=None,
+        dest="parent_id",
         metavar="N",
     )
     create_p.add_argument(
-        "--hidden", action="store_true", default=False,
+        "--hidden",
+        action="store_true",
+        default=False,
     )
     create_p.set_defaults(func=cmd_page_create)
 
@@ -46,11 +55,15 @@ def add_arguments(subparsers):
     )
     add_content_p.add_argument("page_id", type=int)
     add_content_p.add_argument(
-        "name", nargs="?", default="body",
+        "name",
+        nargs="?",
+        default="body",
         help="Content name (default: body)",
     )
     add_content_p.add_argument(
-        "content_type", nargs="?", default="text",
+        "content_type",
+        nargs="?",
+        default="text",
         help="Content type (default: text)",
     )
     add_content_p.set_defaults(func=cmd_page_add_content)
@@ -62,7 +75,9 @@ def add_arguments(subparsers):
     )
     delete_p.add_argument("page_id")
     delete_p.add_argument(
-        "--force", action="store_true", default=False,
+        "--force",
+        action="store_true",
+        default=False,
         help="Skip confirmation prompt",
     )
     delete_p.set_defaults(func=cmd_page_delete)
@@ -74,7 +89,8 @@ def add_arguments(subparsers):
     )
     set_hidden_p.add_argument("page_ids", nargs="+", metavar="page_id")
     set_hidden_p.add_argument(
-        "hidden", choices=["true", "false"],
+        "hidden",
+        choices=["true", "false"],
         help="true or false",
     )
     set_hidden_p.set_defaults(func=cmd_page_set_hidden)
@@ -125,10 +141,7 @@ def cmd_page(args, client: VoogClient) -> int:
     print(f"  hidden      : {p.get('hidden')}")
     print(f"  layout_id   : {p.get('layout_id')}")
     layout = (
-        p.get("layout_name")
-        or p.get("layout_title")
-        or (p.get("layout") or {}).get("title")
-        or "?"
+        p.get("layout_name") or p.get("layout_title") or (p.get("layout") or {}).get("title") or "?"
     )
     print(f"  layout_name : {layout}")
     print(f"  content_type: {p.get('content_type')}")
@@ -160,10 +173,7 @@ def cmd_page_create(args, client: VoogClient) -> int:
     if args.hidden:
         payload["hidden"] = True
 
-    print(
-        f"POST /pages title={args.title!r} slug={args.slug!r} "
-        f"language_id={args.language_id}..."
-    )
+    print(f"POST /pages title={args.title!r} slug={args.slug!r} language_id={args.language_id}...")
     result = client.post("/pages", payload)
     new_id = result.get("id")
     if not new_id:
@@ -203,10 +213,7 @@ def cmd_page_delete(args, client: VoogClient) -> int:
     if not force:
         try:
             p = client.get(f"/pages/{page_id}")
-            print(
-                f"  Deleting: id={page_id} "
-                f"title={p.get('title')!r} path=/{p.get('path') or ''}"
-            )
+            print(f"  Deleting: id={page_id} title={p.get('title')!r} path=/{p.get('path') or ''}")
         except Exception:
             print(f"  Deleting: id={page_id} (could not fetch page info)")
         print("Confirm? (y/n) ", end="", flush=True)
@@ -269,25 +276,23 @@ def cmd_pages_pull(args, client: VoogClient) -> int:
     for p in pages:
         lang = p.get("language") or {}
         layout = p.get("layout") or {}
-        simplified.append({
-            "id": p.get("id"),
-            "path": p.get("path"),
-            "title": p.get("title"),
-            "hidden": p.get("hidden"),
-            "layout_id": p.get("layout_id") or layout.get("id"),
-            "layout_name": (
-                p.get("layout_name")
-                or p.get("layout_title")
-                or layout.get("title")
-            ),
-            "content_type": p.get("content_type"),
-            "parent_id": p.get("parent_id"),
-            "language_code": lang.get("code"),
-            "public_url": p.get("public_url"),
-        })
+        simplified.append(
+            {
+                "id": p.get("id"),
+                "path": p.get("path"),
+                "title": p.get("title"),
+                "hidden": p.get("hidden"),
+                "layout_id": p.get("layout_id") or layout.get("id"),
+                "layout_name": (
+                    p.get("layout_name") or p.get("layout_title") or layout.get("title")
+                ),
+                "content_type": p.get("content_type"),
+                "parent_id": p.get("parent_id"),
+                "language_code": lang.get("code"),
+                "public_url": p.get("public_url"),
+            }
+        )
     pages_path = local_dir / "pages.json"
-    pages_path.write_text(
-        json.dumps(simplified, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    pages_path.write_text(json.dumps(simplified, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"  pages.json saved ({len(simplified)} pages)")
     return 0

@@ -1,9 +1,7 @@
 """Tests for voog_mcp.resources._helpers."""
-import json
-import sys
-import unittest
-from pathlib import Path
 
+import json
+import unittest
 
 from voog.mcp.resources._helpers import (
     ReadResourceContents,

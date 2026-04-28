@@ -1,6 +1,8 @@
 """MCP error response helpers."""
+
 import json
 from typing import Any
+
 from mcp.types import CallToolResult, TextContent
 
 

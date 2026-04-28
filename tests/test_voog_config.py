@@ -1,20 +1,20 @@
 """Tests for voog.config — multi-site resolution."""
+
 import json
-import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from voog.config import (
-    SiteConfig,
-    GlobalConfig,
     ConfigError,
+    GlobalConfig,
+    SiteConfig,
     UnknownSiteError,
-    load_global_config,
-    resolve_site,
     find_repo_site_pointer,
     load_env_file,
+    load_global_config,
+    resolve_site,
 )
 
 
@@ -22,13 +22,17 @@ class TestLoadGlobalConfig(unittest.TestCase):
     def test_loads_valid_config(self):
         with TemporaryDirectory() as tmp:
             cfg_path = Path(tmp) / "voog.json"
-            cfg_path.write_text(json.dumps({
-                "sites": {
-                    "site_a": {"host": "a.example.com", "api_key_env": "A_KEY"},
-                    "site_b": {"host": "b.example.com", "api_key_env": "B_KEY"},
-                },
-                "default_site": "site_a",
-            }))
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "sites": {
+                            "site_a": {"host": "a.example.com", "api_key_env": "A_KEY"},
+                            "site_b": {"host": "b.example.com", "api_key_env": "B_KEY"},
+                        },
+                        "default_site": "site_a",
+                    }
+                )
+            )
             cfg = load_global_config(cfg_path)
             self.assertEqual(cfg.default_site, "site_a")
             self.assertEqual(cfg.sites["site_a"].host, "a.example.com")
@@ -51,9 +55,13 @@ class TestLoadGlobalConfig(unittest.TestCase):
     def test_missing_required_site_field_raises(self):
         with TemporaryDirectory() as tmp:
             cfg_path = Path(tmp) / "voog.json"
-            cfg_path.write_text(json.dumps({
-                "sites": {"x": {"host": "x.com"}},  # api_key_env missing
-            }))
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "sites": {"x": {"host": "x.com"}},  # api_key_env missing
+                    }
+                )
+            )
             with self.assertRaises(ConfigError):
                 load_global_config(cfg_path)
 
@@ -62,7 +70,9 @@ class TestResolveSite(unittest.TestCase):
     def _make_global(self, default_site=None):
         return GlobalConfig(
             sites={
-                "stella": SiteConfig(name="stella", host="stellasoomlais.com", api_key_env="VOOG_API_KEY"),
+                "stella": SiteConfig(
+                    name="stella", host="stellasoomlais.com", api_key_env="VOOG_API_KEY"
+                ),
                 "runnel": SiteConfig(name="runnel", host="runnel.ee", api_key_env="RUNNEL_KEY"),
             },
             default_site=default_site,
@@ -120,10 +130,14 @@ class TestRepoSitePointerLegacyFormat(unittest.TestCase):
 
     def test_legacy_format_returns_synthetic_site(self):
         with TemporaryDirectory() as tmp:
-            (Path(tmp) / "voog-site.json").write_text(json.dumps({
-                "host": "legacy.example.com",
-                "api_key_env": "LEGACY_KEY",
-            }))
+            (Path(tmp) / "voog-site.json").write_text(
+                json.dumps(
+                    {
+                        "host": "legacy.example.com",
+                        "api_key_env": "LEGACY_KEY",
+                    }
+                )
+            )
             with patch("warnings.warn") as mock_warn:
                 pointer = find_repo_site_pointer(Path(tmp))
                 self.assertEqual(pointer.legacy_host, "legacy.example.com")

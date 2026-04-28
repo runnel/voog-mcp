@@ -33,6 +33,7 @@ Test pattern (smoke tests):
 5. Call one read-only tool / read one resource, assert the result shape.
 6. Cleanup subprocess in ``tearDown``.
 """
+
 import json
 import os
 import pathlib
@@ -42,15 +43,12 @@ import sys
 import threading
 import unittest
 
-
 # Use the absolute path to the venv-installed console script so the test
 # does not depend on whichever shell PATH the test runner inherits.
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 VOOG_MCP_BIN = REPO_ROOT / ".venv" / "bin" / "voog-mcp"
 
-ENV_FILE = pathlib.Path(
-    "/Users/runnel/Library/CloudStorage/Dropbox/Documents/Claude/.env"
-)
+ENV_FILE = pathlib.Path("/Users/runnel/Library/CloudStorage/Dropbox/Documents/Claude/.env")
 
 SMOKE_HOST = "runnel.ee"
 
@@ -60,7 +58,7 @@ def _readline_with_timeout(stream, timeout: float) -> str:
 
     Avoids hanging the test forever if the server never writes a response.
     """
-    q: "queue.Queue[str]" = queue.Queue()
+    q: queue.Queue[str] = queue.Queue()
 
     def _reader():
         try:
@@ -136,8 +134,7 @@ class TestMCPInitialize(unittest.TestCase):
                 except Exception:
                     stderr = ""
                 self.fail(
-                    "Timed out waiting for initialize response from voog-mcp.\n"
-                    f"stderr:\n{stderr}"
+                    f"Timed out waiting for initialize response from voog-mcp.\nstderr:\n{stderr}"
                 )
 
             response = json.loads(response_line)
@@ -195,16 +192,21 @@ class TestMCPInitialize(unittest.TestCase):
             assert proc.stdout is not None
 
             # 1. initialize handshake
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": {},
-                    "clientInfo": {"name": "test", "version": "0.1"},
-                },
-            }) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {"name": "test", "version": "0.1"},
+                        },
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
             init_line = _readline_with_timeout(proc.stdout, timeout=10.0)
             self.assertTrue(init_line, "no initialize response")
@@ -212,24 +214,34 @@ class TestMCPInitialize(unittest.TestCase):
             self.assertIn("result", init, f"initialize failed: {init}")
 
             # 2. MCP requires notifications/initialized before further requests
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0",
-                "method": "notifications/initialized",
-                "params": {},
-            }) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/initialized",
+                        "params": {},
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
 
             # 3. Call page_delete without force=true → tool returns error_response.
             #    Skip notifications, find the response with id=2.
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "page_delete",
-                    "arguments": {"page_id": 999},
-                },
-            }) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "page_delete",
+                            "arguments": {"page_id": 999},
+                        },
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
 
             response = None
@@ -297,44 +309,59 @@ class TestMCPInitialize(unittest.TestCase):
             assert proc.stdin is not None
             assert proc.stdout is not None
 
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": {},
-                    "clientInfo": {"name": "test", "version": "0.1"},
-                },
-            }) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {"name": "test", "version": "0.1"},
+                        },
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
             init_line = _readline_with_timeout(proc.stdout, timeout=10.0)
             self.assertTrue(init_line, "no initialize response")
             init = json.loads(init_line)
             self.assertIn("result", init, f"initialize failed: {init}")
 
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0",
-                "method": "notifications/initialized",
-                "params": {},
-            }) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/initialized",
+                        "params": {},
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
 
             # 999 is not in the redirect_type enum — SDK rejects it before
             # the tool body runs. No HTTP call hits Voog.
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "redirect_add",
-                    "arguments": {
-                        "source": "/x",
-                        "destination": "/y",
-                        "redirect_type": 999,
-                    },
-                },
-            }) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "redirect_add",
+                            "arguments": {
+                                "source": "/x",
+                                "destination": "/y",
+                                "redirect_type": 999,
+                            },
+                        },
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
 
             response = None
@@ -406,9 +433,7 @@ class _LiveMCPSubprocessTestCase(unittest.TestCase):
         super().setUpClass()
         cls._api_key = _read_smoke_api_key()
         if cls._api_key is None:
-            raise unittest.SkipTest(
-                f"RUNNEL_VOOG_API_KEY not found in {ENV_FILE}"
-            )
+            raise unittest.SkipTest(f"RUNNEL_VOOG_API_KEY not found in {ENV_FILE}")
 
     def setUp(self):
         env = {
@@ -458,10 +483,7 @@ class _LiveMCPSubprocessTestCase(unittest.TestCase):
             line = _readline_with_timeout(self.proc.stdout, self.READ_TIMEOUT)
             if not line:
                 stderr = self._drain_stderr()
-                self.fail(
-                    f"Timed out waiting for response id={expected_id}.\n"
-                    f"stderr:\n{stderr}"
-                )
+                self.fail(f"Timed out waiting for response id={expected_id}.\nstderr:\n{stderr}")
             msg = json.loads(line)
             if msg.get("id") == expected_id:
                 return msg
@@ -486,10 +508,7 @@ class _LiveMCPSubprocessTestCase(unittest.TestCase):
         self._write_message(payload)
         response = self._read_response(request_id)
         if "error" in response:
-            self.fail(
-                f"JSON-RPC error from {method}: {response['error']}\n"
-                f"params={params}"
-            )
+            self.fail(f"JSON-RPC error from {method}: {response['error']}\nparams={params}")
         self.assertIn("result", response, f"{method} returned no result")
         return response
 
@@ -580,9 +599,7 @@ class _LiveMCPSubprocessTestCase(unittest.TestCase):
         """
         content = result.get("content")
         assert content, f"tools/call result missing content: {result}"
-        return "".join(
-            block.get("text", "") for block in content if block.get("type") == "text"
-        )
+        return "".join(block.get("text", "") for block in content if block.get("type") == "text")
 
     @staticmethod
     def _resource_read_payloads(result: dict) -> list[dict]:
@@ -665,9 +682,7 @@ class TestMCPSmokeTools(_LiveMCPSubprocessTestCase):
             "tools/call",
             {"name": "redirects_list", "arguments": {}},
         )["result"]
-        self.assertFalse(
-            result.get("isError"), f"redirects_list errored: {result}"
-        )
+        self.assertFalse(result.get("isError"), f"redirects_list errored: {result}")
         text = self._tool_call_text(result)
         # Even a 0-rule site responds with the summary line "↪️  N redirect rules".
         self.assertIn("redirect", text.lower())
@@ -677,9 +692,7 @@ class TestMCPSmokeTools(_LiveMCPSubprocessTestCase):
             "tools/call",
             {"name": "products_list", "arguments": {}},
         )["result"]
-        self.assertFalse(
-            result.get("isError"), f"products_list errored: {result}"
-        )
+        self.assertFalse(result.get("isError"), f"products_list errored: {result}")
         text = self._tool_call_text(result)
         # Empty stores still respond — assert the call succeeded with a
         # JSON body (not an error_response, which would carry a Voog API

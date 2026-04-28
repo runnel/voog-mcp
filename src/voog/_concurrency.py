@@ -11,8 +11,10 @@ Sync stays sync: the spec deliberately rejected an async refactor (PR #44
 contract), so this helper is the parallelization primitive shared by all
 tools that fan out to multiple HTTP requests.
 """
+
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 R = TypeVar("R")
@@ -39,10 +41,7 @@ def parallel_map(
         return []
     results: list[tuple[T, R | None, Exception | None]] = [None] * len(items)  # type: ignore[list-item]
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(fn, item): idx
-            for idx, item in enumerate(items)
-        }
+        futures = {executor.submit(fn, item): idx for idx, item in enumerate(items)}
         for future in as_completed(futures):
             idx = futures[future]
             item = items[idx]

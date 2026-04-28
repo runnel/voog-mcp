@@ -21,10 +21,11 @@ Pattern mirrors :mod:`voog_mcp.tools.pages_mutate`: explicit MCP annotations
 on every tool (per PR #27 review — spec defaults destructiveHint=true when
 readOnlyHint=false, so non-destructive mutating tools must be explicit).
 """
+
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
-from voog.errors import success_response, error_response
+from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
 
 
@@ -129,7 +130,9 @@ def get_tools() -> list[Tool]:
     ]
 
 
-def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
+def call_tool(
+    name: str, arguments: dict | None, client: VoogClient
+) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
     if name == "layout_rename":
@@ -205,9 +208,7 @@ def _layout_create(arguments: dict, client: VoogClient) -> list[TextContent] | C
         result = client.post("/layouts", payload)
         new_id = result.get("id")
         if not new_id:
-            return error_response(
-                f"layout_create: POST response missing 'id' field: {result!r}"
-            )
+            return error_response(f"layout_create: POST response missing 'id' field: {result!r}")
         return success_response(
             result,
             summary=f"✨ created {kind} {new_id}: {title!r}",
@@ -241,19 +242,20 @@ def _asset_replace(arguments: dict, client: VoogClient) -> list[TextContent] | C
         )
 
     try:
-        result = client.post("/layout_assets", {
-            "filename": new_filename,
-            "asset_type": asset_type,
-            "data": content,
-        })
+        result = client.post(
+            "/layout_assets",
+            {
+                "filename": new_filename,
+                "asset_type": asset_type,
+                "data": content,
+            },
+        )
     except Exception as e:
         return error_response(f"asset_replace: POST new asset failed: {e}")
 
     new_id = result.get("id")
     if not new_id:
-        return error_response(
-            f"asset_replace: POST response missing 'id' field: {result!r}"
-        )
+        return error_response(f"asset_replace: POST response missing 'id' field: {result!r}")
 
     return success_response(
         {

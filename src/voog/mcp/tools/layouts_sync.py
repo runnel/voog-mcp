@@ -29,6 +29,7 @@ Annotations: ``readOnlyHint=False`` (writes disk and/or API),
 updates existing layouts but Voog retains version history),
 ``idempotentHint=True`` (same input → same end state).
 """
+
 import json
 from pathlib import Path
 
@@ -36,8 +37,8 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog._concurrency import parallel_map
 from voog.client import VoogClient
-from voog.errors import success_response, error_response
-from voog.mcp.tools._helpers import validate_output_dir, write_json, strip_site
+from voog.errors import error_response, success_response
+from voog.mcp.tools._helpers import strip_site, validate_output_dir, write_json
 
 
 def get_tools() -> list[Tool]:
@@ -74,7 +75,7 @@ def get_tools() -> list[Tool]:
             name="layouts_push",
             description=(
                 "Read manifest.json + .tpl files from target_dir and PUT each "
-                "to /layouts/{id}. Optional files=[\"layouts/x.tpl\", ...] "
+                'to /layouts/{id}. Optional files=["layouts/x.tpl", ...] '
                 "filter pushes only the named relative paths. files=null (or "
                 "omitted) pushes every type=layout entry in the manifest "
                 "(non-layout entries — e.g. type=layout_asset from voog.py-"
@@ -109,7 +110,9 @@ def get_tools() -> list[Tool]:
     ]
 
 
-def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
+def call_tool(
+    name: str, arguments: dict | None, client: VoogClient
+) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
     if name == "layouts_pull":
@@ -172,7 +175,7 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
     # Phase B — sequential write loop. Sync filesystem I/O is fast; serial
     # writes keep manifest assembly atomic and avoid mkdir/write races with
     # no measurable speedup if parallelized.
-    for layout, (_url, detail, exc) in zip(valid_layouts, fetch_results):
+    for layout, (_url, detail, exc) in zip(valid_layouts, fetch_results, strict=True):
         lid = layout["id"]
         title = layout["title"]
         if exc is not None:

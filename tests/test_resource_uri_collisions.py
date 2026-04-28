@@ -13,15 +13,24 @@ groups claim the same string, or if one claim is a strict sub-path of
 another (e.g. ``voog://pages`` and ``voog://pages/special``: ``matches()``
 on both groups would resolve true for ``voog://pages/special/foo``).
 """
+
 import unittest
 from types import SimpleNamespace
 
 from voog.mcp import server
 from voog.mcp.resources import (
     articles as articles_resources,
+)
+from voog.mcp.resources import (
     layouts as layouts_resources,
+)
+from voog.mcp.resources import (
     pages as pages_resources,
+)
+from voog.mcp.resources import (
     products as products_resources,
+)
+from voog.mcp.resources import (
     redirects as redirects_resources,
 )
 

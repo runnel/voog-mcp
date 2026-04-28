@@ -5,6 +5,7 @@ The server resolves it to a SiteConfig from the global config, then
 constructs a per-call VoogClient via ``client_factory``. Clients are
 cached by site name for the lifetime of the server.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -21,13 +22,17 @@ from voog.client import VoogClient
 from voog.config import (
     ConfigError,
     GlobalConfig,
-    SiteConfig,
     default_global_config_path,
     find_env_file,
     load_env_file,
     load_global_config,
 )
 from voog.errors import error_response
+from voog.mcp.resources import articles as articles_resources
+from voog.mcp.resources import layouts as layouts_resources
+from voog.mcp.resources import pages as pages_resources
+from voog.mcp.resources import products as products_resources
+from voog.mcp.resources import redirects as redirects_resources
 from voog.mcp.tools import layouts as layouts_tools
 from voog.mcp.tools import layouts_sync as layouts_sync_tools
 from voog.mcp.tools import pages as pages_tools
@@ -36,12 +41,6 @@ from voog.mcp.tools import products as products_tools
 from voog.mcp.tools import products_images as products_images_tools
 from voog.mcp.tools import redirects as redirects_tools
 from voog.mcp.tools import snapshot as snapshot_tools
-
-from voog.mcp.resources import articles as articles_resources
-from voog.mcp.resources import layouts as layouts_resources
-from voog.mcp.resources import pages as pages_resources
-from voog.mcp.resources import products as products_resources
-from voog.mcp.resources import redirects as redirects_resources
 
 logger = logging.getLogger("voog")
 
@@ -78,25 +77,20 @@ class ClientFactory:
             return self._cache[site_name]
         if site_name not in self._global_cfg.sites:
             raise ConfigError(
-                f"unknown site '{site_name}'. Available: "
-                f"{sorted(self._global_cfg.sites)}"
+                f"unknown site '{site_name}'. Available: {sorted(self._global_cfg.sites)}"
             )
         site = self._global_cfg.sites[site_name]
         token = self._env.get(site.api_key_env) or os.environ.get(site.api_key_env)
         if not token:
             raise ConfigError(
-                f"env var '{site.api_key_env}' (referenced by site "
-                f"'{site_name}') is not set"
+                f"env var '{site.api_key_env}' (referenced by site '{site_name}') is not set"
             )
         client = VoogClient(host=site.host, api_token=token)
         self._cache[site_name] = client
         return client
 
     def list_sites(self) -> list[dict[str, str]]:
-        return [
-            {"name": s.name, "host": s.host}
-            for s in self._global_cfg.sites.values()
-        ]
+        return [{"name": s.name, "host": s.host} for s in self._global_cfg.sites.values()]
 
 
 def _validate_resource_uri_patterns(groups) -> None:
@@ -111,9 +105,8 @@ def _validate_resource_uri_patterns(groups) -> None:
                         f"Resource URI collision: pattern '{pattern}' claimed "
                         f"by both {existing_group} and {group_name}"
                     )
-                if (
-                    pattern.startswith(existing_pattern + "/")
-                    or existing_pattern.startswith(pattern + "/")
+                if pattern.startswith(existing_pattern + "/") or existing_pattern.startswith(
+                    pattern + "/"
                 ):
                     raise RuntimeError(
                         f"Resource URI prefix overlap: '{pattern}' "
@@ -138,11 +131,12 @@ async def run_server(global_cfg: GlobalConfig, env: dict[str, str]):
 
     # Built-in discovery tool
     from mcp.types import Tool
+
     list_sites_tool = Tool(
         name="voog_list_sites",
         description="List all sites configured in the global voog.json. Returns "
-                    "[{name, host}, ...]. Call this first to see what sites are "
-                    "available before invoking any other voog_* tool.",
+        "[{name, host}, ...]. Call this first to see what sites are "
+        "available before invoking any other voog_* tool.",
         inputSchema={"type": "object", "properties": {}, "required": []},
     )
 
@@ -202,7 +196,7 @@ def _extract_site_from_uri(uri: str) -> str:
     """Parse the site name from voog://<site>/... format."""
     if not uri.startswith("voog://"):
         raise ValueError(f"resource URI must start with voog://: {uri}")
-    rest = uri[len("voog://"):]
+    rest = uri[len("voog://") :]
     site, _, _ = rest.partition("/")
     if not site:
         raise ValueError(f"no site in URI: {uri}")
