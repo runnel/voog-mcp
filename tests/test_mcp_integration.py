@@ -39,20 +39,22 @@ import json
 import os
 import pathlib
 import queue
+import shutil
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
 
-# Use the absolute path to the venv-installed console script so the test
-# does not depend on whichever shell PATH the test runner inherits.
+# Resolve the ``voog-mcp`` console script. ``shutil.which`` finds it on PATH
+# (CI's system pip install, or any activated venv). Fallback to the local
+# .venv/bin path so tests still work when invoked from an unactivated venv
+# but with the project installed in-tree.
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-VOOG_MCP_BIN = REPO_ROOT / ".venv" / "bin" / "voog-mcp"
+VOOG_MCP_BIN = shutil.which("voog-mcp") or str(REPO_ROOT / ".venv" / "bin" / "voog-mcp")
 
 ENV_FILE = pathlib.Path(
-    os.environ.get("VOOG_SMOKE_ENV_FILE")
-    or (pathlib.Path.home() / ".config" / "voog" / ".env")
+    os.environ.get("VOOG_SMOKE_ENV_FILE") or (pathlib.Path.home() / ".config" / "voog" / ".env")
 )
 
 # Live-API integration tests are off by default; an external contributor
@@ -447,9 +449,7 @@ def _smoke_enabled() -> bool:
     return bool(os.environ.get("RUN_SMOKE")) and bool(SMOKE_HOST)
 
 
-SMOKE_REASON = (
-    "RUN_SMOKE=1 and VOOG_SMOKE_HOST=<your-site> required (live-API integration test)"
-)
+SMOKE_REASON = "RUN_SMOKE=1 and VOOG_SMOKE_HOST=<your-site> required (live-API integration test)"
 
 
 @unittest.skipUnless(_smoke_enabled(), SMOKE_REASON)
