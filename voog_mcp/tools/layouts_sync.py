@@ -241,15 +241,24 @@ def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
     else:
         targets = list(files_arg)
 
-    results: list = []
+    # Two-pass: per-file pre-PUT validation runs sequentially (dict lookups +
+    # tiny disk reads — fast, cheap, deterministic), THEN PUTs fan out via
+    # parallel_map. Pre-PUT failures (not-in-manifest, wrong type, file missing,
+    # read error) get appended to a results-by-rel-path map; PUT-eligible
+    # entries are collected as (rel_path, layout_id, content) tuples and PUT'd
+    # in parallel. Final ``results`` list is rebuilt in input order to preserve
+    # the existing per-file shape exactly.
+    results_by_path: dict = {}
+    put_items: list = []  # list of (rel_path, layout_id, content)
+
     for rel_path in targets:
         info = manifest.get(rel_path)
         if info is None:
-            results.append({
+            results_by_path[rel_path] = {
                 "file": rel_path,
                 "ok": False,
                 "error": "not in manifest",
-            })
+            }
             continue
 
         # voog.py-pulled trees mix type=layout and type=layout_asset entries.
@@ -258,7 +267,7 @@ def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
         # CSS/JS payload. Bucket non-layout types as per-file failures.
         entry_type = info.get("type")
         if entry_type != "layout":
-            results.append({
+            results_by_path[rel_path] = {
                 "file": rel_path,
                 "ok": False,
                 "id": info.get("id"),
@@ -266,35 +275,54 @@ def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
                     f"unsupported manifest type {entry_type!r}; layouts_push "
                     "only handles type='layout' (use voog.py CLI for asset push)"
                 ),
-            })
+            }
             continue
 
         full = target / rel_path
         if not full.exists():
-            results.append({
+            results_by_path[rel_path] = {
                 "file": rel_path,
                 "ok": False,
                 "error": "file missing on disk",
-            })
+            }
             continue
 
         try:
             content = full.read_text(encoding="utf-8")
         except Exception as e:
-            results.append({"file": rel_path, "ok": False, "error": f"read failed: {e}"})
+            results_by_path[rel_path] = {
+                "file": rel_path,
+                "ok": False,
+                "error": f"read failed: {e}",
+            }
             continue
 
-        layout_id = info.get("id")
-        try:
-            client.put(f"/layouts/{layout_id}", {"body": content})
-            results.append({"file": rel_path, "ok": True, "id": layout_id})
-        except Exception as e:
-            results.append({
+        put_items.append((rel_path, info.get("id"), content))
+
+    # Writes are more sensitive than reads — max_workers=4 (spec § 4.3).
+    def _put_one(item):
+        rel_path, layout_id, content = item
+        return client.put(f"/layouts/{layout_id}", {"body": content})
+
+    parallel_results = parallel_map(_put_one, put_items, max_workers=4)
+    for (rel_path, layout_id, _content), _result, exc in parallel_results:
+        if exc is None:
+            results_by_path[rel_path] = {
+                "file": rel_path,
+                "ok": True,
+                "id": layout_id,
+            }
+        else:
+            results_by_path[rel_path] = {
                 "file": rel_path,
                 "ok": False,
                 "id": layout_id,
-                "error": str(e),
-            })
+                "error": str(exc),
+            }
+
+    # Rebuild in original input order so per-file shape is byte-for-byte
+    # identical to the pre-parallelization output.
+    results: list = [results_by_path[rel_path] for rel_path in targets]
 
     succeeded = sum(1 for r in results if r["ok"])
     failed = len(results) - succeeded

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -587,6 +587,76 @@ class TestLayoutsPush(unittest.TestCase):
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
+
+    def test_uses_parallel_map_with_max_workers_four(self):
+        # Spec § 4.3: writes use max_workers=4 (more conservative than reads).
+        client = _make_client()
+        client.put.return_value = {}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            _make_pulled_tree(
+                target,
+                manifest={
+                    "layouts/a.tpl": {"id": 1, "type": "layout", "updated_at": ""},
+                    "layouts/b.tpl": {"id": 2, "type": "layout", "updated_at": ""},
+                },
+                contents={
+                    "layouts/a.tpl": "A",
+                    "layouts/b.tpl": "B",
+                },
+            )
+            with patch(
+                "voog_mcp.tools.layouts_sync.parallel_map",
+                wraps=layouts_sync_tools.parallel_map,
+            ) as wrapped:
+                layouts_sync_tools.call_tool(
+                    "layouts_push", {"target_dir": str(target)}, client,
+                )
+        wrapped.assert_called_once()
+        _args, kwargs = wrapped.call_args
+        self.assertEqual(kwargs.get("max_workers"), 4)
+
+    def test_one_of_n_put_failure_isolated(self):
+        # 1-of-N PUT failure: that file reports ok=False with error; others ok=True.
+        client = _make_client()
+
+        def put_side_effect(path, body):
+            if path == "/layouts/2":
+                raise urllib.error.HTTPError("u", 500, "boom", {}, None)
+            return {}
+
+        client.put.side_effect = put_side_effect
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            _make_pulled_tree(
+                target,
+                manifest={
+                    "layouts/a.tpl": {"id": 1, "type": "layout", "updated_at": ""},
+                    "layouts/b.tpl": {"id": 2, "type": "layout", "updated_at": ""},
+                    "layouts/c.tpl": {"id": 3, "type": "layout", "updated_at": ""},
+                    "layouts/d.tpl": {"id": 4, "type": "layout", "updated_at": ""},
+                },
+                contents={
+                    "layouts/a.tpl": "A",
+                    "layouts/b.tpl": "B",
+                    "layouts/c.tpl": "C",
+                    "layouts/d.tpl": "D",
+                },
+            )
+            result = layouts_sync_tools.call_tool(
+                "layouts_push", {"target_dir": str(target)}, client,
+            )
+        breakdown = json.loads(result[1].text)
+        self.assertEqual(breakdown["total"], 4)
+        self.assertEqual(breakdown["succeeded"], 3)
+        self.assertEqual(breakdown["failed"], 1)
+        results_by_file = {r["file"]: r for r in breakdown["results"]}
+        self.assertTrue(results_by_file["layouts/a.tpl"]["ok"])
+        self.assertFalse(results_by_file["layouts/b.tpl"]["ok"])
+        self.assertEqual(results_by_file["layouts/b.tpl"]["id"], 2)
+        self.assertIn("error", results_by_file["layouts/b.tpl"])
+        self.assertTrue(results_by_file["layouts/c.tpl"]["ok"])
+        self.assertTrue(results_by_file["layouts/d.tpl"]["ok"])
 
 
 class TestUnknownTool(unittest.TestCase):
