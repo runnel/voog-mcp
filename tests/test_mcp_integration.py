@@ -169,6 +169,105 @@ class TestMCPInitialize(unittest.TestCase):
                     except Exception:
                         pass
 
+    def test_tool_validation_error_returns_iserror_true(self):
+        # Verifies that error_response surfaces as CallToolResult(isError=True)
+        # over the wire. We pick page_delete with force omitted: the tool's
+        # own validation refuses (so this exercises voog_mcp.errors.error_response,
+        # not the SDK's input-validation path) and returns without making any
+        # HTTP call — the dummy token is sufficient. Without isError=True a
+        # client cannot distinguish a tool-level failure from a successful
+        # response (per spec § 7).
+        env = {
+            **os.environ,
+            "VOOG_HOST": "runnel.ee",
+            "VOOG_API_TOKEN": "dummy",
+        }
+        proc = subprocess.Popen(
+            [str(VOOG_MCP_BIN)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            text=True,
+        )
+        try:
+            assert proc.stdin is not None
+            assert proc.stdout is not None
+
+            # 1. initialize handshake
+            proc.stdin.write(json.dumps({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0.1"},
+                },
+            }) + "\n")
+            proc.stdin.flush()
+            init_line = _readline_with_timeout(proc.stdout, timeout=10.0)
+            self.assertTrue(init_line, "no initialize response")
+            init = json.loads(init_line)
+            self.assertIn("result", init, f"initialize failed: {init}")
+
+            # 2. MCP requires notifications/initialized before further requests
+            proc.stdin.write(json.dumps({
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+                "params": {},
+            }) + "\n")
+            proc.stdin.flush()
+
+            # 3. Call page_delete without force=true → tool returns error_response.
+            #    Skip notifications, find the response with id=2.
+            proc.stdin.write(json.dumps({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "page_delete",
+                    "arguments": {"page_id": 999},
+                },
+            }) + "\n")
+            proc.stdin.flush()
+
+            response = None
+            for _ in range(5):
+                line = _readline_with_timeout(proc.stdout, timeout=10.0)
+                if not line:
+                    break
+                msg = json.loads(line)
+                if msg.get("id") == 2:
+                    response = msg
+                    break
+
+            self.assertIsNotNone(response, "no response for id=2")
+            self.assertIn("result", response, f"unexpected envelope: {response}")
+            result = response["result"]
+            self.assertTrue(
+                result.get("isError"),
+                f"expected isError=True on tool failure, got: {result}",
+            )
+            content = result.get("content", [])
+            self.assertTrue(content, "isError result missing content")
+            payload = json.loads(content[0]["text"])
+            self.assertIn("error", payload)
+            self.assertIn("force=true", payload["error"])
+        finally:
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+            for stream in (proc.stdin, proc.stdout, proc.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
+
 
 # ---------------------------------------------------------------------------
 # Smoke-test infrastructure (RUN_SMOKE=1 only)

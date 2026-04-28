@@ -82,7 +82,8 @@ class TestValidation(unittest.TestCase):
         ))
         client.post.assert_not_called()
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("product_id", payload["error"])
 
@@ -95,7 +96,8 @@ class TestValidation(unittest.TestCase):
         ))
         client.post.assert_not_called()
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_relative_path_rejected(self):
@@ -107,7 +109,8 @@ class TestValidation(unittest.TestCase):
         ))
         client.post.assert_not_called()
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("absolute", payload["error"])
 
@@ -120,7 +123,8 @@ class TestValidation(unittest.TestCase):
         ))
         client.post.assert_not_called()
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_unsupported_extension_rejected(self):
@@ -135,7 +139,8 @@ class TestValidation(unittest.TestCase):
             ))
             client.post.assert_not_called()
             client.put.assert_not_called()
-            payload = json.loads(result[0].text)
+            self.assertTrue(result.isError)
+            payload = json.loads(result.content[0].text)
             self.assertIn("error", payload)
             self.assertIn(".txt", payload["error"])
 
@@ -171,7 +176,8 @@ class TestForceGuard(unittest.TestCase):
             ))
             client.post.assert_not_called()
             client.put.assert_not_called()
-            payload = json.loads(result[0].text)
+            self.assertTrue(result.isError)
+            payload = json.loads(result.content[0].text)
             self.assertIn("error", payload)
             self.assertIn("force", payload["error"])
 
@@ -377,7 +383,8 @@ class TestPartialFailure(unittest.TestCase):
         ]
         self.assertEqual(product_put_calls, [])
 
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         # Error path — orphan uploads surfaced via `details`
         self.assertIn("error", payload)
         details = payload["details"]
@@ -417,7 +424,8 @@ class TestPartialFailure(unittest.TestCase):
         ]
         self.assertEqual(product_put_calls, [])
 
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertEqual(len(payload["details"]["failed"]), 1)
 
@@ -448,7 +456,8 @@ class TestProductPutFailure(unittest.TestCase):
                     client,
                 ))
 
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         # Even on error, the orphan-asset breakdown must be visible to the
         # caller. The error response carries `details` with the upload state.
@@ -463,7 +472,8 @@ class TestUnknownTool(unittest.TestCase):
         result = asyncio.run(products_images_tools.call_tool(
             "nonexistent", {}, client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 

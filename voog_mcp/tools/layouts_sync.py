@@ -32,7 +32,7 @@ updates existing layouts but Voog retains version history),
 import json
 from pathlib import Path
 
-from mcp.types import Tool, TextContent
+from mcp.types import CallToolResult, TextContent, Tool
 
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
@@ -105,7 +105,7 @@ def get_tools() -> list[Tool]:
     ]
 
 
-async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent]:
+async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
     arguments = arguments or {}
 
     if name == "layouts_pull":
@@ -126,7 +126,7 @@ def _validate_target_dir(target_dir: str, tool_name: str) -> str | None:
     return None
 
 
-def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     target_dir = arguments.get("target_dir") or ""
     err = _validate_target_dir(target_dir, "layouts_pull")
     if err:
@@ -214,7 +214,7 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent]:
     )
 
 
-def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     target_dir = arguments.get("target_dir") or ""
     err = _validate_target_dir(target_dir, "layouts_push")
     if err:

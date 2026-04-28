@@ -133,7 +133,8 @@ class TestLayoutsPull(unittest.TestCase):
             ))
             client.get_all.assert_not_called()
             client.get.assert_not_called()
-            payload = json.loads(result[0].text)
+            self.assertTrue(result.isError)
+            payload = json.loads(result.content[0].text)
             self.assertIn("error", payload)
             # Stale file untouched
             self.assertEqual(
@@ -194,7 +195,8 @@ class TestLayoutsPull(unittest.TestCase):
             result = asyncio.run(layouts_sync_tools.call_tool(
                 "layouts_pull", {"target_dir": str(target)}, client,
             ))
-            payload = json.loads(result[0].text)
+            self.assertTrue(result.isError)
+            payload = json.loads(result.content[0].text)
             self.assertIn("error", payload)
             self.assertIn("layouts_pull", payload["error"])
 
@@ -230,7 +232,8 @@ class TestLayoutsPull(unittest.TestCase):
             "layouts_pull", {"target_dir": ""}, client,
         ))
         client.get_all.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_relative_path_rejected(self):
@@ -239,7 +242,8 @@ class TestLayoutsPull(unittest.TestCase):
             "layouts_pull", {"target_dir": "tree/foo"}, client,
         ))
         client.get_all.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("absolute path", payload["error"])
 
@@ -249,7 +253,8 @@ class TestLayoutsPull(unittest.TestCase):
             "layouts_pull", {"target_dir": "./tree"}, client,
         ))
         client.get_all.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("absolute path", payload["error"])
 
 
@@ -341,7 +346,8 @@ class TestLayoutsPush(unittest.TestCase):
                 "layouts_push", {"target_dir": str(target)}, client,
             ))
             client.put.assert_not_called()
-            payload = json.loads(result[0].text)
+            self.assertTrue(result.isError)
+            payload = json.loads(result.content[0].text)
             self.assertIn("error", payload)
             self.assertIn("manifest", payload["error"])
 
@@ -474,7 +480,8 @@ class TestLayoutsPush(unittest.TestCase):
             "layouts_push", {"target_dir": "tree/foo"}, client,
         ))
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("absolute path", payload["error"])
 
     def test_empty_target_dir_rejected(self):
@@ -483,7 +490,8 @@ class TestLayoutsPush(unittest.TestCase):
             "layouts_push", {"target_dir": ""}, client,
         ))
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 
@@ -493,7 +501,8 @@ class TestUnknownTool(unittest.TestCase):
         result = asyncio.run(layouts_sync_tools.call_tool(
             "nonexistent", {}, client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 

@@ -158,7 +158,8 @@ class TestPagesSnapshot(unittest.TestCase):
             result = asyncio.run(snapshot_tools.call_tool(
                 "pages_snapshot", {"output_dir": str(out)}, client,
             ))
-            payload = json.loads(result[0].text)
+            self.assertTrue(result.isError)
+            payload = json.loads(result.content[0].text)
             self.assertIn("error", payload)
             self.assertIn("pages_snapshot", payload["error"])
 
@@ -168,7 +169,8 @@ class TestPagesSnapshot(unittest.TestCase):
             "pages_snapshot", {"output_dir": ""}, client,
         ))
         client.get_all.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_relative_path_rejected(self):
@@ -180,7 +182,8 @@ class TestPagesSnapshot(unittest.TestCase):
             "pages_snapshot", {"output_dir": "snapshots/foo"}, client,
         ))
         client.get_all.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("absolute path", payload["error"])
 
@@ -190,7 +193,8 @@ class TestPagesSnapshot(unittest.TestCase):
             "pages_snapshot", {"output_dir": "./out"}, client,
         ))
         client.get_all.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("absolute path", payload["error"])
 
 
@@ -201,7 +205,8 @@ class TestSiteSnapshot(unittest.TestCase):
             "site_snapshot", {"output_dir": "backups/2026"}, client,
         ))
         client.get_all.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("absolute path", payload["error"])
 
     def test_refuses_existing_directory(self):
@@ -217,7 +222,8 @@ class TestSiteSnapshot(unittest.TestCase):
             ))
             client.get_all.assert_not_called()
             client.get.assert_not_called()
-            payload = json.loads(result[0].text)
+            self.assertTrue(result.isError)
+            payload = json.loads(result.content[0].text)
             self.assertIn("error", payload)
             self.assertIn("exists", payload["error"])
 
@@ -317,7 +323,8 @@ class TestSiteSnapshot(unittest.TestCase):
         result = asyncio.run(snapshot_tools.call_tool(
             "site_snapshot", {"output_dir": ""}, client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 
@@ -327,7 +334,8 @@ class TestUnknownTool(unittest.TestCase):
         result = asyncio.run(snapshot_tools.call_tool(
             "nonexistent", {}, client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 
