@@ -34,6 +34,11 @@ URI_PREFIX = "voog://pages"
 matches = prefix_matcher(URI_PREFIX)
 
 
+def get_uri_patterns() -> list[str]:
+    """URI patterns claimed by this group — read by the startup collision guard."""
+    return [URI_PREFIX]
+
+
 def get_resources() -> list[Resource]:
     return [
         Resource(
