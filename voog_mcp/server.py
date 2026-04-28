@@ -39,7 +39,9 @@ TOOL_GROUPS = [
 # Resource group registry — Phase D Tasks 15-19 should append their module here.
 # Each module must export:
 #   - get_resources() -> list[Resource]
-#   - matches(uri: str) -> bool   (does this group handle this URI?)
+#   - get_uri_patterns() -> list[str]   (claimed URI / URI_PREFIX strings;
+#                                        read by the startup collision guard)
+#   - matches(uri: str) -> bool         (does this group handle this URI?)
 #   - async read_resource(uri: str, client) -> list[ReadResourceContents]
 RESOURCE_GROUPS = [
     articles_resources,
@@ -48,6 +50,50 @@ RESOURCE_GROUPS = [
     products_resources,
     redirects_resources,
 ]
+
+
+def _validate_resource_uri_patterns(groups) -> None:
+    """Fail-fast on duplicate or overlapping resource URI patterns.
+
+    Each group's :func:`get_uri_patterns` returns the URI / URI_PREFIX
+    strings it claims. Two groups conflict if either:
+
+    1. They claim the same pattern verbatim (e.g. both return
+       ``"voog://pages"``), or
+    2. One pattern is a strict sub-path of another (e.g. ``"voog://pages"``
+       and ``"voog://pages/special"``). Under the convention that
+       :func:`matches` resolves true for ``uri == pattern`` or
+       ``uri.startswith(pattern + "/")``, both groups would match a URI
+       like ``voog://pages/special/foo``, and the first-match dispatcher
+       in :func:`handle_read_resource` would silently route to whichever
+       registered first.
+
+    ``"voog://pagesx"`` vs ``"voog://pages"`` is *not* a collision: the
+    trailing-``/`` boundary means ``matches()`` rejects cross-prefix URIs.
+
+    Mirrors the inline tool name collision check below — same fail-fast
+    contract, just for resources.
+    """
+    claims: list[tuple[str, str]] = []  # (pattern, group_name)
+    for group in groups:
+        group_name = getattr(group, "__name__", repr(group))
+        for pattern in group.get_uri_patterns():
+            for existing_pattern, existing_group in claims:
+                if pattern == existing_pattern:
+                    raise RuntimeError(
+                        f"Resource URI collision: pattern '{pattern}' claimed "
+                        f"by both {existing_group} and {group_name}"
+                    )
+                if (
+                    pattern.startswith(existing_pattern + "/")
+                    or existing_pattern.startswith(pattern + "/")
+                ):
+                    raise RuntimeError(
+                        f"Resource URI prefix overlap: '{pattern}' "
+                        f"(from {group_name}) overlaps with '{existing_pattern}' "
+                        f"(from {existing_group})"
+                    )
+            claims.append((pattern, group_name))
 
 
 async def run_server():
@@ -65,6 +111,8 @@ async def run_server():
                     f"Tool name collision: '{tool.name}' defined in multiple tool groups"
                 )
             tool_dispatch[tool.name] = group
+
+    _validate_resource_uri_patterns(RESOURCE_GROUPS)
 
     @server.list_tools()
     async def handle_list_tools():

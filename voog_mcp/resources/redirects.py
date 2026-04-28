@@ -6,6 +6,8 @@ Reference implementation for the Phase D resource group contract:
     like ``voog://pages``, ``voog://pages/{id}`` define ``URI_PREFIX`` and
     prefix-match in :func:`matches`).
   - ``get_resources() -> list[Resource]``
+  - ``get_uri_patterns() -> list[str]`` (claimed prefixes; the server-side
+    collision guard rejects duplicates and strict sub-path overlaps at startup)
   - ``matches(uri: str) -> bool``
   - ``async read_resource(uri, client) -> list[ReadResourceContents]``
 
@@ -21,6 +23,11 @@ from voog_mcp.resources._helpers import json_response
 
 
 URI = "voog://redirects"
+
+
+def get_uri_patterns() -> list[str]:
+    """URI patterns claimed by this group — read by the startup collision guard."""
+    return [URI]
 
 
 def get_resources() -> list[Resource]:
