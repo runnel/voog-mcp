@@ -29,6 +29,7 @@ from pathlib import Path
 
 from mcp.types import CallToolResult, TextContent, Tool
 
+from voog_mcp._concurrency import parallel_map
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
 from voog_mcp.tools._helpers import validate_output_dir, write_json
@@ -212,13 +213,16 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
     articles_data: list = []
     products_data: list = []
 
-    # 1. Standard list endpoints (paginated)
-    for endpoint in SITE_SNAPSHOT_LIST_ENDPOINTS:
+    # 1. Standard list endpoints (paginated) — parallelized read-only fetches.
+    # Sequencing: pages_data / articles_data are consumed by loops 3+4 below,
+    # so we still await this loop's completion before fanning out per-resource.
+    list_results = parallel_map(
+        client.get_all, SITE_SNAPSHOT_LIST_ENDPOINTS, max_workers=8,
+    )
+    for endpoint, data, exc in list_results:
         filename = _snapshot_filename_for(endpoint)
-        try:
-            data = client.get_all(endpoint)
-        except Exception as e:
-            skipped.append({"file": filename, "reason": _format_skip(filename, e)})
+        if exc is not None:
+            skipped.append({"file": filename, "reason": _format_skip(filename, exc)})
             continue
         write_json(out / filename, data)
         files_written += 1
@@ -227,7 +231,8 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         elif endpoint == "/articles":
             articles_data = data
 
-    # 2. Singletons
+    # 2. Singletons — kept sequential (only 2 endpoints, parallel speedup is
+    # not worth the extra moving part).
     for endpoint in SITE_SNAPSHOT_SINGLETONS:
         filename = _snapshot_filename_for(endpoint)
         try:
@@ -238,37 +243,39 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         write_json(out / filename, data)
         files_written += 1
 
-    # 3. Per-page contents
+    # 3. Per-page contents — parallelized.
     page_contents_count = 0
-    for p in pages_data:
-        pid = p.get("id")
-        if not pid:
-            continue
-        try:
-            contents = client.get(f"/pages/{pid}/contents")
-        except Exception as e:
-            skipped.append({"file": f"page_{pid}_contents.json", "reason": str(e)})
+    page_ids = [p.get("id") for p in pages_data if p.get("id")]
+    page_content_results = parallel_map(
+        lambda pid: client.get(f"/pages/{pid}/contents"),
+        page_ids,
+        max_workers=8,
+    )
+    for pid, contents, exc in page_content_results:
+        if exc is not None:
+            skipped.append({"file": f"page_{pid}_contents.json", "reason": str(exc)})
             continue
         write_json(out / f"page_{pid}_contents.json", contents)
         files_written += 1
         page_contents_count += 1
 
-    # 4. Per-article details
+    # 4. Per-article details — parallelized.
     article_detail_count = 0
-    for a in articles_data:
-        aid = a.get("id")
-        if not aid:
-            continue
-        try:
-            detail = client.get(f"/articles/{aid}")
-        except Exception as e:
-            skipped.append({"file": f"article_{aid}.json", "reason": str(e)})
+    article_ids = [a.get("id") for a in articles_data if a.get("id")]
+    article_detail_results = parallel_map(
+        lambda aid: client.get(f"/articles/{aid}"),
+        article_ids,
+        max_workers=8,
+    )
+    for aid, detail, exc in article_detail_results:
+        if exc is not None:
+            skipped.append({"file": f"article_{aid}.json", "reason": str(exc)})
             continue
         write_json(out / f"article_{aid}.json", detail)
         files_written += 1
         article_detail_count += 1
 
-    # 5. Ecommerce: products list + per-product details
+    # 5. Ecommerce: products list + per-product details (parallelized).
     try:
         products_data = client.get_all("/products", base=client.ecommerce_url)
     except Exception as e:
@@ -278,18 +285,21 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
     if products_data:
         write_json(out / "products.json", products_data)
         files_written += 1
-        for prod in products_data:
-            pid = prod.get("id")
-            if not pid:
-                continue
-            try:
-                detail = client.get(
-                    f"/products/{pid}",
-                    base=client.ecommerce_url,
-                    params={"include": "variant_types,translations"},
-                )
-            except Exception as e:
-                skipped.append({"file": f"product_{pid}.json", "reason": str(e)})
+        product_ids = [prod.get("id") for prod in products_data if prod.get("id")]
+
+        def _fetch_product_detail(pid):
+            return client.get(
+                f"/products/{pid}",
+                base=client.ecommerce_url,
+                params={"include": "variant_types,translations"},
+            )
+
+        product_detail_results = parallel_map(
+            _fetch_product_detail, product_ids, max_workers=8,
+        )
+        for pid, detail, exc in product_detail_results:
+            if exc is not None:
+                skipped.append({"file": f"product_{pid}.json", "reason": str(exc)})
                 continue
             write_json(out / f"product_{pid}.json", detail)
             files_written += 1
