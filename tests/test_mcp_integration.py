@@ -7,15 +7,16 @@ Two flavours of tests live here:
    ``unittest discover``.
 
 2. **Live-API smoke tests** — :class:`TestMCPSmokeTools` and
-   :class:`TestMCPSmokeResources` are gated behind ``RUN_SMOKE=1``. They
-   spawn ``voog-mcp`` against ``runnel.ee`` with a real API token (read
-   from ``Claude/.env``'s ``RUNNEL_VOOG_API_KEY``) and exercise one
-   representative read-only tool or resource per group. Without the
-   ``RUN_SMOKE`` env var the whole class skips, so the regular
+   :class:`TestMCPSmokeResources` are gated behind ``RUN_SMOKE=1`` *and* a
+   non-empty ``VOOG_SMOKE_HOST``. They spawn ``voog-mcp`` against the host
+   you specify with a real API token (read from ``VOOG_SMOKE_ENV_FILE``,
+   looking up the variable named in ``VOOG_SMOKE_API_KEY_NAME``) and
+   exercise one representative read-only tool or resource per group.
+   Without those env vars the whole class skips, so the regular
    ``unittest discover`` run on CI / dev boxes does not require
-   credentials and does not hit the live site.
+   credentials and does not hit any live site.
 
-Why opt-in: live-API tests need credentials, hit production runnel.ee, and
+Why opt-in: live-API tests need credentials, hit a production site, and
 add ~10s of network latency to the suite. They verify the end-to-end MCP
 contract (subprocess + JSON-RPC framing + tool dispatch + Voog API + result
 shape) which mocks cannot reproduce. Mutating tools (``page_set_hidden``,
@@ -49,9 +50,17 @@ import unittest
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 VOOG_MCP_BIN = REPO_ROOT / ".venv" / "bin" / "voog-mcp"
 
-ENV_FILE = pathlib.Path("/Users/runnel/Library/CloudStorage/Dropbox/Documents/Claude/.env")
+ENV_FILE = pathlib.Path(
+    os.environ.get("VOOG_SMOKE_ENV_FILE")
+    or (pathlib.Path.home() / ".config" / "voog" / ".env")
+)
 
-SMOKE_HOST = "runnel.ee"
+# Live-API integration tests are off by default; an external contributor
+# enables them by setting VOOG_SMOKE_HOST + VOOG_SMOKE_API_KEY_NAME +
+# RUN_SMOKE=1 against their own Voog site. Empty SMOKE_HOST → smoke class
+# skips, regardless of RUN_SMOKE.
+SMOKE_HOST = os.environ.get("VOOG_SMOKE_HOST", "")
+SMOKE_API_KEY_NAME = os.environ.get("VOOG_SMOKE_API_KEY_NAME", "VOOG_API_TOKEN")
 
 
 def _readline_with_timeout(stream, timeout: float) -> str:
@@ -78,17 +87,18 @@ def _readline_with_timeout(stream, timeout: float) -> str:
 
 
 def _read_smoke_api_key() -> str | None:
-    """Read RUNNEL_VOOG_API_KEY from Claude/.env, or None if unavailable.
+    """Read the smoke-test API key from ENV_FILE, or None if unavailable.
 
-    Mirrors the pattern in tests/test_layout_create.py: live-API tests read
-    the key from a known dotenv path rather than relying on shell env, so
-    the test runner does not need to source it.
+    Looks up the env-var name in SMOKE_API_KEY_NAME (default VOOG_API_TOKEN).
+    Live-API tests read the key from a dotenv path rather than relying on
+    shell env, so the test runner does not need to source it.
     """
     if not ENV_FILE.exists():
         return None
+    prefix = f"{SMOKE_API_KEY_NAME}="
     for raw in ENV_FILE.read_text().splitlines():
         line = raw.strip()
-        if line.startswith("RUNNEL_VOOG_API_KEY="):
+        if line.startswith(prefix):
             return line.split("=", 1)[1].strip()
     return None
 
@@ -97,7 +107,7 @@ class TestMCPInitialize(unittest.TestCase):
     def test_server_initialize_handshake(self):
         env = {
             **os.environ,
-            "VOOG_HOST": "runnel.ee",
+            "VOOG_HOST": "example.voog.com",
             # Task 6 only checks the initialize handshake — no API call is
             # made. A dummy token is sufficient to satisfy load_config().
             "VOOG_API_TOKEN": "dummy",
@@ -178,8 +188,8 @@ class TestMCPInitialize(unittest.TestCase):
         #
         # The new multi-site server loads config from a voog.json file
         # (pointed to via $VOOG_CONFIG). We write a minimal temp config with
-        # one site named "runnel" and supply its API token in the env. The
-        # tool call also includes site="runnel" so dispatch reaches the tool's
+        # one site named "test" and supply its API token in the env. The
+        # tool call also includes site="test" so dispatch reaches the tool's
         # own force=true check rather than the missing-site guard.
         tmpdir_obj = tempfile.TemporaryDirectory()
         tmpdir = tmpdir_obj.name
@@ -188,19 +198,19 @@ class TestMCPInitialize(unittest.TestCase):
             json.dumps(
                 {
                     "sites": {
-                        "runnel": {
-                            "host": "runnel.ee",
-                            "api_key_env": "RUNNEL_VOOG_API_KEY",
+                        "test": {
+                            "host": "example.voog.com",
+                            "api_key_env": "TEST_VOOG_API_KEY",
                         }
                     },
-                    "default_site": "runnel",
+                    "default_site": "test",
                 }
             )
         )
         env = {
             **os.environ,
             "VOOG_CONFIG": str(cfg_path),
-            "RUNNEL_VOOG_API_KEY": "dummy",
+            "TEST_VOOG_API_KEY": "dummy",
         }
         proc = subprocess.Popen(
             [str(VOOG_MCP_BIN)],
@@ -250,7 +260,7 @@ class TestMCPInitialize(unittest.TestCase):
             proc.stdin.flush()
 
             # 3. Call page_delete without force=true → tool returns error_response.
-            #    site="runnel" is required by the new multi-site server; passing
+            #    site="test" is required by the new multi-site server; passing
             #    it lets dispatch reach the tool's own validation (force=true check).
             proc.stdin.write(
                 json.dumps(
@@ -260,7 +270,7 @@ class TestMCPInitialize(unittest.TestCase):
                         "method": "tools/call",
                         "params": {
                             "name": "page_delete",
-                            "arguments": {"page_id": 999, "site": "runnel"},
+                            "arguments": {"page_id": 999, "site": "test"},
                         },
                     }
                 )
@@ -319,7 +329,7 @@ class TestMCPInitialize(unittest.TestCase):
         # that protects that decision.
         env = {
             **os.environ,
-            "VOOG_HOST": "runnel.ee",
+            "VOOG_HOST": "example.voog.com",
             "VOOG_API_TOKEN": "dummy",
         }
         proc = subprocess.Popen(
@@ -432,11 +442,14 @@ class TestMCPInitialize(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-SMOKE_REASON = "RUN_SMOKE=1 required (live-API integration test)"
-
-
 def _smoke_enabled() -> bool:
-    return bool(os.environ.get("RUN_SMOKE"))
+    # Both gates required: RUN_SMOKE=1 *and* a non-empty target host.
+    return bool(os.environ.get("RUN_SMOKE")) and bool(SMOKE_HOST)
+
+
+SMOKE_REASON = (
+    "RUN_SMOKE=1 and VOOG_SMOKE_HOST=<your-site> required (live-API integration test)"
+)
 
 
 @unittest.skipUnless(_smoke_enabled(), SMOKE_REASON)
@@ -458,7 +471,7 @@ class _LiveMCPSubprocessTestCase(unittest.TestCase):
         super().setUpClass()
         cls._api_key = _read_smoke_api_key()
         if cls._api_key is None:
-            raise unittest.SkipTest(f"RUNNEL_VOOG_API_KEY not found in {ENV_FILE}")
+            raise unittest.SkipTest(f"{SMOKE_API_KEY_NAME} not found in {ENV_FILE}")
 
     def setUp(self):
         env = {
@@ -697,7 +710,7 @@ class TestMCPSmokeTools(_LiveMCPSubprocessTestCase):
         self.assertFalse(result.get("isError"), f"pages_list errored: {result}")
         text = self._tool_call_text(result)
         # Result body is success_response()'s formatted payload — at minimum
-        # the runnel.ee site has a homepage (id, path, title fields).
+        # the live site has a homepage (id, path, title fields).
         self.assertIn("pages", text.lower())
         self.assertIn('"id"', text)
         self.assertIn('"path"', text)
@@ -761,8 +774,8 @@ class TestMCPSmokeResources(_LiveMCPSubprocessTestCase):
         self.assertEqual(block.get("uri"), "voog://pages")
         pages = json.loads(block["text"])
         self.assertIsInstance(pages, list)
-        # runnel.ee has at least the homepage; assert simplified shape.
-        self.assertGreater(len(pages), 0, "runnel.ee /pages returned empty list")
+        # The live site has at least the homepage; assert simplified shape.
+        self.assertGreater(len(pages), 0, "/pages returned empty list")
         first = pages[0]
         for field in ("id", "path", "title", "hidden", "language_code"):
             self.assertIn(field, first, f"page missing {field}: {first}")
@@ -776,7 +789,7 @@ class TestMCPSmokeResources(_LiveMCPSubprocessTestCase):
         block = contents[0]
         layouts = json.loads(block["text"])
         self.assertIsInstance(layouts, list)
-        self.assertGreater(len(layouts), 0, "runnel.ee /layouts returned empty")
+        self.assertGreater(len(layouts), 0, "/layouts returned empty")
         # Bodies must be stripped from list view (per resource contract).
         for layout in layouts:
             self.assertNotIn("body", layout, f"body leaked into list: {layout}")
@@ -836,8 +849,8 @@ class TestMCPSmokeResources(_LiveMCPSubprocessTestCase):
         block = self._resource_read_payloads(result)[0]
         rules = json.loads(block["text"])
         self.assertIsInstance(rules, list)
-        # Even a 0-rule site verifies the contract — runnel.ee may have
-        # rules or not; we only assert shape.
+        # Even a 0-rule site verifies the contract — the configured site may
+        # have rules or not; we only assert shape.
 
 
 if __name__ == "__main__":
