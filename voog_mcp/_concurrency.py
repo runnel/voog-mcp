@@ -28,8 +28,10 @@ def parallel_map(
 
     Returns ``[(item, result, exception), ...]`` in the original input order
     (not completion order), so callers can pair input/output deterministically
-    without bookkeeping. Exactly one of ``result`` / ``exception`` is non-None
-    per tuple. Caller decides what to do with errors — this helper never raises.
+    without bookkeeping. Distinguish success from failure by checking whether
+    ``exception`` is not None — if ``fn`` returns ``None`` on success, the tuple
+    is ``(item, None, None)``, which is success, not a failure with a missing
+    exception. Caller decides what to do with errors — this helper never raises.
 
     Empty ``items`` returns ``[]`` without spawning a pool.
     """
