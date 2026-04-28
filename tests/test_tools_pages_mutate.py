@@ -119,12 +119,19 @@ class TestPageSetHidden(unittest.TestCase):
 
     def test_partial_failure_reports_per_id_status(self):
         client = MagicMock()
-        # First and third succeed; second raises
-        client.put.side_effect = [
-            {"id": 1, "hidden": True},
-            urllib.error.HTTPError("url", 404, "Not Found", {}, None),
-            {"id": 3, "hidden": True},
-        ]
+        # ids 1 and 3 succeed; id 2 fails. Keyed by path so success/failure
+        # binding stays invariant under ThreadPoolExecutor's non-deterministic
+        # call order (max_workers=4).
+        def put_dispatch(path, body, **kwargs):
+            if path == "/pages/1":
+                return {"id": 1, "hidden": True}
+            if path == "/pages/2":
+                raise urllib.error.HTTPError("url", 404, "Not Found", {}, None)
+            if path == "/pages/3":
+                return {"id": 3, "hidden": True}
+            raise AssertionError(f"unexpected path: {path}")
+
+        client.put.side_effect = put_dispatch
         result = pages_mutate_tools.call_tool(
             "page_set_hidden",
             {"ids": [1, 2, 3], "hidden": True},
@@ -146,10 +153,14 @@ class TestPageSetHidden(unittest.TestCase):
 
     def test_all_failures_still_returns_breakdown(self):
         client = MagicMock()
-        client.put.side_effect = [
-            urllib.error.URLError("network down"),
-            urllib.error.URLError("network down"),
-        ]
+        # Both ids fail. Keyed by path (rather than positional list) so the
+        # binding is invariant under ThreadPoolExecutor scheduling.
+        def put_dispatch(path, body, **kwargs):
+            if path in ("/pages/10", "/pages/20"):
+                raise urllib.error.URLError("network down")
+            raise AssertionError(f"unexpected path: {path}")
+
+        client.put.side_effect = put_dispatch
         result = pages_mutate_tools.call_tool(
             "page_set_hidden",
             {"ids": [10, 20], "hidden": True},

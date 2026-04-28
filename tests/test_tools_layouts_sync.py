@@ -479,11 +479,17 @@ class TestLayoutsPush(unittest.TestCase):
 
     def test_per_file_put_failure_captured(self):
         client = _make_client()
-        # First PUT succeeds, second raises
-        client.put.side_effect = [
-            {},
-            urllib.error.HTTPError("u", 422, "Unprocessable", {}, None),
-        ]
+        # /layouts/1 (a.tpl) succeeds, /layouts/2 (b.tpl) fails. Keyed by
+        # path so the success/failure binding stays invariant under
+        # ThreadPoolExecutor's non-deterministic call order.
+        def put_dispatch(path, body, **kwargs):
+            if path == "/layouts/1":
+                return {}
+            if path == "/layouts/2":
+                raise urllib.error.HTTPError("u", 422, "Unprocessable", {}, None)
+            raise AssertionError(f"unexpected path: {path}")
+
+        client.put.side_effect = put_dispatch
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "tree"
             _make_pulled_tree(
