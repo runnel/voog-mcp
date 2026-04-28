@@ -31,7 +31,7 @@ and isolating it keeps that module's read+translate flow easy to follow.
 import urllib.request
 from pathlib import Path
 
-from mcp.types import Tool, TextContent
+from mcp.types import CallToolResult, TextContent, Tool
 
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
@@ -100,7 +100,7 @@ def get_tools() -> list[Tool]:
     ]
 
 
-async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent]:
+async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
     arguments = arguments or {}
 
     if name == "product_set_images":
@@ -109,7 +109,7 @@ async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> li
     return error_response(f"Unknown tool: {name}")
 
 
-def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     product_id = arguments.get("product_id")
     files = arguments.get("files") or []
     force = bool(arguments.get("force", False))

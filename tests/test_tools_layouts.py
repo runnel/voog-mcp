@@ -102,7 +102,8 @@ class TestLayoutRename(unittest.TestCase):
             client,
         ))
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_rejects_title_with_backslash(self):
@@ -131,7 +132,8 @@ class TestLayoutRename(unittest.TestCase):
             client,
         ))
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_api_error_returns_error_response(self):
@@ -144,7 +146,8 @@ class TestLayoutRename(unittest.TestCase):
             {"layout_id": 999, "new_title": "Whatever"},
             client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("layout_rename", payload["error"])
 
@@ -253,7 +256,8 @@ class TestLayoutCreate(unittest.TestCase):
             client,
         ))
         client.post.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("content_type", payload["error"])
 
@@ -278,7 +282,8 @@ class TestLayoutCreate(unittest.TestCase):
             client,
         ))
         client.post.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_empty_title_rejected(self):
@@ -309,7 +314,8 @@ class TestLayoutCreate(unittest.TestCase):
             {"title": "x", "body": "y", "kind": "layout"},
             client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_api_error_returns_error_response(self):
@@ -322,7 +328,8 @@ class TestLayoutCreate(unittest.TestCase):
             {"title": "x", "body": "y", "kind": "layout"},
             client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 
@@ -363,7 +370,8 @@ class TestAssetReplace(unittest.TestCase):
             client,
         ))
         client.get.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_filename_starting_with_dot_rejected(self):
@@ -389,7 +397,8 @@ class TestAssetReplace(unittest.TestCase):
             client,
         ))
         client.post.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("data", payload["error"])
 
@@ -402,7 +411,8 @@ class TestAssetReplace(unittest.TestCase):
             {"asset_id": 100, "new_filename": "y.css"},
             client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_get_api_error_returns_error_response(self):
@@ -416,7 +426,8 @@ class TestAssetReplace(unittest.TestCase):
             client,
         ))
         client.post.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 
@@ -424,7 +435,8 @@ class TestUnknownTool(unittest.TestCase):
     def test_unknown_name_returns_error(self):
         client = MagicMock()
         result = asyncio.run(layouts_tools.call_tool("nonexistent", {}, client))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 

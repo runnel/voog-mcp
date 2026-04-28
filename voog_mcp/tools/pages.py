@@ -1,8 +1,9 @@
 """MCP tools for Voog pages (read-only)."""
-from mcp.types import Tool, TextContent
+from mcp.types import CallToolResult, TextContent, Tool
 
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
+from voog_mcp.projections import simplify_pages
 
 
 def get_tools() -> list[Tool]:
@@ -46,12 +47,12 @@ def get_tools() -> list[Tool]:
     ]
 
 
-async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent]:
+async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
     arguments = arguments or {}
     if name == "pages_list":
         try:
             pages = client.get_all("/pages")
-            simplified = _simplify_pages(pages)
+            simplified = simplify_pages(pages)
             return success_response(simplified, summary=f"📄 {len(simplified)} pages")
         except Exception as e:
             return error_response(f"pages_list ebaõnnestus: {e}")
@@ -67,30 +68,9 @@ async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> li
     if name == "pages_pull":
         try:
             pages = client.get_all("/pages")
-            simplified = _simplify_pages(pages)
+            simplified = simplify_pages(pages)
             return success_response(simplified, summary=f"✓ pages-pull: {len(simplified)} entries")
         except Exception as e:
             return error_response(f"pages_pull ebaõnnestus: {e}")
 
     return error_response(f"Unknown tool: {name}")
-
-
-def _simplify_pages(pages: list) -> list:
-    """Project pages to simplified structure (matching voog.py pages_pull)."""
-    simplified = []
-    for p in pages:
-        lang = p.get("language") or {}
-        layout = p.get("layout") or {}
-        simplified.append({
-            "id": p.get("id"),
-            "path": p.get("path"),
-            "title": p.get("title"),
-            "hidden": p.get("hidden"),
-            "layout_id": p.get("layout_id") or layout.get("id"),
-            "layout_name": p.get("layout_name") or p.get("layout_title") or layout.get("title"),
-            "content_type": p.get("content_type"),
-            "parent_id": p.get("parent_id"),
-            "language_code": lang.get("code"),
-            "public_url": p.get("public_url"),
-        })
-    return simplified

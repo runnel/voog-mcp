@@ -28,7 +28,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from mcp.types import Tool, TextContent
+from mcp.types import CallToolResult, TextContent, Tool
 
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
@@ -117,7 +117,7 @@ def get_tools() -> list[Tool]:
     ]
 
 
-async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent]:
+async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
     arguments = arguments or {}
 
     if name == "pages_snapshot":
@@ -146,7 +146,7 @@ def _format_skip(label: str, exc: Exception) -> str:
     return f"{label}: {exc}"
 
 
-def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     output_dir = arguments.get("output_dir") or ""
     if not output_dir:
         return error_response("pages_snapshot: output_dir must be a non-empty string")
@@ -195,7 +195,7 @@ def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent]:
     )
 
 
-def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     output_dir = arguments.get("output_dir") or ""
     if not output_dir:
         return error_response("site_snapshot: output_dir must be a non-empty string")
@@ -316,7 +316,11 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent]:
             req = urllib.request.Request(
                 url, headers={"User-Agent": "Mozilla/5.0 voog-mcp-snapshot/1.0"}
             )
-            with urllib.request.urlopen(req) as resp:
+            # Public HTML fetch is unauthenticated and bypasses VoogClient,
+            # so it needs its own timeout. 30s is shorter than the API
+            # default (60s) — a rendered page that hasn't responded by then
+            # is unlikely to ever, and we'd rather skip than hang.
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
         except Exception as e:
             skipped.append({

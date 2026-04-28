@@ -18,7 +18,7 @@ sets it. The ``force`` parameter on ``page_delete`` is a defensive in-band
 opt-in alongside the MCP annotation, so the actual API call is gated on a
 boolean flag the LLM has to explicitly pass.
 """
-from mcp.types import Tool, TextContent
+from mcp.types import CallToolResult, TextContent, Tool
 
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
@@ -109,7 +109,7 @@ def get_tools() -> list[Tool]:
     ]
 
 
-async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent]:
+async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
     arguments = arguments or {}
 
     if name == "page_set_hidden":
@@ -124,7 +124,7 @@ async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> li
     return error_response(f"Unknown tool: {name}")
 
 
-def _page_set_hidden(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _page_set_hidden(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     ids = arguments.get("ids") or []
     hidden = bool(arguments.get("hidden"))
     if not ids:
@@ -150,7 +150,7 @@ def _page_set_hidden(arguments: dict, client: VoogClient) -> list[TextContent]:
     )
 
 
-def _page_set_layout(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _page_set_layout(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     page_id = arguments.get("page_id")
     layout_id = arguments.get("layout_id")
     try:
@@ -163,7 +163,7 @@ def _page_set_layout(arguments: dict, client: VoogClient) -> list[TextContent]:
         return error_response(f"page_set_layout page={page_id} layout={layout_id} ebaõnnestus: {e}")
 
 
-def _page_delete(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _page_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     page_id = arguments.get("page_id")
     force = bool(arguments.get("force"))
     if not force:

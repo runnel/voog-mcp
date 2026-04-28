@@ -64,11 +64,13 @@ class TestPagesTools(unittest.TestCase):
     def test_call_tool_unknown_name_returns_error(self):
         client = MagicMock()
         result = asyncio.run(pages_tools.call_tool("nonexistent", {}, client))
-        self.assertEqual(len(result), 1)
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        self.assertEqual(len(result.content), 1)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_simplify_pages_projects_fields(self):
+        from voog_mcp.projections import simplify_pages
         raw = [{
             "id": 1, "path": "foo", "title": "Foo", "hidden": False,
             "layout": {"id": 10, "title": "Default"},
@@ -77,15 +79,16 @@ class TestPagesTools(unittest.TestCase):
             "language": {"code": "et"},
             "public_url": "https://runnel.ee/foo",
         }]
-        out = pages_tools._simplify_pages(raw)
+        out = simplify_pages(raw)
         self.assertEqual(out[0]["id"], 1)
         self.assertEqual(out[0]["layout_id"], 10)
         self.assertEqual(out[0]["layout_name"], "Default")
         self.assertEqual(out[0]["language_code"], "et")
 
     def test_simplify_pages_handles_missing_fields(self):
+        from voog_mcp.projections import simplify_pages
         raw = [{"id": 2, "path": "x", "title": "X"}]  # no layout, no language
-        out = pages_tools._simplify_pages(raw)
+        out = simplify_pages(raw)
         self.assertEqual(out[0]["id"], 2)
         self.assertIsNone(out[0]["layout_id"])
         self.assertIsNone(out[0]["layout_name"])
@@ -95,8 +98,9 @@ class TestPagesTools(unittest.TestCase):
         client = MagicMock()
         client.get_all.side_effect = urllib.error.URLError("network down")
         result = asyncio.run(pages_tools.call_tool("pages_list", {}, client))
-        self.assertEqual(len(result), 1)
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        self.assertEqual(len(result.content), 1)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("pages_list ebaõnnestus", payload["error"])
 
@@ -104,7 +108,8 @@ class TestPagesTools(unittest.TestCase):
         client = MagicMock()
         client.get.side_effect = Exception("boom")
         result = asyncio.run(pages_tools.call_tool("page_get", {"page_id": 1}, client))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 

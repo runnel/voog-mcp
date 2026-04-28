@@ -15,9 +15,12 @@ import urllib.error
 class VoogClient:
     """HTTP client for Voog Admin API and Ecommerce v1 API."""
 
-    def __init__(self, host: str, api_token: str):
+    def __init__(self, host: str, api_token: str, *, timeout: int = 60):
         self.host = host
         self.api_token = api_token
+        # Bound on every API call. MCP server is long-running — without a
+        # timeout, a hung connection wedges the entire Claude session.
+        self.timeout = timeout
         self.base_url = f"https://{host}/admin/api"
         self.ecommerce_url = f"https://{host}/admin/api/ecommerce/v1"
         self.headers = {
@@ -34,7 +37,7 @@ class VoogClient:
             url += f"?{query}"
         payload = json.dumps(data).encode() if data is not None else None
         req = urllib.request.Request(url, data=payload, headers=self.headers, method=method)
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             body = resp.read()
             return json.loads(body) if body else None
 

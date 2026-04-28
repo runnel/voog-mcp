@@ -21,7 +21,7 @@ Pattern mirrors :mod:`voog_mcp.tools.pages_mutate`: explicit MCP annotations
 on every tool (per PR #27 review — spec defaults destructiveHint=true when
 readOnlyHint=false, so non-destructive mutating tools must be explicit).
 """
-from mcp.types import Tool, TextContent
+from mcp.types import CallToolResult, TextContent, Tool
 
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
@@ -125,7 +125,7 @@ def get_tools() -> list[Tool]:
     ]
 
 
-async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent]:
+async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
     arguments = arguments or {}
 
     if name == "layout_rename":
@@ -154,7 +154,7 @@ def _validate_voog_name(value: str, field: str) -> str | None:
     return None
 
 
-def _layout_rename(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _layout_rename(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     layout_id = arguments.get("layout_id")
     new_title = arguments.get("new_title", "")
     err = _validate_voog_name(new_title, "new_title")
@@ -170,7 +170,7 @@ def _layout_rename(arguments: dict, client: VoogClient) -> list[TextContent]:
         return error_response(f"layout_rename id={layout_id} ebaõnnestus: {e}")
 
 
-def _layout_create(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _layout_create(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     title = arguments.get("title", "")
     body = arguments.get("body", "")
     kind = arguments.get("kind", "")
@@ -212,7 +212,7 @@ def _layout_create(arguments: dict, client: VoogClient) -> list[TextContent]:
         return error_response(f"layout_create title={title!r} ebaõnnestus: {e}")
 
 
-def _asset_replace(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _asset_replace(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     asset_id = arguments.get("asset_id")
     new_filename = arguments.get("new_filename", "")
     err = _validate_voog_name(new_filename, "new_filename")

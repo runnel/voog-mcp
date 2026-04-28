@@ -6,7 +6,7 @@ import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -158,7 +158,8 @@ class TestPagesSnapshot(unittest.TestCase):
             result = asyncio.run(snapshot_tools.call_tool(
                 "pages_snapshot", {"output_dir": str(out)}, client,
             ))
-            payload = json.loads(result[0].text)
+            self.assertTrue(result.isError)
+            payload = json.loads(result.content[0].text)
             self.assertIn("error", payload)
             self.assertIn("pages_snapshot", payload["error"])
 
@@ -168,7 +169,8 @@ class TestPagesSnapshot(unittest.TestCase):
             "pages_snapshot", {"output_dir": ""}, client,
         ))
         client.get_all.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_relative_path_rejected(self):
@@ -180,7 +182,8 @@ class TestPagesSnapshot(unittest.TestCase):
             "pages_snapshot", {"output_dir": "snapshots/foo"}, client,
         ))
         client.get_all.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("absolute path", payload["error"])
 
@@ -190,7 +193,8 @@ class TestPagesSnapshot(unittest.TestCase):
             "pages_snapshot", {"output_dir": "./out"}, client,
         ))
         client.get_all.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("absolute path", payload["error"])
 
 
@@ -201,7 +205,8 @@ class TestSiteSnapshot(unittest.TestCase):
             "site_snapshot", {"output_dir": "backups/2026"}, client,
         ))
         client.get_all.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("absolute path", payload["error"])
 
     def test_refuses_existing_directory(self):
@@ -217,7 +222,8 @@ class TestSiteSnapshot(unittest.TestCase):
             ))
             client.get_all.assert_not_called()
             client.get.assert_not_called()
-            payload = json.loads(result[0].text)
+            self.assertTrue(result.isError)
+            payload = json.loads(result.content[0].text)
             self.assertIn("error", payload)
             self.assertIn("exists", payload["error"])
 
@@ -317,8 +323,50 @@ class TestSiteSnapshot(unittest.TestCase):
         result = asyncio.run(snapshot_tools.call_tool(
             "site_snapshot", {"output_dir": ""}, client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
+
+    def test_public_html_fetch_uses_timeout(self):
+        # Public HTML fetch (rendered samples) is unauthenticated and runs
+        # outside VoogClient — it needs its own timeout so a hung host
+        # cannot wedge the long-running MCP server.
+        client = _make_client()
+
+        def _get_all(path, **kwargs):
+            if path == "/pages":
+                return [{"id": 1, "title": "Home", "path": "", "content_type": "default"}]
+            return []
+
+        def _get(path, **kwargs):
+            if path in ("/site", "/me"):
+                return {}
+            if path == "/pages/1/contents":
+                return []
+            return {}
+
+        client.get_all.side_effect = _get_all
+        client.get.side_effect = _get
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            with patch(
+                "voog_mcp.tools.snapshot.urllib.request.urlopen"
+            ) as mock_urlopen:
+                fake = MagicMock()
+                fake.read.return_value = b"<html></html>"
+                mock_urlopen.return_value.__enter__.return_value = fake
+                asyncio.run(snapshot_tools.call_tool(
+                    "site_snapshot", {"output_dir": str(out)}, client,
+                ))
+            self.assertGreaterEqual(mock_urlopen.call_count, 1)
+            # Every public-fetch call must be bounded by an explicit timeout.
+            for call in mock_urlopen.call_args_list:
+                self.assertIn(
+                    "timeout", call.kwargs,
+                    "snapshot public HTML fetch missing timeout=",
+                )
+                self.assertEqual(call.kwargs["timeout"], 30)
 
 
 class TestUnknownTool(unittest.TestCase):
@@ -327,7 +375,8 @@ class TestUnknownTool(unittest.TestCase):
         result = asyncio.run(snapshot_tools.call_tool(
             "nonexistent", {}, client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 

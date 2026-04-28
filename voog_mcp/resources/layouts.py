@@ -16,11 +16,16 @@ the raw Liquid template, not JSON — constructed locally rather than via
 Pattern mirrors :mod:`voog_mcp.resources.pages`: ``URI_PREFIX`` constant,
 :func:`matches` exact-or-slashed-sub-path, errors propagate to the server
 layer (no wrapping into MCP error responses).
+
+The list view's curated shape comes from :func:`voog_mcp.projections.simplify_layouts`
+(currently only used here — kept alongside the other simplify_* projections
+for consistency, ready if a future tools-side surface needs the same shape).
 """
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Resource
 
 from voog_mcp.client import VoogClient
+from voog_mcp.projections import simplify_layouts
 from voog_mcp.resources._helpers import json_response, parse_id, prefix_matcher
 
 
@@ -46,7 +51,7 @@ def get_resources() -> list[Resource]:
 async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
     if uri == URI_PREFIX:
         layouts = client.get_all("/layouts")
-        return json_response(_simplify_layouts(layouts))
+        return json_response(simplify_layouts(layouts))
 
     if not uri.startswith(URI_PREFIX + "/"):
         raise ValueError(f"layouts resource: unsupported URI {uri!r}")
@@ -66,22 +71,3 @@ async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceConten
         ]
 
     raise ValueError(f"layouts resource: unsupported URI {uri!r}")
-
-
-def _simplify_layouts(layouts: list) -> list:
-    """Project layouts list to lightweight metadata (no body field).
-
-    The Voog ``/layouts`` list endpoint already omits ``body`` from each item,
-    but defensive trimming here guarantees the projection even if the API
-    starts returning it.
-    """
-    simplified = []
-    for layout in layouts:
-        simplified.append({
-            "id": layout.get("id"),
-            "title": layout.get("title"),
-            "component": layout.get("component"),
-            "content_type": layout.get("content_type"),
-            "updated_at": layout.get("updated_at"),
-        })
-    return simplified

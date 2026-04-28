@@ -16,11 +16,16 @@ than via :func:`json_response` for that reason. The list URI returns
 Pattern mirrors :mod:`voog_mcp.resources.layouts`: ``URI_PREFIX`` constant,
 exact-or-slashed-sub-path :func:`matches`, strict :func:`parse_id`, errors
 propagate to the server layer (no wrapping into MCP error responses).
+
+The list view's curated shape comes from :func:`voog_mcp.projections.simplify_articles`
+(currently only used here — kept alongside the other simplify_* projections
+for consistency, ready if a future tools-side surface needs the same shape).
 """
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Resource
 
 from voog_mcp.client import VoogClient
+from voog_mcp.projections import simplify_articles
 from voog_mcp.resources._helpers import json_response, parse_id, prefix_matcher
 
 
@@ -47,7 +52,7 @@ def get_resources() -> list[Resource]:
 async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
     if uri == URI_PREFIX:
         articles = client.get_all("/articles")
-        return json_response(_simplify_articles(articles))
+        return json_response(simplify_articles(articles))
 
     if not uri.startswith(URI_PREFIX + "/"):
         raise ValueError(f"articles resource: unsupported URI {uri!r}")
@@ -67,29 +72,3 @@ async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceConten
         ]
 
     raise ValueError(f"articles resource: unsupported URI {uri!r}")
-
-
-def _simplify_articles(articles: list) -> list:
-    """Project articles list to lightweight metadata (no body field).
-
-    The Voog ``/articles`` list endpoint already omits ``body`` from each item,
-    but defensive trimming guarantees the projection even if the API ever
-    starts returning bodies (which would balloon list payloads).
-    """
-    simplified = []
-    for article in articles:
-        lang = article.get("language") or {}
-        page = article.get("page") or {}
-        simplified.append({
-            "id": article.get("id"),
-            "title": article.get("title"),
-            "path": article.get("path"),
-            "public_url": article.get("public_url"),
-            "published": article.get("published"),
-            "published_at": article.get("published_at"),
-            "updated_at": article.get("updated_at"),
-            "created_at": article.get("created_at"),
-            "language_code": lang.get("code"),
-            "page_id": page.get("id"),
-        })
-    return simplified
