@@ -98,18 +98,6 @@ class TestRedirectsTools(unittest.TestCase):
             },
         )
 
-    def test_redirect_add_rejects_invalid_type(self):
-        client = MagicMock()
-        result = asyncio.run(redirects_tools.call_tool(
-            "redirect_add",
-            {"source": "/x", "destination": "/y", "redirect_type": 999},
-            client,
-        ))
-        client.post.assert_not_called()
-        self.assertTrue(result.isError)
-        payload = json.loads(result.content[0].text)
-        self.assertIn("error", payload)
-
     def test_redirects_list_error_returns_error_response(self):
         client = MagicMock()
         client.get_all.side_effect = urllib.error.URLError("network down")

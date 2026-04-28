@@ -268,6 +268,112 @@ class TestMCPInitialize(unittest.TestCase):
                     except Exception:
                         pass
 
+    def test_sdk_input_validation_returns_iserror_true(self):
+        # Complement to test_tool_validation_error_returns_iserror_true:
+        # exercises the SDK's *input* validation path, not the tool's own
+        # error_response. redirect_add inputSchema declares
+        # redirect_type ∈ {301, 302, 307, 410} via JSON Schema enum;
+        # passing 999 trips jsonschema.validate inside Server.call_tool
+        # before the registered tool ever runs. The SDK turns the
+        # ValidationError into _make_error_result("Input validation
+        # error: ..."), which is a CallToolResult(isError=True). We
+        # rely on this path instead of duplicating the enum check in
+        # the tool body — the failing assertion below is the canary
+        # that protects that decision.
+        env = {
+            **os.environ,
+            "VOOG_HOST": "runnel.ee",
+            "VOOG_API_TOKEN": "dummy",
+        }
+        proc = subprocess.Popen(
+            [str(VOOG_MCP_BIN)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            text=True,
+        )
+        try:
+            assert proc.stdin is not None
+            assert proc.stdout is not None
+
+            proc.stdin.write(json.dumps({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0.1"},
+                },
+            }) + "\n")
+            proc.stdin.flush()
+            init_line = _readline_with_timeout(proc.stdout, timeout=10.0)
+            self.assertTrue(init_line, "no initialize response")
+            init = json.loads(init_line)
+            self.assertIn("result", init, f"initialize failed: {init}")
+
+            proc.stdin.write(json.dumps({
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+                "params": {},
+            }) + "\n")
+            proc.stdin.flush()
+
+            # 999 is not in the redirect_type enum — SDK rejects it before
+            # the tool body runs. No HTTP call hits Voog.
+            proc.stdin.write(json.dumps({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "redirect_add",
+                    "arguments": {
+                        "source": "/x",
+                        "destination": "/y",
+                        "redirect_type": 999,
+                    },
+                },
+            }) + "\n")
+            proc.stdin.flush()
+
+            response = None
+            for _ in range(5):
+                line = _readline_with_timeout(proc.stdout, timeout=10.0)
+                if not line:
+                    break
+                msg = json.loads(line)
+                if msg.get("id") == 2:
+                    response = msg
+                    break
+
+            self.assertIsNotNone(response, "no response for id=2")
+            self.assertIn("result", response, f"unexpected envelope: {response}")
+            result = response["result"]
+            self.assertTrue(
+                result.get("isError"),
+                f"expected isError=True on SDK validation failure, got: {result}",
+            )
+            content = result.get("content", [])
+            self.assertTrue(content, "isError result missing content")
+            # SDK's _make_error_result emits a single TextContent whose body
+            # starts with "Input validation error:" — the marker we key on.
+            text = content[0].get("text", "")
+            self.assertIn("Input validation error", text)
+        finally:
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+            for stream in (proc.stdin, proc.stdout, proc.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
+
 
 # ---------------------------------------------------------------------------
 # Smoke-test infrastructure (RUN_SMOKE=1 only)
