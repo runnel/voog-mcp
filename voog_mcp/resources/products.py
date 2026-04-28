@@ -38,6 +38,11 @@ LIST_INCLUDE = "translations"
 DETAIL_INCLUDE = "variant_types,translations"
 
 
+def get_uri_patterns() -> list[str]:
+    """URI patterns claimed by this group — read by the startup collision guard."""
+    return [URI_PREFIX]
+
+
 def get_resources() -> list[Resource]:
     return [
         Resource(
