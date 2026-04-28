@@ -1,7 +1,10 @@
 """Config loading from MCP server env vars."""
 import os
-import sys
 from dataclasses import dataclass
+
+
+class ConfigError(RuntimeError):
+    """Raised when required config env vars are missing."""
 
 
 @dataclass
@@ -14,9 +17,7 @@ def load_config() -> Config:
     host = os.environ.get("VOOG_HOST")
     token = os.environ.get("VOOG_API_TOKEN")
     if not host:
-        sys.stderr.write("❌ VOOG_HOST env muutuja puudub\n")
-        sys.exit(1)
+        raise ConfigError("VOOG_HOST env muutuja puudub")
     if not token:
-        sys.stderr.write("❌ VOOG_API_TOKEN env muutuja puudub\n")
-        sys.exit(1)
+        raise ConfigError("VOOG_API_TOKEN env muutuja puudub")
     return Config(host=host, api_token=token)
