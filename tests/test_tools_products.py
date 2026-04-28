@@ -20,8 +20,8 @@ class TestGetTools(unittest.TestCase):
     def test_products_list_schema(self):
         tools = {t.name: t for t in products_tools.get_tools()}
         schema = tools["products_list"].inputSchema
-        # No required parameters — list everything
-        self.assertEqual(schema["required"], [])
+        # Only 'site' required — list everything on the named site
+        self.assertIn("site", schema["required"])
 
     def test_product_get_schema(self):
         tools = {t.name: t for t in products_tools.get_tools()}
@@ -380,6 +380,14 @@ class TestServerToolRegistry(unittest.TestCase):
         ]
         self.assertEqual(len(all_names), len(set(all_names)),
                          f"Duplicate tool names: {all_names}")
+
+
+class TestAllToolsRequireSite(unittest.TestCase):
+    def test_all_tools_require_site(self):
+        from voog.mcp.tools import products as mod
+        for tool in mod.get_tools():
+            self.assertIn("site", tool.inputSchema.get("required", []),
+                          f"tool {tool.name} must require 'site'")
 
 
 if __name__ == "__main__":

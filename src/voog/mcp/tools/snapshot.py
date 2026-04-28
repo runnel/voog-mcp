@@ -32,7 +32,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._concurrency import parallel_map
 from voog.client import VoogClient
 from voog.errors import success_response, error_response
-from voog.mcp.tools._helpers import validate_output_dir, write_json
+from voog.mcp.tools._helpers import validate_output_dir, write_json, strip_site
 
 
 # Standard /admin/api/ list endpoints. Each is paginated via client.get_all.
@@ -72,12 +72,13 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "output_dir": {
                         "type": "string",
                         "description": "Absolute path where pages.json + page_{id}_contents.json files are written",
                     },
                 },
-                "required": ["output_dir"],
+                "required": ["site", "output_dir"],
             },
             annotations={
                 "readOnlyHint": False,
@@ -102,12 +103,13 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "output_dir": {
                         "type": "string",
                         "description": "Absolute path to a fresh (non-existing) directory for the snapshot",
                     },
                 },
-                "required": ["output_dir"],
+                "required": ["site", "output_dir"],
             },
             annotations={
                 "readOnlyHint": False,
@@ -119,7 +121,7 @@ def get_tools() -> list[Tool]:
 
 
 def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
-    arguments = arguments or {}
+    arguments = strip_site(arguments or {})
 
     if name == "pages_snapshot":
         return _pages_snapshot(arguments, client)

@@ -33,3 +33,8 @@ def validate_output_dir(value: str, *, tool_name: str, param_name: str) -> str |
 def write_json(path: Path, data) -> None:
     """Write ``data`` as pretty-printed UTF-8 JSON to ``path``."""
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def strip_site(arguments: dict) -> dict:
+    """Return a copy of arguments without the 'site' key."""
+    return {k: v for k, v in arguments.items() if k != "site"}

@@ -25,6 +25,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import success_response, error_response
+from voog.mcp.tools._helpers import strip_site
 
 
 def get_tools() -> list[Tool]:
@@ -39,10 +40,11 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "layout_id": {"type": "integer", "description": "Voog layout id"},
                     "new_title": {"type": "string", "description": "New layout title"},
                 },
-                "required": ["layout_id", "new_title"],
+                "required": ["site", "layout_id", "new_title"],
             },
             annotations={
                 "readOnlyHint": False,
@@ -62,6 +64,7 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "title": {
                         "type": "string",
                         "description": "Layout title (no '/', '\\', or leading '.')",
@@ -87,7 +90,7 @@ def get_tools() -> list[Tool]:
                         "default": "page",
                     },
                 },
-                "required": ["title", "body", "kind"],
+                "required": ["site", "title", "body", "kind"],
             },
             annotations={
                 "readOnlyHint": False,
@@ -108,13 +111,14 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "asset_id": {"type": "integer", "description": "Existing layout_asset id"},
                     "new_filename": {
                         "type": "string",
                         "description": "New filename (no '/', '\\', or leading '.')",
                     },
                 },
-                "required": ["asset_id", "new_filename"],
+                "required": ["site", "asset_id", "new_filename"],
             },
             annotations={
                 "readOnlyHint": False,
@@ -126,7 +130,7 @@ def get_tools() -> list[Tool]:
 
 
 def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
-    arguments = arguments or {}
+    arguments = strip_site(arguments or {})
 
     if name == "layout_rename":
         return _layout_rename(arguments, client)

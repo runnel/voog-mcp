@@ -23,6 +23,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._concurrency import parallel_map
 from voog.client import VoogClient
 from voog.errors import success_response, error_response
+from voog.mcp.tools._helpers import strip_site
 
 
 def get_tools() -> list[Tool]:
@@ -37,6 +38,7 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "ids": {
                         "type": "array",
                         "items": {"type": "integer"},
@@ -48,7 +50,7 @@ def get_tools() -> list[Tool]:
                         "description": "true to hide, false to show",
                     },
                 },
-                "required": ["ids", "hidden"],
+                "required": ["site", "ids", "hidden"],
             },
             # Explicit annotations — MCP spec defaults destructiveHint to true
             # when readOnlyHint is false. Setters are mutating but reversible
@@ -70,10 +72,11 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "page_id": {"type": "integer", "description": "Voog page id"},
                     "layout_id": {"type": "integer", "description": "Voog layout id"},
                 },
-                "required": ["page_id", "layout_id"],
+                "required": ["site", "page_id", "layout_id"],
             },
             annotations={
                 "readOnlyHint": False,
@@ -92,6 +95,7 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "page_id": {"type": "integer", "description": "Voog page id"},
                     "force": {
                         "type": "boolean",
@@ -99,7 +103,7 @@ def get_tools() -> list[Tool]:
                         "default": False,
                     },
                 },
-                "required": ["page_id"],
+                "required": ["site", "page_id"],
             },
             annotations={
                 "readOnlyHint": False,
@@ -111,7 +115,7 @@ def get_tools() -> list[Tool]:
 
 
 def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
-    arguments = arguments or {}
+    arguments = strip_site(arguments or {})
 
     if name == "page_set_hidden":
         return _page_set_hidden(arguments, client)

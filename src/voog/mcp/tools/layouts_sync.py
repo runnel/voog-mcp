@@ -37,7 +37,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._concurrency import parallel_map
 from voog.client import VoogClient
 from voog.errors import success_response, error_response
-from voog.mcp.tools._helpers import validate_output_dir, write_json
+from voog.mcp.tools._helpers import validate_output_dir, write_json, strip_site
 
 
 def get_tools() -> list[Tool]:
@@ -56,12 +56,13 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "target_dir": {
                         "type": "string",
                         "description": "Absolute path where layouts/, components/, manifest.json are written",
                     },
                 },
-                "required": ["target_dir"],
+                "required": ["site", "target_dir"],
             },
             annotations={
                 "readOnlyHint": False,
@@ -86,6 +87,7 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "target_dir": {
                         "type": "string",
                         "description": "Absolute path of a previously-pulled tree (must contain manifest.json)",
@@ -96,7 +98,7 @@ def get_tools() -> list[Tool]:
                         "description": "Optional list of relative paths to push (e.g. 'layouts/default.tpl'). Null/omitted = push all manifest entries.",
                     },
                 },
-                "required": ["target_dir"],
+                "required": ["site", "target_dir"],
             },
             annotations={
                 "readOnlyHint": False,
@@ -108,7 +110,7 @@ def get_tools() -> list[Tool]:
 
 
 def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
-    arguments = arguments or {}
+    arguments = strip_site(arguments or {})
 
     if name == "layouts_pull":
         return _layouts_pull(arguments, client)

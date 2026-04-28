@@ -127,5 +127,13 @@ class TestRedirectsTools(unittest.TestCase):
         self.assertIn("error", payload)
 
 
+class TestAllToolsRequireSite(unittest.TestCase):
+    def test_all_tools_require_site(self):
+        from voog.mcp.tools import redirects as mod
+        for tool in mod.get_tools():
+            self.assertIn("site", tool.inputSchema.get("required", []),
+                          f"tool {tool.name} must require 'site'")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -41,6 +41,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._concurrency import parallel_map
 from voog.client import VoogClient
 from voog.errors import success_response, error_response
+from voog.mcp.tools._helpers import strip_site
 
 
 CONTENT_TYPES = {
@@ -71,6 +72,7 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "product_id": {
                         "type": "integer",
                         "description": "Voog ecommerce product id",
@@ -95,7 +97,7 @@ def get_tools() -> list[Tool]:
                         ),
                     },
                 },
-                "required": ["product_id", "files"],
+                "required": ["site", "product_id", "files"],
             },
             annotations={
                 "readOnlyHint": False,
@@ -107,7 +109,7 @@ def get_tools() -> list[Tool]:
 
 
 def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
-    arguments = arguments or {}
+    arguments = strip_site(arguments or {})
 
     if name == "product_set_images":
         return _product_set_images(arguments, client)

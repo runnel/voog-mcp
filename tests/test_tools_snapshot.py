@@ -626,5 +626,13 @@ class TestServerToolRegistry(unittest.TestCase):
         self.assertEqual(set(server.TOOL_GROUPS), expected)
 
 
+class TestAllToolsRequireSite(unittest.TestCase):
+    def test_all_tools_require_site(self):
+        from voog.mcp.tools import snapshot as mod
+        for tool in mod.get_tools():
+            self.assertIn("site", tool.inputSchema.get("required", []),
+                          f"tool {tool.name} must require 'site'")
+
+
 if __name__ == "__main__":
     unittest.main()

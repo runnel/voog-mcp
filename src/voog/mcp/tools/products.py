@@ -27,6 +27,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import success_response, error_response
+from voog.mcp.tools._helpers import strip_site
 from voog.projections import (
     PRODUCTS_DETAIL_INCLUDE,
     PRODUCTS_LIST_INCLUDE,
@@ -52,7 +53,13 @@ def get_tools() -> list[Tool]:
                 "shape as the voog://products resource — consistent across the "
                 "tools and resources surfaces."
             ),
-            inputSchema={"type": "object", "properties": {}, "required": []},
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
+                },
+                "required": ["site"],
+            },
             annotations={
                 "readOnlyHint": True,
                 "destructiveHint": False,
@@ -68,9 +75,10 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "product_id": {"type": "integer", "description": "Voog product id"},
                 },
-                "required": ["product_id"],
+                "required": ["site", "product_id"],
             },
             annotations={
                 "readOnlyHint": True,
@@ -93,6 +101,7 @@ def get_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "product_id": {"type": "integer", "description": "Voog product id"},
                     "fields": {
                         "type": "object",
@@ -105,7 +114,7 @@ def get_tools() -> list[Tool]:
                         "additionalProperties": {"type": "string"},
                     },
                 },
-                "required": ["product_id", "fields"],
+                "required": ["site", "product_id", "fields"],
             },
             annotations={
                 "readOnlyHint": False,
@@ -117,7 +126,7 @@ def get_tools() -> list[Tool]:
 
 
 def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
-    arguments = arguments or {}
+    arguments = strip_site(arguments or {})
 
     if name == "products_list":
         return _products_list(client)

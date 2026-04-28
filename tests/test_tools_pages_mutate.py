@@ -346,5 +346,13 @@ class TestServerToolRegistry(unittest.TestCase):
                          f"Duplicate tool names: {all_names}")
 
 
+class TestAllToolsRequireSite(unittest.TestCase):
+    def test_all_tools_require_site(self):
+        from voog.mcp.tools import pages_mutate as mod
+        for tool in mod.get_tools():
+            self.assertIn("site", tool.inputSchema.get("required", []),
+                          f"tool {tool.name} must require 'site'")
+
+
 if __name__ == "__main__":
     unittest.main()
