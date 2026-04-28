@@ -1,15 +1,12 @@
 """Tests for voog_mcp.tools.pages_mutate."""
+
 import json
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from tests._test_helpers import _ann_get
-from voog_mcp.tools import pages_mutate as pages_mutate_tools
+from voog.mcp.tools import pages_mutate as pages_mutate_tools
 
 
 class TestGetTools(unittest.TestCase):
@@ -76,16 +73,10 @@ class TestGetTools(unittest.TestCase):
     def test_page_delete_has_full_explicit_annotations(self):
         tools = {t.name: t for t in pages_mutate_tools.get_tools()}
         ann = tools["page_delete"].annotations
-        self.assertIs(
-            _ann_get(ann, "destructiveHint", "destructive_hint"), True
-        )
-        self.assertIs(
-            _ann_get(ann, "readOnlyHint", "read_only_hint"), False
-        )
+        self.assertIs(_ann_get(ann, "destructiveHint", "destructive_hint"), True)
+        self.assertIs(_ann_get(ann, "readOnlyHint", "read_only_hint"), False)
         # Deleting twice returns 404 the second time — different effect → not idempotent
-        self.assertIs(
-            _ann_get(ann, "idempotentHint", "idempotent_hint"), False
-        )
+        self.assertIs(_ann_get(ann, "idempotentHint", "idempotent_hint"), False)
 
 
 class TestPageSetHidden(unittest.TestCase):
@@ -119,6 +110,7 @@ class TestPageSetHidden(unittest.TestCase):
 
     def test_partial_failure_reports_per_id_status(self):
         client = MagicMock()
+
         # ids 1 and 3 succeed; id 2 fails. Keyed by path so success/failure
         # binding stays invariant under ThreadPoolExecutor's non-deterministic
         # call order (max_workers=4).
@@ -153,6 +145,7 @@ class TestPageSetHidden(unittest.TestCase):
 
     def test_all_failures_still_returns_breakdown(self):
         client = MagicMock()
+
         # Both ids fail. Keyed by path (rather than positional list) so the
         # binding is invariant under ThreadPoolExecutor scheduling.
         def put_dispatch(path, body, **kwargs):
@@ -189,7 +182,7 @@ class TestPageSetHidden(unittest.TestCase):
         client = MagicMock()
         client.put.return_value = {}
         with patch(
-            "voog_mcp.tools.pages_mutate.parallel_map",
+            "voog.mcp.tools.pages_mutate.parallel_map",
             wraps=pages_mutate_tools.parallel_map,
         ) as wrapped:
             pages_mutate_tools.call_tool(
@@ -245,9 +238,7 @@ class TestPageSetLayout(unittest.TestCase):
 
     def test_api_error_returns_error_response(self):
         client = MagicMock()
-        client.put.side_effect = urllib.error.HTTPError(
-            "url", 404, "Not Found", {}, None
-        )
+        client.put.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         result = pages_mutate_tools.call_tool(
             "page_set_layout",
             {"page_id": 999, "layout_id": 1},
@@ -303,9 +294,7 @@ class TestPageDelete(unittest.TestCase):
 
     def test_force_true_api_error_returns_error_response(self):
         client = MagicMock()
-        client.delete.side_effect = urllib.error.HTTPError(
-            "url", 404, "Not Found", {}, None
-        )
+        client.delete.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         result = pages_mutate_tools.call_tool(
             "page_delete",
             {"page_id": 999, "force": True},
@@ -320,9 +309,7 @@ class TestPageDelete(unittest.TestCase):
 class TestUnknownTool(unittest.TestCase):
     def test_unknown_name_returns_error(self):
         client = MagicMock()
-        result = pages_mutate_tools.call_tool(
-            "nonexistent", {}, client
-        )
+        result = pages_mutate_tools.call_tool("nonexistent", {}, client)
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
@@ -332,19 +319,28 @@ class TestServerToolRegistry(unittest.TestCase):
     """Phase C contract — pages_mutate joined to TOOL_GROUPS."""
 
     def test_pages_mutate_in_tool_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
+
         self.assertIn(pages_mutate_tools, server.TOOL_GROUPS)
 
     def test_no_tool_name_collisions(self):
         # All tool names across all groups must be unique
-        from voog_mcp import server
-        all_names = [
-            tool.name
-            for group in server.TOOL_GROUPS
-            for tool in group.get_tools()
-        ]
-        self.assertEqual(len(all_names), len(set(all_names)),
-                         f"Duplicate tool names: {all_names}")
+        from voog.mcp import server
+
+        all_names = [tool.name for group in server.TOOL_GROUPS for tool in group.get_tools()]
+        self.assertEqual(len(all_names), len(set(all_names)), f"Duplicate tool names: {all_names}")
+
+
+class TestAllToolsRequireSite(unittest.TestCase):
+    def test_all_tools_require_site(self):
+        from voog.mcp.tools import pages_mutate as mod
+
+        for tool in mod.get_tools():
+            self.assertIn(
+                "site",
+                tool.inputSchema.get("required", []),
+                f"tool {tool.name} must require 'site'",
+            )
 
 
 if __name__ == "__main__":

@@ -1,21 +1,18 @@
 """Tests for voog_mcp.resources.layouts."""
+
 import json
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from voog_mcp.resources import layouts as layouts_resources
+from voog.mcp.resources import layouts as layouts_resources
 
 
 class TestLayoutsResourcesGetResources(unittest.TestCase):
     def test_get_resources_returns_listable_root(self):
         resources = layouts_resources.get_resources()
         self.assertEqual(len(resources), 1)
-        self.assertEqual(str(resources[0].uri), "voog://layouts")
+        self.assertEqual(str(resources[0].uri), "voog://{site}/layouts")
         self.assertEqual(resources[0].mimeType, "application/json")
         self.assertTrue(resources[0].name)
         self.assertTrue(resources[0].description)
@@ -23,23 +20,30 @@ class TestLayoutsResourcesGetResources(unittest.TestCase):
 
 class TestLayoutsResourcesMatches(unittest.TestCase):
     def test_matches_root_uri(self):
-        self.assertTrue(layouts_resources.matches("voog://layouts"))
+        self.assertTrue(layouts_resources.matches("voog://stella/layouts"))
 
     def test_matches_single_layout_uri(self):
-        self.assertTrue(layouts_resources.matches("voog://layouts/977702"))
+        self.assertTrue(layouts_resources.matches("voog://stella/layouts/977702"))
+
+    def test_matches_any_site(self):
+        self.assertTrue(layouts_resources.matches("voog://runnel/layouts"))
 
     def test_does_not_match_other_groups(self):
-        self.assertFalse(layouts_resources.matches("voog://pages"))
-        self.assertFalse(layouts_resources.matches("voog://articles"))
-        self.assertFalse(layouts_resources.matches("voog://redirects"))
+        self.assertFalse(layouts_resources.matches("voog://stella/pages"))
+        self.assertFalse(layouts_resources.matches("voog://stella/articles"))
+        self.assertFalse(layouts_resources.matches("voog://stella/redirects"))
 
     def test_does_not_match_prefix_lookalike(self):
-        self.assertFalse(layouts_resources.matches("voog://layoutsx"))
-        self.assertFalse(layouts_resources.matches("voog://layouts-old"))
+        self.assertFalse(layouts_resources.matches("voog://stella/layoutsx"))
+        self.assertFalse(layouts_resources.matches("voog://stella/layouts-old"))
 
     def test_does_not_match_empty(self):
         self.assertFalse(layouts_resources.matches(""))
         self.assertFalse(layouts_resources.matches("voog://"))
+
+    def test_does_not_match_legacy_format(self):
+        self.assertFalse(layouts_resources.matches("voog://layouts"))
+        self.assertFalse(layouts_resources.matches("voog://layouts/42"))
 
 
 class TestLayoutsResourcesReadRoot(unittest.TestCase):
@@ -55,7 +59,7 @@ class TestLayoutsResourcesReadRoot(unittest.TestCase):
                 "body": "should-not-leak-into-list",  # body intentionally stripped from list view
             },
         ]
-        result = layouts_resources.read_resource("voog://layouts", client)
+        result = layouts_resources.read_resource("voog://stella/layouts", client)
         client.get_all.assert_called_once_with("/layouts")
         contents = list(result)
         self.assertEqual(len(contents), 1)
@@ -73,7 +77,7 @@ class TestLayoutsResourcesReadRoot(unittest.TestCase):
     def test_read_root_empty(self):
         client = MagicMock()
         client.get_all.return_value = []
-        result = layouts_resources.read_resource("voog://layouts", client)
+        result = layouts_resources.read_resource("voog://stella/layouts", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed, [])
@@ -89,7 +93,7 @@ class TestLayoutsResourcesReadSingleLayout(unittest.TestCase):
             "body": body_src,
             "content_type": "page",
         }
-        result = layouts_resources.read_resource("voog://layouts/977702", client)
+        result = layouts_resources.read_resource("voog://stella/layouts/977702", client)
         client.get.assert_called_once_with("/layouts/977702")
         client.get_all.assert_not_called()
         contents = list(result)
@@ -101,7 +105,7 @@ class TestLayoutsResourcesReadSingleLayout(unittest.TestCase):
     def test_read_single_layout_missing_body_returns_empty_string(self):
         client = MagicMock()
         client.get.return_value = {"id": 977702, "title": "Empty"}  # body absent
-        result = layouts_resources.read_resource("voog://layouts/977702", client)
+        result = layouts_resources.read_resource("voog://stella/layouts/977702", client)
         contents = list(result)
         self.assertEqual(contents[0].mime_type, "text/plain")
         self.assertEqual(contents[0].content, "")
@@ -109,7 +113,7 @@ class TestLayoutsResourcesReadSingleLayout(unittest.TestCase):
     def test_read_single_layout_null_body_returns_empty_string(self):
         client = MagicMock()
         client.get.return_value = {"id": 977702, "title": "Null", "body": None}
-        result = layouts_resources.read_resource("voog://layouts/977702", client)
+        result = layouts_resources.read_resource("voog://stella/layouts/977702", client)
         contents = list(result)
         self.assertEqual(contents[0].content, "")
 
@@ -120,7 +124,7 @@ class TestLayoutsResourcesReadSingleLayout(unittest.TestCase):
         # callers reading an explicitly empty .tpl.
         client = MagicMock()
         client.get.return_value = {"id": 977702, "title": "Empty Tpl", "body": ""}
-        result = layouts_resources.read_resource("voog://layouts/977702", client)
+        result = layouts_resources.read_resource("voog://stella/layouts/977702", client)
         contents = list(result)
         self.assertEqual(contents[0].mime_type, "text/plain")
         self.assertEqual(contents[0].content, "")
@@ -128,35 +132,33 @@ class TestLayoutsResourcesReadSingleLayout(unittest.TestCase):
     def test_read_single_layout_rejects_non_integer_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            layouts_resources.read_resource("voog://layouts/abc", client)
+            layouts_resources.read_resource("voog://stella/layouts/abc", client)
         client.get.assert_not_called()
 
     def test_read_single_layout_rejects_zero_or_negative(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            layouts_resources.read_resource("voog://layouts/0", client)
+            layouts_resources.read_resource("voog://stella/layouts/0", client)
         with self.assertRaises(ValueError):
-            layouts_resources.read_resource("voog://layouts/-1", client)
+            layouts_resources.read_resource("voog://stella/layouts/-1", client)
 
 
 class TestLayoutsResourcesUnknownUri(unittest.TestCase):
     def test_bare_trailing_slash_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            layouts_resources.read_resource("voog://layouts/", client)
+            layouts_resources.read_resource("voog://stella/layouts/", client)
 
     def test_subpath_rejected(self):
-        # voog://layouts/{id}/anything is NOT a valid layouts URI
+        # voog://stella/layouts/{id}/anything is NOT a valid layouts URI
         client = MagicMock()
         with self.assertRaises(ValueError):
-            layouts_resources.read_resource(
-                "voog://layouts/977702/contents", client
-            )
+            layouts_resources.read_resource("voog://stella/layouts/977702/contents", client)
 
     def test_completely_unrelated_uri_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            layouts_resources.read_resource("voog://pages", client)
+            layouts_resources.read_resource("voog://stella/pages", client)
 
 
 class TestLayoutsResourcesErrorPropagation(unittest.TestCase):
@@ -164,33 +166,28 @@ class TestLayoutsResourcesErrorPropagation(unittest.TestCase):
         client = MagicMock()
         client.get_all.side_effect = urllib.error.URLError("network down")
         with self.assertRaises(urllib.error.URLError):
-            layouts_resources.read_resource("voog://layouts", client)
+            layouts_resources.read_resource("voog://stella/layouts", client)
 
     def test_single_layout_propagates_api_errors(self):
         client = MagicMock()
-        client.get.side_effect = urllib.error.HTTPError(
-            "url", 404, "Not Found", {}, None
-        )
+        client.get.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         with self.assertRaises(urllib.error.HTTPError):
-            layouts_resources.read_resource("voog://layouts/999", client)
+            layouts_resources.read_resource("voog://stella/layouts/999", client)
 
 
 class TestServerResourceRegistry(unittest.TestCase):
     """Phase D contract — layouts resources joined to RESOURCE_GROUPS."""
 
     def test_layouts_in_resource_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
+
         self.assertIn(layouts_resources, server.RESOURCE_GROUPS)
 
     def test_no_uri_collisions_after_layouts_added(self):
-        from voog_mcp import server
-        all_uris = [
-            str(r.uri)
-            for g in server.RESOURCE_GROUPS
-            for r in g.get_resources()
-        ]
-        self.assertEqual(len(all_uris), len(set(all_uris)),
-                         f"Duplicate resource URIs: {all_uris}")
+        from voog.mcp import server
+
+        all_uris = [str(r.uri) for g in server.RESOURCE_GROUPS for r in g.get_resources()]
+        self.assertEqual(len(all_uris), len(set(all_uris)), f"Duplicate resource URIs: {all_uris}")
 
 
 if __name__ == "__main__":

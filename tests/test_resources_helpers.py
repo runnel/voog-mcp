@@ -1,12 +1,9 @@
 """Tests for voog_mcp.resources._helpers."""
+
 import json
-import sys
 import unittest
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from voog_mcp.resources._helpers import (
+from voog.mcp.resources._helpers import (
     ReadResourceContents,
     json_response,
     parse_id,

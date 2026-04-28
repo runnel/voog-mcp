@@ -1,13 +1,9 @@
 """Unit tests for VoogClient."""
-import sys
+
 import unittest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-# Ensure package importable
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from voog_mcp.client import VoogClient
+from voog.client import VoogClient
 
 
 class TestVoogClient(unittest.TestCase):
@@ -38,7 +34,7 @@ class TestVoogClientTimeout(unittest.TestCase):
         client = VoogClient(host="runnel.ee", api_token="t", timeout=15)
         fake_resp = MagicMock()
         fake_resp.read.return_value = b"{}"
-        with patch("voog_mcp.client.urllib.request.urlopen") as mock_urlopen:
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = fake_resp
             client.get("/pages")
         _, kwargs = mock_urlopen.call_args
@@ -48,7 +44,7 @@ class TestVoogClientTimeout(unittest.TestCase):
         client = VoogClient(host="runnel.ee", api_token="t")
         fake_resp = MagicMock()
         fake_resp.read.return_value = b"{}"
-        with patch("voog_mcp.client.urllib.request.urlopen") as mock_urlopen:
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = fake_resp
             client.get("/pages")
         _, kwargs = mock_urlopen.call_args
@@ -66,7 +62,7 @@ class TestRequestUrlEncoding(unittest.TestCase):
         client = VoogClient(host="x.com", api_token="t")
         fake_resp = MagicMock()
         fake_resp.read.return_value = b"{}"
-        with patch("voog_mcp.client.urllib.request.urlopen") as mock_urlopen:
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = fake_resp
             client.get("/x", params={"foo bar": "y"})
         url = mock_urlopen.call_args.args[0].full_url
@@ -77,7 +73,7 @@ class TestRequestUrlEncoding(unittest.TestCase):
         client = VoogClient(host="x.com", api_token="t")
         fake_resp = MagicMock()
         fake_resp.read.return_value = b"{}"
-        with patch("voog_mcp.client.urllib.request.urlopen") as mock_urlopen:
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = fake_resp
             client.get("/x", params={"include": "variant_types,translations"})
         url = mock_urlopen.call_args.args[0].full_url
@@ -96,9 +92,7 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
     def test_no_params_uses_only_pagination(self):
         client = self._make_client()
         client.get_all("/pages")
-        client.get.assert_called_once_with(
-            "/pages", base=None, params={"per_page": 100, "page": 1}
-        )
+        client.get.assert_called_once_with("/pages", base=None, params={"per_page": 100, "page": 1})
 
     def test_caller_params_merged_with_pagination(self):
         client = self._make_client()
@@ -129,10 +123,12 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
         # infinite-loop on endpoints with ≥1 full page. The iteration
         # counter always wins.
         client = VoogClient(host="runnel.ee", api_token="t")
-        client.get = MagicMock(side_effect=[
-            [{"id": i} for i in range(100)],  # page 1, full
-            [{"id": 100}],                    # page 2, partial → loop exits
-        ])
+        client.get = MagicMock(
+            side_effect=[
+                [{"id": i} for i in range(100)],  # page 1, full
+                [{"id": 100}],  # page 2, partial → loop exits
+            ]
+        )
         client.get_all("/x", params={"page": 99})  # caller's `page` ignored
         first_call = client.get.call_args_list[0]
         second_call = client.get.call_args_list[1]
@@ -143,10 +139,12 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
     def test_pagination_increments_page_across_calls(self):
         client = VoogClient(host="runnel.ee", api_token="t")
         # First page returns full 100, second returns partial → loop exits
-        client.get = MagicMock(side_effect=[
-            [{"id": i} for i in range(100)],
-            [{"id": 100}],
-        ])
+        client.get = MagicMock(
+            side_effect=[
+                [{"id": i} for i in range(100)],
+                [{"id": 100}],
+            ]
+        )
         result = client.get_all("/x", params={"include": "y"})
         self.assertEqual(len(result), 101)
         # Page 1 and 2 both got the include param

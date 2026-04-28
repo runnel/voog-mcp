@@ -11,18 +11,16 @@ Then a final PUT /products/{id} (ecommerce_url) with flat
 
 Mutating + creates new asset records — never run against live runnel.ee.
 """
+
 import json
-import sys
 import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from tests._test_helpers import _ann_get
-from voog_mcp.tools import products_images as products_images_tools
+from voog.mcp.tools import products_images as products_images_tools
 
 
 def _make_client():
@@ -148,7 +146,7 @@ class TestValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
             pdf = _write_image(tmpdir, "x.pdf", b"%PDF")
-            result = products_images_tools.call_tool(
+            products_images_tools.call_tool(
                 "product_set_images",
                 {"product_id": 42, "files": [str(pdf)]},
                 client,
@@ -164,7 +162,9 @@ class TestForceGuard(unittest.TestCase):
     def test_force_false_blocks_when_product_has_existing_images(self):
         client = _make_client()
         client.get.return_value = {
-            "id": 42, "name": "Widget", "asset_ids": [100, 101],
+            "id": 42,
+            "name": "Widget",
+            "asset_ids": [100, 101],
         }
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "new.jpg")
@@ -186,14 +186,17 @@ class TestForceGuard(unittest.TestCase):
         client.get.return_value = {"id": 42, "name": "Widget", "asset_ids": []}
         client.post.return_value = {"id": 200, "upload_url": "https://s3.example.com/up200"}
         client.put.side_effect = [
-            {"id": 200, "public_url": "https://cdn/200.jpg", "width": 800, "height": 600},  # confirm
+            {
+                "id": 200,
+                "public_url": "https://cdn/200.jpg",
+                "width": 800,
+                "height": 600,
+            },  # confirm
             {"id": 42, "asset_ids": [200], "image_id": 200},  # final product PUT
         ]
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "new.jpg")
-            with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
-            ) as mock_urlopen:
+            with patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
                     "product_set_images",
@@ -213,9 +216,7 @@ class TestForceGuard(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "new.jpg")
-            with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
-            ) as mock_urlopen:
+            with patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
                     "product_set_images",
@@ -242,6 +243,7 @@ class TestSuccessPath(unittest.TestCase):
         def post_dispatch(path, body, **kwargs):
             aid = post_ids[body["filename"]]
             return {"id": aid, "upload_url": f"https://s3.example.com/up{aid}"}
+
         client.post.side_effect = post_dispatch
 
         # PUT handler covers both per-asset confirms (2x) and the final
@@ -253,12 +255,20 @@ class TestSuccessPath(unittest.TestCase):
             nonlocal product_put_payload
             if path.endswith("/confirm"):
                 aid = int(path.split("/")[2])
-                return {"id": aid, "public_url": f"https://cdn/{aid}.jpg",
-                        "width": 1200, "height": 800}
+                return {
+                    "id": aid,
+                    "public_url": f"https://cdn/{aid}.jpg",
+                    "width": 1200,
+                    "height": 800,
+                }
             # /products/42
             product_put_payload = body
-            return {"id": 42, "asset_ids": list((body or {}).get("asset_ids", [])),
-                    "image_id": (body or {}).get("image_id")}
+            return {
+                "id": 42,
+                "asset_ids": list((body or {}).get("asset_ids", [])),
+                "image_id": (body or {}).get("image_id"),
+            }
+
         client.put.side_effect = put_dispatch
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -266,9 +276,7 @@ class TestSuccessPath(unittest.TestCase):
             img1 = _write_image(tmpdir, "main.jpg")
             img2 = _write_image(tmpdir, "gallery.png")
 
-            with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
-            ) as mock_urlopen:
+            with patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
                     "product_set_images",
@@ -281,11 +289,9 @@ class TestSuccessPath(unittest.TestCase):
         self.assertEqual(client.post.call_count, 2)
         post_paths = [c.args[0] for c in client.post.call_args_list]
         self.assertEqual(set(post_paths), {"/assets"})
-        post_bodies = {c.args[1]["filename"]: c.args[1]
-                       for c in client.post.call_args_list}
+        post_bodies = {c.args[1]["filename"]: c.args[1] for c in client.post.call_args_list}
         self.assertEqual(post_bodies["main.jpg"]["content_type"], "image/jpeg")
-        self.assertEqual(
-            post_bodies["main.jpg"]["size"], len(b"\x89PNG\r\n\x1a\nfake"))
+        self.assertEqual(post_bodies["main.jpg"]["size"], len(b"\x89PNG\r\n\x1a\nfake"))
         self.assertEqual(post_bodies["gallery.png"]["content_type"], "image/png")
 
         # urlopen called once per file (binary PUT to upload_url)
@@ -306,8 +312,7 @@ class TestSuccessPath(unittest.TestCase):
         # mirrors input order (parallel_map preserves it), so main.jpg is
         # always first → asset_id 201 is the image_id.
         product_put_call = next(
-            c for c in client.put.call_args_list
-            if c.args and c.args[0] == "/products/42"
+            c for c in client.put.call_args_list if c.args and c.args[0] == "/products/42"
         )
         self.assertEqual(
             product_put_call.args[1],
@@ -342,11 +347,10 @@ class TestSuccessPath(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "x.webp", b"webp-bytes")
-            with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
-            ) as mock_urlopen, patch(
-                "voog_mcp.tools.products_images.urllib.request.Request"
-            ) as mock_request:
+            with (
+                patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen,
+                patch("voog.mcp.tools.products_images.urllib.request.Request") as mock_request,
+            ):
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 products_images_tools.call_tool(
                     "product_set_images",
@@ -394,11 +398,15 @@ class TestPartialFailure(unittest.TestCase):
             if body["filename"] == "ok.jpg":
                 return {"id": 201, "upload_url": "https://s3/up201"}
             raise urllib.error.HTTPError("url", 500, "Server Error", {}, None)
+
         client.post.side_effect = post_dispatch
         # Confirm of any successful upload returns benign data; product PUT
         # would consume the next side_effect entry but should never run.
         client.put.return_value = {
-            "id": 201, "public_url": "u", "width": 1, "height": 1,
+            "id": 201,
+            "public_url": "u",
+            "width": 1,
+            "height": 1,
         }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -406,9 +414,7 @@ class TestPartialFailure(unittest.TestCase):
             img1 = _write_image(tmpdir, "ok.jpg")
             img2 = _write_image(tmpdir, "fails.jpg")
 
-            with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
-            ) as mock_urlopen:
+            with patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
                     "product_set_images",
@@ -419,8 +425,7 @@ class TestPartialFailure(unittest.TestCase):
         # The invariant under test: PUT /products/{id} must NOT have been
         # called when any upload failed.
         product_put_calls = [
-            c for c in client.put.call_args_list
-            if c.args and c.args[0] == "/products/42"
+            c for c in client.put.call_args_list if c.args and c.args[0] == "/products/42"
         ]
         self.assertEqual(product_put_calls, [])
 
@@ -458,6 +463,7 @@ class TestPartialFailure(unittest.TestCase):
                 aid = success_ids[name]
                 return {"id": aid, "upload_url": f"https://s3/up{aid}"}
             raise urllib.error.HTTPError("url", 500, "boom", {}, None)
+
         client.post.side_effect = post_dispatch
 
         # Per-asset confirm response, keyed by URL path; product PUT (if it
@@ -467,6 +473,7 @@ class TestPartialFailure(unittest.TestCase):
                 aid = int(path.split("/")[2])
                 return {"id": aid, "public_url": f"u{aid}", "width": 1, "height": 1}
             return {}
+
         client.put.side_effect = put_dispatch
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -477,9 +484,7 @@ class TestPartialFailure(unittest.TestCase):
                 _write_image(tmpdir, "ok2.jpg"),
                 _write_image(tmpdir, "fail2.jpg"),
             ]
-            with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
-            ) as mock_urlopen:
+            with patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
                     "product_set_images",
@@ -491,8 +496,7 @@ class TestPartialFailure(unittest.TestCase):
         self.assertEqual(client.post.call_count, 4)
         # Product PUT must NOT have happened — any failure blocks it
         product_put_calls = [
-            c for c in client.put.call_args_list
-            if c.args and c.args[0] == "/products/42"
+            c for c in client.put.call_args_list if c.args and c.args[0] == "/products/42"
         ]
         self.assertEqual(product_put_calls, [])
 
@@ -522,18 +526,20 @@ class TestPartialFailure(unittest.TestCase):
             if body["filename"] == "ok.jpg":
                 return {"id": 201, "upload_url": "https://s3/up201"}
             raise urllib.error.HTTPError("url", 500, "boom", {}, None)
+
         client.post.side_effect = post_dispatch
         client.put.return_value = {
-            "id": 201, "public_url": "u", "width": 1, "height": 1,
+            "id": 201,
+            "public_url": "u",
+            "width": 1,
+            "height": 1,
         }
 
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
             img1 = _write_image(tmpdir, "ok.jpg")
             img2 = _write_image(tmpdir, "fails.jpg")
-            with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
-            ) as mock_urlopen:
+            with patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
                     "product_set_images",
@@ -562,9 +568,7 @@ class TestPartialFailure(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "x.jpg")
-            with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
-            ) as mock_urlopen:
+            with patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen:
                 # S3 returns 403 → upload failed
                 mock_urlopen.return_value.__enter__.return_value.status = 403
                 result = products_images_tools.call_tool(
@@ -574,15 +578,11 @@ class TestPartialFailure(unittest.TestCase):
                 )
 
         # Confirm should not be called if S3 upload failed
-        confirm_calls = [
-            c for c in client.put.call_args_list
-            if c.args and "confirm" in c.args[0]
-        ]
+        confirm_calls = [c for c in client.put.call_args_list if c.args and "confirm" in c.args[0]]
         self.assertEqual(confirm_calls, [])
         # Product PUT must not happen
         product_put_calls = [
-            c for c in client.put.call_args_list
-            if c.args and c.args[0] == "/products/42"
+            c for c in client.put.call_args_list if c.args and c.args[0] == "/products/42"
         ]
         self.assertEqual(product_put_calls, [])
 
@@ -608,9 +608,7 @@ class TestProductPutFailure(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "x.jpg")
-            with patch(
-                "voog_mcp.tools.products_images.urllib.request.urlopen"
-            ) as mock_urlopen:
+            with patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
                 result = products_images_tools.call_tool(
                     "product_set_images",
@@ -632,7 +630,9 @@ class TestUnknownTool(unittest.TestCase):
     def test_unknown_name_returns_error(self):
         client = _make_client()
         result = products_images_tools.call_tool(
-            "nonexistent", {}, client,
+            "nonexistent",
+            {},
+            client,
         )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -643,18 +643,27 @@ class TestServerToolRegistry(unittest.TestCase):
     """Phase C contract — products_images joined to TOOL_GROUPS."""
 
     def test_products_images_in_tool_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
+
         self.assertIn(products_images_tools, server.TOOL_GROUPS)
 
     def test_no_tool_name_collisions(self):
-        from voog_mcp import server
-        all_names = [
-            tool.name
-            for group in server.TOOL_GROUPS
-            for tool in group.get_tools()
-        ]
-        self.assertEqual(len(all_names), len(set(all_names)),
-                         f"Duplicate tool names: {all_names}")
+        from voog.mcp import server
+
+        all_names = [tool.name for group in server.TOOL_GROUPS for tool in group.get_tools()]
+        self.assertEqual(len(all_names), len(set(all_names)), f"Duplicate tool names: {all_names}")
+
+
+class TestAllToolsRequireSite(unittest.TestCase):
+    def test_all_tools_require_site(self):
+        from voog.mcp.tools import products_images as mod
+
+        for tool in mod.get_tools():
+            self.assertIn(
+                "site",
+                tool.inputSchema.get("required", []),
+                f"tool {tool.name} must require 'site'",
+            )
 
 
 if __name__ == "__main__":

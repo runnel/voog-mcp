@@ -13,6 +13,7 @@ Handlers live inside ``run_server()`` as decorated closures, so we exercise
 them by mocking the ``Server`` class to capture the decorator targets and
 short-circuit ``stdio_server`` before it touches real stdin/stdout.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -21,23 +22,46 @@ import threading
 import unittest
 from unittest.mock import MagicMock, patch
 
-from voog_mcp import server as server_module
-from voog_mcp.tools import (
-    layouts as layouts_tools,
-    layouts_sync as layouts_sync_tools,
-    pages as pages_tools,
-    pages_mutate as pages_mutate_tools,
-    products as products_tools,
-    products_images as products_images_tools,
-    redirects as redirects_tools,
-    snapshot as snapshot_tools,
-)
-from voog_mcp.resources import (
+from voog.config import GlobalConfig, SiteConfig
+from voog.mcp import server as server_module
+from voog.mcp.resources import (
     articles as articles_resources,
+)
+from voog.mcp.resources import (
     layouts as layouts_resources,
+)
+from voog.mcp.resources import (
     pages as pages_resources,
+)
+from voog.mcp.resources import (
     products as products_resources,
+)
+from voog.mcp.resources import (
     redirects as redirects_resources,
+)
+from voog.mcp.tools import (
+    layouts as layouts_tools,
+)
+from voog.mcp.tools import (
+    layouts_sync as layouts_sync_tools,
+)
+from voog.mcp.tools import (
+    pages as pages_tools,
+)
+from voog.mcp.tools import (
+    pages_mutate as pages_mutate_tools,
+)
+from voog.mcp.tools import (
+    products as products_tools,
+)
+from voog.mcp.tools import (
+    products_images as products_images_tools,
+)
+from voog.mcp.tools import (
+    redirects as redirects_tools,
+)
+from voog.mcp.tools import (
+    snapshot as snapshot_tools,
 )
 
 
@@ -92,6 +116,10 @@ def _capture_handlers():
     Mocks out ``Server`` so its ``call_tool``/``read_resource`` decorators
     grab the wrapped function for inspection, and short-circuits
     ``stdio_server`` so we never block on real stdin.
+
+    Uses the new multi-site API: builds a real ``GlobalConfig`` with a
+    single ``test`` site and passes it (plus an env dict) to ``run_server``.
+    ``VoogClient`` is patched so no network calls are made.
     """
     captured: dict = {}
 
@@ -102,7 +130,9 @@ def _capture_handlers():
             def _wrap(fn):
                 captured[slot] = fn
                 return fn
+
             return _wrap
+
         return _decorator
 
     fake_server.list_tools = _decorator_factory("list_tools")
@@ -117,15 +147,21 @@ def _capture_handlers():
         async def __aexit__(self, *exc):
             return False
 
-    config = MagicMock(host="example.com", api_token="dummy")
+    # Build a minimal GlobalConfig with one site named "test".
+    global_cfg = GlobalConfig(
+        sites={"test": SiteConfig(name="test", host="example.com", api_key_env="TEST_API_TOKEN")},
+        default_site="test",
+    )
+    env = {"TEST_API_TOKEN": "dummy-token"}
 
-    with patch.object(server_module, "Server", return_value=fake_server), \
-         patch.object(server_module, "load_config", return_value=config), \
-         patch.object(server_module, "VoogClient") as mock_client_cls, \
-         patch.object(server_module, "stdio_server", return_value=_StdioCancel()):
+    with (
+        patch.object(server_module, "Server", return_value=fake_server),
+        patch.object(server_module, "VoogClient") as mock_client_cls,
+        patch.object(server_module, "stdio_server", return_value=_StdioCancel()),
+    ):
         mock_client_cls.return_value = MagicMock()
         try:
-            asyncio.run(server_module.run_server())
+            asyncio.run(server_module.run_server(global_cfg, env))
         except asyncio.CancelledError:
             pass
         return captured, mock_client_cls.return_value
@@ -146,9 +182,11 @@ class TestServerDispatchesViaToThread(unittest.TestCase):
 
         # Replace one real group's call_tool with a tracker so we observe
         # the dispatch path end-to-end (handler → asyncio.to_thread → group).
-        with patch.object(redirects_tools, "call_tool", side_effect=fake_call_tool) as group_call, \
-             patch.object(server_module.asyncio, "to_thread", wraps=asyncio.to_thread) as to_thread:
-            result = asyncio.run(handle_call_tool("redirects_list", {}))
+        with (
+            patch.object(redirects_tools, "call_tool", side_effect=fake_call_tool) as group_call,
+            patch.object(server_module.asyncio, "to_thread", wraps=asyncio.to_thread) as to_thread,
+        ):
+            result = asyncio.run(handle_call_tool("redirects_list", {"site": "test"}))
 
         self.assertEqual(result, ["ok"])
         # asyncio.to_thread must have been used (not a plain await on a coroutine)
@@ -171,9 +209,11 @@ class TestServerDispatchesViaToThread(unittest.TestCase):
             captured_thread["thread"] = threading.current_thread()
             return ["ok"]
 
-        with patch.object(redirects_resources, "read_resource", side_effect=fake_read_resource), \
-             patch.object(server_module.asyncio, "to_thread", wraps=asyncio.to_thread) as to_thread:
-            result = asyncio.run(handle_read_resource("voog://redirects"))
+        with (
+            patch.object(redirects_resources, "read_resource", side_effect=fake_read_resource),
+            patch.object(server_module.asyncio, "to_thread", wraps=asyncio.to_thread) as to_thread,
+        ):
+            result = asyncio.run(handle_read_resource("voog://test/redirects"))
 
         self.assertEqual(result, ["ok"])
         to_thread.assert_called_once()

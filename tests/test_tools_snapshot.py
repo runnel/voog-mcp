@@ -1,16 +1,14 @@
 """Tests for voog_mcp.tools.snapshot."""
+
 import json
-import sys
 import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from tests._test_helpers import _ann_get
-from voog_mcp.tools import snapshot as snapshot_tools
+from voog.mcp.tools import snapshot as snapshot_tools
 
 
 def _make_client():
@@ -47,15 +45,18 @@ class TestGetTools(unittest.TestCase):
         for tool in tools:
             ann = tool.annotations
             self.assertIs(
-                _ann_get(ann, "readOnlyHint", "read_only_hint"), False,
+                _ann_get(ann, "readOnlyHint", "read_only_hint"),
+                False,
                 f"{tool.name} writes to disk → readOnlyHint=False",
             )
             self.assertIs(
-                _ann_get(ann, "destructiveHint", "destructive_hint"), False,
+                _ann_get(ann, "destructiveHint", "destructive_hint"),
+                False,
                 f"{tool.name} is additive (not API-destructive)",
             )
             self.assertIs(
-                _ann_get(ann, "idempotentHint", "idempotent_hint"), True,
+                _ann_get(ann, "idempotentHint", "idempotent_hint"),
+                True,
                 f"{tool.name} is idempotent (same site = same output)",
             )
 
@@ -74,7 +75,9 @@ class TestPagesSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
             result = snapshot_tools.call_tool(
-                "pages_snapshot", {"output_dir": str(out)}, client,
+                "pages_snapshot",
+                {"output_dir": str(out)},
+                client,
             )
             # Files written
             self.assertTrue((out / "pages.json").exists())
@@ -109,7 +112,9 @@ class TestPagesSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
             result = snapshot_tools.call_tool(
-                "pages_snapshot", {"output_dir": str(out)}, client,
+                "pages_snapshot",
+                {"output_dir": str(out)},
+                client,
             )
             self.assertTrue((out / "page_1_contents.json").exists())
             self.assertFalse((out / "page_2_contents.json").exists())
@@ -126,7 +131,9 @@ class TestPagesSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "deep" / "nested" / "snap"
             snapshot_tools.call_tool(
-                "pages_snapshot", {"output_dir": str(out)}, client,
+                "pages_snapshot",
+                {"output_dir": str(out)},
+                client,
             )
             self.assertTrue((out / "pages.json").exists())
 
@@ -141,7 +148,9 @@ class TestPagesSnapshot(unittest.TestCase):
             out.mkdir(parents=True)
             (out / "pages.json").write_text("STALE", encoding="utf-8")
             snapshot_tools.call_tool(
-                "pages_snapshot", {"output_dir": str(out)}, client,
+                "pages_snapshot",
+                {"output_dir": str(out)},
+                client,
             )
             # Stale content replaced
             self.assertNotEqual(
@@ -155,7 +164,9 @@ class TestPagesSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
             result = snapshot_tools.call_tool(
-                "pages_snapshot", {"output_dir": str(out)}, client,
+                "pages_snapshot",
+                {"output_dir": str(out)},
+                client,
             )
             self.assertTrue(result.isError)
             payload = json.loads(result.content[0].text)
@@ -165,7 +176,9 @@ class TestPagesSnapshot(unittest.TestCase):
     def test_empty_output_dir_rejected(self):
         client = _make_client()
         result = snapshot_tools.call_tool(
-            "pages_snapshot", {"output_dir": ""}, client,
+            "pages_snapshot",
+            {"output_dir": ""},
+            client,
         )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
@@ -178,7 +191,9 @@ class TestPagesSnapshot(unittest.TestCase):
         # server happened to start from
         client = _make_client()
         result = snapshot_tools.call_tool(
-            "pages_snapshot", {"output_dir": "snapshots/foo"}, client,
+            "pages_snapshot",
+            {"output_dir": "snapshots/foo"},
+            client,
         )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
@@ -189,7 +204,9 @@ class TestPagesSnapshot(unittest.TestCase):
     def test_dot_relative_path_rejected(self):
         client = _make_client()
         result = snapshot_tools.call_tool(
-            "pages_snapshot", {"output_dir": "./out"}, client,
+            "pages_snapshot",
+            {"output_dir": "./out"},
+            client,
         )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
@@ -201,7 +218,9 @@ class TestSiteSnapshot(unittest.TestCase):
     def test_relative_path_rejected(self):
         client = _make_client()
         result = snapshot_tools.call_tool(
-            "site_snapshot", {"output_dir": "backups/2026"}, client,
+            "site_snapshot",
+            {"output_dir": "backups/2026"},
+            client,
         )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
@@ -217,7 +236,9 @@ class TestSiteSnapshot(unittest.TestCase):
             out = Path(tmpdir) / "snap"
             out.mkdir(parents=True)  # already exists
             result = snapshot_tools.call_tool(
-                "site_snapshot", {"output_dir": str(out)}, client,
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
             )
             client.get_all.assert_not_called()
             client.get.assert_not_called()
@@ -265,7 +286,9 @@ class TestSiteSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
             result = snapshot_tools.call_tool(
-                "site_snapshot", {"output_dir": str(out)}, client,
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
             )
             # List endpoint files
             self.assertTrue((out / "pages.json").exists())
@@ -307,7 +330,9 @@ class TestSiteSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
             result = snapshot_tools.call_tool(
-                "site_snapshot", {"output_dir": str(out)}, client,
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
             )
             # Other list endpoints still got their files
             self.assertTrue((out / "pages.json").exists())
@@ -320,7 +345,9 @@ class TestSiteSnapshot(unittest.TestCase):
     def test_empty_output_dir_rejected(self):
         client = _make_client()
         result = snapshot_tools.call_tool(
-            "site_snapshot", {"output_dir": ""}, client,
+            "site_snapshot",
+            {"output_dir": ""},
+            client,
         )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -362,11 +389,13 @@ class TestSiteSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
             with patch(
-                "voog_mcp.tools.snapshot.parallel_map",
+                "voog.mcp.tools.snapshot.parallel_map",
                 wraps=snapshot_tools.parallel_map,
             ) as mock_pm:
                 snapshot_tools.call_tool(
-                    "site_snapshot", {"output_dir": str(out)}, client,
+                    "site_snapshot",
+                    {"output_dir": str(out)},
+                    client,
                 )
 
         # Expect 4 parallel_map calls: list endpoints, page contents, article
@@ -418,7 +447,9 @@ class TestSiteSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
             result = snapshot_tools.call_tool(
-                "site_snapshot", {"output_dir": str(out)}, client,
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
             )
             # The 2 successful per-page contents files exist; failed one does not.
             self.assertTrue((out / "page_1_contents.json").exists())
@@ -457,20 +488,21 @@ class TestSiteSnapshot(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
-            with patch(
-                "voog_mcp.tools.snapshot.urllib.request.urlopen"
-            ) as mock_urlopen:
+            with patch("voog.mcp.tools.snapshot.urllib.request.urlopen") as mock_urlopen:
                 fake = MagicMock()
                 fake.read.return_value = b"<html></html>"
                 mock_urlopen.return_value.__enter__.return_value = fake
                 snapshot_tools.call_tool(
-                    "site_snapshot", {"output_dir": str(out)}, client,
+                    "site_snapshot",
+                    {"output_dir": str(out)},
+                    client,
                 )
             self.assertGreaterEqual(mock_urlopen.call_count, 1)
             # Every public-fetch call must be bounded by an explicit timeout.
             for call in mock_urlopen.call_args_list:
                 self.assertIn(
-                    "timeout", call.kwargs,
+                    "timeout",
+                    call.kwargs,
                     "snapshot public HTML fetch missing timeout=",
                 )
                 self.assertEqual(call.kwargs["timeout"], 30)
@@ -480,7 +512,9 @@ class TestUnknownTool(unittest.TestCase):
     def test_unknown_name_returns_error(self):
         client = _make_client()
         result = snapshot_tools.call_tool(
-            "nonexistent", {}, client,
+            "nonexistent",
+            {},
+            client,
         )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -563,9 +597,7 @@ class TestPickSamplePagePaths(unittest.TestCase):
         self.assertEqual(result, ["/wip"])
 
     def test_max_samples_caps_output(self):
-        pages = [
-            {"path": str(i), "content_type": f"ct{i}"} for i in range(10)
-        ]
+        pages = [{"path": str(i), "content_type": f"ct{i}"} for i in range(10)]
         result = snapshot_tools._pick_sample_page_paths(pages, max_samples=3)
         self.assertEqual(len(result), 3)
 
@@ -590,18 +622,15 @@ class TestServerToolRegistry(unittest.TestCase):
     """Phase C contract — snapshot_tools joined to TOOL_GROUPS."""
 
     def test_snapshot_in_tool_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
+
         self.assertIn(snapshot_tools, server.TOOL_GROUPS)
 
     def test_no_tool_name_collisions(self):
-        from voog_mcp import server
-        all_names = [
-            tool.name
-            for group in server.TOOL_GROUPS
-            for tool in group.get_tools()
-        ]
-        self.assertEqual(len(all_names), len(set(all_names)),
-                         f"Duplicate tool names: {all_names}")
+        from voog.mcp import server
+
+        all_names = [tool.name for group in server.TOOL_GROUPS for tool in group.get_tools()]
+        self.assertEqual(len(all_names), len(set(all_names)), f"Duplicate tool names: {all_names}")
 
     def test_phase_c_complete(self):
         # Sentinel: after Task 11b + product_set_images, TOOL_GROUPS should
@@ -609,22 +638,55 @@ class TestServerToolRegistry(unittest.TestCase):
         # products, redirects) plus layouts_sync (Task 11b — filesystem-
         # touching layouts pull/push) and products_images (deferred from
         # Task 13 — 3-step asset upload protocol).
-        from voog_mcp import server
-        from voog_mcp.tools import (
+        from voog.mcp import server
+        from voog.mcp.tools import (
             layouts as layouts_t,
+        )
+        from voog.mcp.tools import (
             layouts_sync as layouts_sync_t,
+        )
+        from voog.mcp.tools import (
             pages as pages_t,
+        )
+        from voog.mcp.tools import (
             pages_mutate as pages_mutate_t,
+        )
+        from voog.mcp.tools import (
             products as products_t,
+        )
+        from voog.mcp.tools import (
             products_images as products_images_t,
+        )
+        from voog.mcp.tools import (
             redirects as redirects_t,
+        )
+        from voog.mcp.tools import (
             snapshot as snapshot_t,
         )
+
         expected = {
-            layouts_t, layouts_sync_t, pages_t, pages_mutate_t,
-            products_t, products_images_t, redirects_t, snapshot_t,
+            layouts_t,
+            layouts_sync_t,
+            pages_t,
+            pages_mutate_t,
+            products_t,
+            products_images_t,
+            redirects_t,
+            snapshot_t,
         }
         self.assertEqual(set(server.TOOL_GROUPS), expected)
+
+
+class TestAllToolsRequireSite(unittest.TestCase):
+    def test_all_tools_require_site(self):
+        from voog.mcp.tools import snapshot as mod
+
+        for tool in mod.get_tools():
+            self.assertIn(
+                "site",
+                tool.inputSchema.get("required", []),
+                f"tool {tool.name} must require 'site'",
+            )
 
 
 if __name__ == "__main__":

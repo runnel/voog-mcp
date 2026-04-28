@@ -1,15 +1,12 @@
 """Tests for voog_mcp.tools.layouts."""
+
 import json
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from tests._test_helpers import _ann_get
-from voog_mcp.tools import layouts as layouts_tools
+from voog.mcp.tools import layouts as layouts_tools
 
 
 class TestGetTools(unittest.TestCase):
@@ -52,7 +49,8 @@ class TestGetTools(unittest.TestCase):
         for tool in tools:
             ann = tool.annotations
             self.assertIs(
-                _ann_get(ann, "readOnlyHint", "read_only_hint"), False,
+                _ann_get(ann, "readOnlyHint", "read_only_hint"),
+                False,
                 f"{tool.name} must have readOnlyHint=False explicitly",
             )
 
@@ -107,7 +105,7 @@ class TestLayoutRename(unittest.TestCase):
 
     def test_rejects_title_with_backslash(self):
         client = MagicMock()
-        result = layouts_tools.call_tool(
+        layouts_tools.call_tool(
             "layout_rename",
             {"layout_id": 1, "new_title": "foo\\bar"},
             client,
@@ -116,7 +114,7 @@ class TestLayoutRename(unittest.TestCase):
 
     def test_rejects_title_starting_with_dot(self):
         client = MagicMock()
-        result = layouts_tools.call_tool(
+        layouts_tools.call_tool(
             "layout_rename",
             {"layout_id": 1, "new_title": ".hidden"},
             client,
@@ -137,9 +135,7 @@ class TestLayoutRename(unittest.TestCase):
 
     def test_api_error_returns_error_response(self):
         client = MagicMock()
-        client.put.side_effect = urllib.error.HTTPError(
-            "url", 404, "Not Found", {}, None
-        )
+        client.put.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         result = layouts_tools.call_tool(
             "layout_rename",
             {"layout_id": 999, "new_title": "Whatever"},
@@ -287,7 +283,7 @@ class TestLayoutCreate(unittest.TestCase):
 
     def test_empty_title_rejected(self):
         client = MagicMock()
-        result = layouts_tools.call_tool(
+        layouts_tools.call_tool(
             "layout_create",
             {"title": "", "body": "y", "kind": "layout"},
             client,
@@ -297,7 +293,7 @@ class TestLayoutCreate(unittest.TestCase):
     def test_title_with_slash_rejected(self):
         # Title-validation reused from layout_rename (same Voog rules)
         client = MagicMock()
-        result = layouts_tools.call_tool(
+        layouts_tools.call_tool(
             "layout_create",
             {"title": "foo/bar", "body": "y", "kind": "layout"},
             client,
@@ -337,7 +333,9 @@ class TestAssetReplace(unittest.TestCase):
         client = MagicMock()
         # Old asset has data + filename + asset_type
         client.get.return_value = {
-            "id": 100, "filename": "old.css", "asset_type": "css",
+            "id": 100,
+            "filename": "old.css",
+            "asset_type": "css",
             "data": "body { color: red; }",
         }
         client.post.return_value = {"id": 101, "filename": "new.css"}
@@ -375,7 +373,7 @@ class TestAssetReplace(unittest.TestCase):
 
     def test_filename_starting_with_dot_rejected(self):
         client = MagicMock()
-        result = layouts_tools.call_tool(
+        layouts_tools.call_tool(
             "asset_replace",
             {"asset_id": 100, "new_filename": ".hidden"},
             client,
@@ -387,7 +385,9 @@ class TestAssetReplace(unittest.TestCase):
         # tool can't replace without it — return error rather than POST empty data
         client = MagicMock()
         client.get.return_value = {
-            "id": 100, "filename": "old.png", "asset_type": "image",
+            "id": 100,
+            "filename": "old.png",
+            "asset_type": "image",
             # no 'data' field
         }
         result = layouts_tools.call_tool(
@@ -416,9 +416,7 @@ class TestAssetReplace(unittest.TestCase):
 
     def test_get_api_error_returns_error_response(self):
         client = MagicMock()
-        client.get.side_effect = urllib.error.HTTPError(
-            "url", 404, "Not Found", {}, None
-        )
+        client.get.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         result = layouts_tools.call_tool(
             "asset_replace",
             {"asset_id": 999, "new_filename": "x.css"},
@@ -443,18 +441,27 @@ class TestServerToolRegistry(unittest.TestCase):
     """Phase C contract — layouts joined to TOOL_GROUPS."""
 
     def test_layouts_in_tool_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
+
         self.assertIn(layouts_tools, server.TOOL_GROUPS)
 
     def test_no_tool_name_collisions(self):
-        from voog_mcp import server
-        all_names = [
-            tool.name
-            for group in server.TOOL_GROUPS
-            for tool in group.get_tools()
-        ]
-        self.assertEqual(len(all_names), len(set(all_names)),
-                         f"Duplicate tool names: {all_names}")
+        from voog.mcp import server
+
+        all_names = [tool.name for group in server.TOOL_GROUPS for tool in group.get_tools()]
+        self.assertEqual(len(all_names), len(set(all_names)), f"Duplicate tool names: {all_names}")
+
+
+class TestAllToolsRequireSite(unittest.TestCase):
+    def test_all_tools_require_site(self):
+        from voog.mcp.tools import layouts as mod
+
+        for tool in mod.get_tools():
+            self.assertIn(
+                "site",
+                tool.inputSchema.get("required", []),
+                f"tool {tool.name} must require 'site'",
+            )
 
 
 if __name__ == "__main__":

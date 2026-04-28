@@ -1,15 +1,12 @@
 """Tests for voog_mcp.tools.products."""
+
 import json
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from tests._test_helpers import _ann_get
-from voog_mcp.tools import products as products_tools
+from voog.mcp.tools import products as products_tools
 
 
 class TestGetTools(unittest.TestCase):
@@ -21,8 +18,8 @@ class TestGetTools(unittest.TestCase):
     def test_products_list_schema(self):
         tools = {t.name: t for t in products_tools.get_tools()}
         schema = tools["products_list"].inputSchema
-        # No required parameters — list everything
-        self.assertEqual(schema["required"], [])
+        # Only 'site' required — list everything on the named site
+        self.assertIn("site", schema["required"])
 
     def test_product_get_schema(self):
         tools = {t.name: t for t in products_tools.get_tools()}
@@ -47,15 +44,18 @@ class TestGetTools(unittest.TestCase):
         for name in ("products_list", "product_get"):
             ann = tools[name].annotations
             self.assertIs(
-                _ann_get(ann, "readOnlyHint", "read_only_hint"), True,
+                _ann_get(ann, "readOnlyHint", "read_only_hint"),
+                True,
                 f"{name} must have readOnlyHint=True",
             )
             self.assertIs(
-                _ann_get(ann, "destructiveHint", "destructive_hint"), False,
+                _ann_get(ann, "destructiveHint", "destructive_hint"),
+                False,
                 f"{name} should set destructiveHint=False explicitly",
             )
             self.assertIs(
-                _ann_get(ann, "idempotentHint", "idempotent_hint"), True,
+                _ann_get(ann, "idempotentHint", "idempotent_hint"),
+                True,
                 f"{name} should set idempotentHint=True (repeat reads = same data)",
             )
 
@@ -77,7 +77,9 @@ class TestProductsList(unittest.TestCase):
             {"id": 1, "name": "Widget", "slug": "widget", "status": "live"},
         ]
         result = products_tools.call_tool(
-            "products_list", {}, client,
+            "products_list",
+            {},
+            client,
         )
         client.get_all.assert_called_once_with(
             "/products",
@@ -108,14 +110,27 @@ class TestProductsList(unittest.TestCase):
             },
         ]
         result = products_tools.call_tool(
-            "products_list", {}, client,
+            "products_list",
+            {},
+            client,
         )
         items = json.loads(result[1].text)
         self.assertEqual(len(items), 1)
         item = items[0]
         # Curated fields kept
-        for keep in ("id", "name", "slug", "sku", "status", "in_stock", "on_sale",
-                     "price", "effective_price", "translations", "updated_at"):
+        for keep in (
+            "id",
+            "name",
+            "slug",
+            "sku",
+            "status",
+            "in_stock",
+            "on_sale",
+            "price",
+            "effective_price",
+            "translations",
+            "updated_at",
+        ):
             self.assertIn(keep, item)
         # Heavier fields stripped (consistent with voog_mcp.resources.products)
         self.assertNotIn("description", item)
@@ -126,7 +141,9 @@ class TestProductsList(unittest.TestCase):
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
         client.get_all.return_value = []
         result = products_tools.call_tool(
-            "products_list", {}, client,
+            "products_list",
+            {},
+            client,
         )
         items = json.loads(result[1].text)
         self.assertEqual(items, [])
@@ -136,7 +153,9 @@ class TestProductsList(unittest.TestCase):
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
         client.get_all.side_effect = urllib.error.URLError("network down")
         result = products_tools.call_tool(
-            "products_list", {}, client,
+            "products_list",
+            {},
+            client,
         )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -149,10 +168,16 @@ class TestProductGet(unittest.TestCase):
         client = MagicMock()
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
         client.get.return_value = {
-            "id": 42, "name": "X", "slug": "x", "translations": {}, "variant_types": [],
+            "id": 42,
+            "name": "X",
+            "slug": "x",
+            "translations": {},
+            "variant_types": [],
         }
         result = products_tools.call_tool(
-            "product_get", {"product_id": 42}, client,
+            "product_get",
+            {"product_id": 42},
+            client,
         )
         client.get.assert_called_once_with(
             "/products/42",
@@ -165,11 +190,11 @@ class TestProductGet(unittest.TestCase):
     def test_product_get_api_error(self):
         client = MagicMock()
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
-        client.get.side_effect = urllib.error.HTTPError(
-            "url", 404, "Not Found", {}, None
-        )
+        client.get.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         result = products_tools.call_tool(
-            "product_get", {"product_id": 999}, client,
+            "product_get",
+            {"product_id": 999},
+            client,
         )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -211,8 +236,10 @@ class TestProductUpdate(unittest.TestCase):
             {
                 "product_id": 42,
                 "fields": {
-                    "name-et": "Eesti", "name-en": "English",
-                    "slug-et": "eesti", "slug-en": "english",
+                    "name-et": "Eesti",
+                    "name-en": "English",
+                    "slug-et": "eesti",
+                    "slug-en": "english",
                 },
             },
             client,
@@ -262,9 +289,7 @@ class TestProductUpdate(unittest.TestCase):
     def test_api_error_returns_error_response(self):
         client = MagicMock()
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
-        client.put.side_effect = urllib.error.HTTPError(
-            "url", 404, "Not Found", {}, None
-        )
+        client.put.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         result = products_tools.call_tool(
             "product_update",
             {"product_id": 999, "fields": {"name-et": "X"}},
@@ -292,7 +317,7 @@ class TestProductUpdate(unittest.TestCase):
     def test_double_dash_lang_rejected(self):
         # 'name--et' splits to lang='-et' (starts with '-'); Voog would reject
         client = MagicMock()
-        result = products_tools.call_tool(
+        products_tools.call_tool(
             "product_update",
             {"product_id": 42, "fields": {"name--et": "X"}},
             client,
@@ -327,8 +352,9 @@ class TestProjectionConsistency(unittest.TestCase):
     """
 
     def test_both_surfaces_use_shared_projection(self):
-        from voog_mcp import projections
-        from voog_mcp.resources import products as resource_products
+        from voog import projections
+        from voog.mcp.resources import products as resource_products
+
         self.assertIs(products_tools.simplify_products, projections.simplify_products)
         self.assertIs(resource_products.simplify_products, projections.simplify_products)
 
@@ -337,17 +363,26 @@ class TestProjectionConsistency(unittest.TestCase):
         # (description, physical_properties, asset_ids) must be stripped from
         # the list view — clients fetching voog://products/{id} get the full
         # detail.
-        from voog_mcp.projections import simplify_products
-        sample = [{
-            "id": 1, "name": "X", "slug": "x", "sku": "X-1",
-            "status": "live", "in_stock": True, "on_sale": False,
-            "price": "1900", "effective_price": "1900",
-            "translations": {"name": {"et": "Iks"}},
-            "updated_at": "2026-01-01T00:00:00Z",
-            "description": "this MUST be stripped",
-            "physical_properties": {"weight": 100},
-            "asset_ids": [1, 2, 3],
-        }]
+        from voog.projections import simplify_products
+
+        sample = [
+            {
+                "id": 1,
+                "name": "X",
+                "slug": "x",
+                "sku": "X-1",
+                "status": "live",
+                "in_stock": True,
+                "on_sale": False,
+                "price": "1900",
+                "effective_price": "1900",
+                "translations": {"name": {"et": "Iks"}},
+                "updated_at": "2026-01-01T00:00:00Z",
+                "description": "this MUST be stripped",
+                "physical_properties": {"weight": 100},
+                "asset_ids": [1, 2, 3],
+            }
+        ]
         out = simplify_products(sample)
         self.assertNotIn("description", out[0])
         self.assertNotIn("physical_properties", out[0])
@@ -358,7 +393,9 @@ class TestUnknownTool(unittest.TestCase):
     def test_unknown_name_returns_error(self):
         client = MagicMock()
         result = products_tools.call_tool(
-            "nonexistent", {}, client,
+            "nonexistent",
+            {},
+            client,
         )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -369,18 +406,27 @@ class TestServerToolRegistry(unittest.TestCase):
     """Phase C contract — products_tools joined to TOOL_GROUPS."""
 
     def test_products_tools_in_tool_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
+
         self.assertIn(products_tools, server.TOOL_GROUPS)
 
     def test_no_tool_name_collisions(self):
-        from voog_mcp import server
-        all_names = [
-            tool.name
-            for group in server.TOOL_GROUPS
-            for tool in group.get_tools()
-        ]
-        self.assertEqual(len(all_names), len(set(all_names)),
-                         f"Duplicate tool names: {all_names}")
+        from voog.mcp import server
+
+        all_names = [tool.name for group in server.TOOL_GROUPS for tool in group.get_tools()]
+        self.assertEqual(len(all_names), len(set(all_names)), f"Duplicate tool names: {all_names}")
+
+
+class TestAllToolsRequireSite(unittest.TestCase):
+    def test_all_tools_require_site(self):
+        from voog.mcp.tools import products as mod
+
+        for tool in mod.get_tools():
+            self.assertIn(
+                "site",
+                tool.inputSchema.get("required", []),
+                f"tool {tool.name} must require 'site'",
+            )
 
 
 if __name__ == "__main__":

@@ -1,21 +1,18 @@
 """Tests for voog_mcp.resources.articles."""
+
 import json
-import sys
 import unittest
 import urllib.error
-from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from voog_mcp.resources import articles as articles_resources
+from voog.mcp.resources import articles as articles_resources
 
 
 class TestArticlesResourcesGetResources(unittest.TestCase):
     def test_get_resources_returns_listable_root(self):
         resources = articles_resources.get_resources()
         self.assertEqual(len(resources), 1)
-        self.assertEqual(str(resources[0].uri), "voog://articles")
+        self.assertEqual(str(resources[0].uri), "voog://{site}/articles")
         self.assertEqual(resources[0].mimeType, "application/json")
         self.assertTrue(resources[0].name)
         self.assertTrue(resources[0].description)
@@ -23,23 +20,30 @@ class TestArticlesResourcesGetResources(unittest.TestCase):
 
 class TestArticlesResourcesMatches(unittest.TestCase):
     def test_matches_root_uri(self):
-        self.assertTrue(articles_resources.matches("voog://articles"))
+        self.assertTrue(articles_resources.matches("voog://stella/articles"))
 
     def test_matches_single_article_uri(self):
-        self.assertTrue(articles_resources.matches("voog://articles/12345"))
+        self.assertTrue(articles_resources.matches("voog://stella/articles/12345"))
+
+    def test_matches_any_site(self):
+        self.assertTrue(articles_resources.matches("voog://runnel/articles"))
 
     def test_does_not_match_other_groups(self):
-        self.assertFalse(articles_resources.matches("voog://pages"))
-        self.assertFalse(articles_resources.matches("voog://layouts"))
-        self.assertFalse(articles_resources.matches("voog://redirects"))
+        self.assertFalse(articles_resources.matches("voog://stella/pages"))
+        self.assertFalse(articles_resources.matches("voog://stella/layouts"))
+        self.assertFalse(articles_resources.matches("voog://stella/redirects"))
 
     def test_does_not_match_prefix_lookalike(self):
-        self.assertFalse(articles_resources.matches("voog://articlesx"))
-        self.assertFalse(articles_resources.matches("voog://articles-old"))
+        self.assertFalse(articles_resources.matches("voog://stella/articlesx"))
+        self.assertFalse(articles_resources.matches("voog://stella/articles-old"))
 
     def test_does_not_match_empty(self):
         self.assertFalse(articles_resources.matches(""))
         self.assertFalse(articles_resources.matches("voog://"))
+
+    def test_does_not_match_legacy_format(self):
+        self.assertFalse(articles_resources.matches("voog://articles"))
+        self.assertFalse(articles_resources.matches("voog://articles/1"))
 
 
 class TestArticlesResourcesReadRoot(unittest.TestCase):
@@ -60,7 +64,7 @@ class TestArticlesResourcesReadRoot(unittest.TestCase):
                 "body": "should-not-leak-into-list",  # body intentionally stripped
             },
         ]
-        result = articles_resources.read_resource("voog://articles", client)
+        result = articles_resources.read_resource("voog://stella/articles", client)
         client.get_all.assert_called_once_with("/articles")
         contents = list(result)
         self.assertEqual(len(contents), 1)
@@ -82,7 +86,7 @@ class TestArticlesResourcesReadRoot(unittest.TestCase):
         client.get_all.return_value = [
             {"id": 1, "title": "Bare"},  # no language, no page
         ]
-        result = articles_resources.read_resource("voog://articles", client)
+        result = articles_resources.read_resource("voog://stella/articles", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed[0]["id"], 1)
@@ -92,7 +96,7 @@ class TestArticlesResourcesReadRoot(unittest.TestCase):
     def test_read_root_empty(self):
         client = MagicMock()
         client.get_all.return_value = []
-        result = articles_resources.read_resource("voog://articles", client)
+        result = articles_resources.read_resource("voog://stella/articles", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed, [])
@@ -107,7 +111,7 @@ class TestArticlesResourcesReadSingleArticle(unittest.TestCase):
             "title": "Hello World",
             "body": body_html,
         }
-        result = articles_resources.read_resource("voog://articles/5001", client)
+        result = articles_resources.read_resource("voog://stella/articles/5001", client)
         client.get.assert_called_once_with("/articles/5001")
         client.get_all.assert_not_called()
         contents = list(result)
@@ -118,7 +122,7 @@ class TestArticlesResourcesReadSingleArticle(unittest.TestCase):
     def test_read_single_article_missing_body_returns_empty_string(self):
         client = MagicMock()
         client.get.return_value = {"id": 5001, "title": "Empty"}  # no body
-        result = articles_resources.read_resource("voog://articles/5001", client)
+        result = articles_resources.read_resource("voog://stella/articles/5001", client)
         contents = list(result)
         self.assertEqual(contents[0].mime_type, "text/html")
         self.assertEqual(contents[0].content, "")
@@ -126,7 +130,7 @@ class TestArticlesResourcesReadSingleArticle(unittest.TestCase):
     def test_read_single_article_null_body_returns_empty_string(self):
         client = MagicMock()
         client.get.return_value = {"id": 5001, "body": None}
-        result = articles_resources.read_resource("voog://articles/5001", client)
+        result = articles_resources.read_resource("voog://stella/articles/5001", client)
         contents = list(result)
         self.assertEqual(contents[0].content, "")
 
@@ -134,7 +138,7 @@ class TestArticlesResourcesReadSingleArticle(unittest.TestCase):
         # Pin behaviour: API returning body="" stays ""
         client = MagicMock()
         client.get.return_value = {"id": 5001, "body": ""}
-        result = articles_resources.read_resource("voog://articles/5001", client)
+        result = articles_resources.read_resource("voog://stella/articles/5001", client)
         contents = list(result)
         self.assertEqual(contents[0].mime_type, "text/html")
         self.assertEqual(contents[0].content, "")
@@ -142,34 +146,32 @@ class TestArticlesResourcesReadSingleArticle(unittest.TestCase):
     def test_read_single_article_rejects_non_integer_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            articles_resources.read_resource("voog://articles/abc", client)
+            articles_resources.read_resource("voog://stella/articles/abc", client)
         client.get.assert_not_called()
 
     def test_read_single_article_rejects_zero_or_negative(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            articles_resources.read_resource("voog://articles/0", client)
+            articles_resources.read_resource("voog://stella/articles/0", client)
         with self.assertRaises(ValueError):
-            articles_resources.read_resource("voog://articles/-1", client)
+            articles_resources.read_resource("voog://stella/articles/-1", client)
 
 
 class TestArticlesResourcesUnknownUri(unittest.TestCase):
     def test_bare_trailing_slash_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            articles_resources.read_resource("voog://articles/", client)
+            articles_resources.read_resource("voog://stella/articles/", client)
 
     def test_subpath_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            articles_resources.read_resource(
-                "voog://articles/5001/comments", client
-            )
+            articles_resources.read_resource("voog://stella/articles/5001/comments", client)
 
     def test_completely_unrelated_uri_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            articles_resources.read_resource("voog://pages", client)
+            articles_resources.read_resource("voog://stella/pages", client)
 
 
 class TestArticlesResourcesErrorPropagation(unittest.TestCase):
@@ -177,33 +179,28 @@ class TestArticlesResourcesErrorPropagation(unittest.TestCase):
         client = MagicMock()
         client.get_all.side_effect = urllib.error.URLError("network down")
         with self.assertRaises(urllib.error.URLError):
-            articles_resources.read_resource("voog://articles", client)
+            articles_resources.read_resource("voog://stella/articles", client)
 
     def test_single_article_propagates_api_errors(self):
         client = MagicMock()
-        client.get.side_effect = urllib.error.HTTPError(
-            "url", 404, "Not Found", {}, None
-        )
+        client.get.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         with self.assertRaises(urllib.error.HTTPError):
-            articles_resources.read_resource("voog://articles/999", client)
+            articles_resources.read_resource("voog://stella/articles/999", client)
 
 
 class TestServerResourceRegistry(unittest.TestCase):
     """Phase D contract — articles resources joined to RESOURCE_GROUPS."""
 
     def test_articles_in_resource_groups(self):
-        from voog_mcp import server
+        from voog.mcp import server
+
         self.assertIn(articles_resources, server.RESOURCE_GROUPS)
 
     def test_no_uri_collisions_after_articles_added(self):
-        from voog_mcp import server
-        all_uris = [
-            str(r.uri)
-            for g in server.RESOURCE_GROUPS
-            for r in g.get_resources()
-        ]
-        self.assertEqual(len(all_uris), len(set(all_uris)),
-                         f"Duplicate resource URIs: {all_uris}")
+        from voog.mcp import server
+
+        all_uris = [str(r.uri) for g in server.RESOURCE_GROUPS for r in g.get_resources()]
+        self.assertEqual(len(all_uris), len(set(all_uris)), f"Duplicate resource URIs: {all_uris}")
 
 
 if __name__ == "__main__":

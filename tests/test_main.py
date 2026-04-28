@@ -1,35 +1,39 @@
-"""Tests for voog_mcp.__main__ entry point."""
+"""Tests for voog.mcp.server main() entry point."""
+
 import io
-import sys
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from voog_mcp import __main__ as main_module
-from voog_mcp.config import ConfigError
+from voog.config import ConfigError
+from voog.mcp import server as server_module
 
 
 class TestMainConfigError(unittest.TestCase):
-    def test_config_error_exits_with_code_1(self):
+    def test_config_error_on_load_exits_with_code_1(self):
+        """ConfigError raised by load_global_config() must produce sys.exit(1)."""
         stderr = io.StringIO()
-        with patch.object(main_module, "run_server") as mock_run, \
-             patch.object(main_module.sys, "stderr", stderr):
-            mock_run.side_effect = ConfigError("VOOG_HOST env muutuja puudub")
+        with (
+            patch.object(server_module, "load_global_config") as mock_load,
+            patch("sys.stderr", stderr),
+            patch("sys.argv", ["voog-mcp"]),
+        ):
+            mock_load.side_effect = ConfigError("config file not found")
             with self.assertRaises(SystemExit) as ctx:
-                main_module.main()
+                server_module.main()
             self.assertEqual(ctx.exception.code, 1)
-            self.assertIn("VOOG_HOST", stderr.getvalue())
+            self.assertIn("config file not found", stderr.getvalue())
 
     def test_other_runtime_error_propagates(self):
-        """Unrelated RuntimeError (e.g. asyncio "Event loop is closed") must not
-        be re-skinned as a config error — it should propagate as a real traceback."""
-        with patch.object(main_module, "run_server") as mock_run:
-            mock_run.side_effect = RuntimeError("Event loop is closed")
+        """Unrelated RuntimeError must propagate as a real traceback, not be
+        swallowed as a config error."""
+        with (
+            patch.object(server_module, "load_global_config") as mock_load,
+            patch("sys.argv", ["voog-mcp"]),
+        ):
+            mock_load.side_effect = RuntimeError("unexpected failure")
             with self.assertRaises(RuntimeError) as ctx:
-                main_module.main()
-            self.assertEqual(str(ctx.exception), "Event loop is closed")
+                server_module.main()
+            self.assertEqual(str(ctx.exception), "unexpected failure")
 
 
 if __name__ == "__main__":

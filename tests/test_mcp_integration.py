@@ -7,15 +7,16 @@ Two flavours of tests live here:
    ``unittest discover``.
 
 2. **Live-API smoke tests** — :class:`TestMCPSmokeTools` and
-   :class:`TestMCPSmokeResources` are gated behind ``RUN_SMOKE=1``. They
-   spawn ``voog-mcp`` against ``runnel.ee`` with a real API token (read
-   from ``Claude/.env``'s ``RUNNEL_VOOG_API_KEY``) and exercise one
-   representative read-only tool or resource per group. Without the
-   ``RUN_SMOKE`` env var the whole class skips, so the regular
+   :class:`TestMCPSmokeResources` are gated behind ``RUN_SMOKE=1`` *and* a
+   non-empty ``VOOG_SMOKE_HOST``. They spawn ``voog-mcp`` against the host
+   you specify with a real API token (read from ``VOOG_SMOKE_ENV_FILE``,
+   looking up the variable named in ``VOOG_SMOKE_API_KEY_NAME``) and
+   exercise one representative read-only tool or resource per group.
+   Without those env vars the whole class skips, so the regular
    ``unittest discover`` run on CI / dev boxes does not require
-   credentials and does not hit the live site.
+   credentials and does not hit any live site.
 
-Why opt-in: live-API tests need credentials, hit production runnel.ee, and
+Why opt-in: live-API tests need credentials, hit a production site, and
 add ~10s of network latency to the suite. They verify the end-to-end MCP
 contract (subprocess + JSON-RPC framing + tool dispatch + Voog API + result
 shape) which mocks cannot reproduce. Mutating tools (``page_set_hidden``,
@@ -33,26 +34,35 @@ Test pattern (smoke tests):
 5. Call one read-only tool / read one resource, assert the result shape.
 6. Cleanup subprocess in ``tearDown``.
 """
+
 import json
 import os
 import pathlib
 import queue
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 
-
-# Use the absolute path to the venv-installed console script so the test
-# does not depend on whichever shell PATH the test runner inherits.
+# Resolve the ``voog-mcp`` console script. ``shutil.which`` finds it on PATH
+# (CI's system pip install, or any activated venv). Fallback to the local
+# .venv/bin path so tests still work when invoked from an unactivated venv
+# but with the project installed in-tree.
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-VOOG_MCP_BIN = REPO_ROOT / ".venv" / "bin" / "voog-mcp"
+VOOG_MCP_BIN = shutil.which("voog-mcp") or str(REPO_ROOT / ".venv" / "bin" / "voog-mcp")
 
 ENV_FILE = pathlib.Path(
-    "/Users/runnel/Library/CloudStorage/Dropbox/Documents/Claude/.env"
+    os.environ.get("VOOG_SMOKE_ENV_FILE") or (pathlib.Path.home() / ".config" / "voog" / ".env")
 )
 
-SMOKE_HOST = "runnel.ee"
+# Live-API integration tests are off by default; an external contributor
+# enables them by setting VOOG_SMOKE_HOST + VOOG_SMOKE_API_KEY_NAME +
+# RUN_SMOKE=1 against their own Voog site. Empty SMOKE_HOST → smoke class
+# skips, regardless of RUN_SMOKE.
+SMOKE_HOST = os.environ.get("VOOG_SMOKE_HOST", "")
+SMOKE_API_KEY_NAME = os.environ.get("VOOG_SMOKE_API_KEY_NAME", "VOOG_API_TOKEN")
 
 
 def _readline_with_timeout(stream, timeout: float) -> str:
@@ -60,7 +70,7 @@ def _readline_with_timeout(stream, timeout: float) -> str:
 
     Avoids hanging the test forever if the server never writes a response.
     """
-    q: "queue.Queue[str]" = queue.Queue()
+    q: queue.Queue[str] = queue.Queue()
 
     def _reader():
         try:
@@ -79,17 +89,18 @@ def _readline_with_timeout(stream, timeout: float) -> str:
 
 
 def _read_smoke_api_key() -> str | None:
-    """Read RUNNEL_VOOG_API_KEY from Claude/.env, or None if unavailable.
+    """Read the smoke-test API key from ENV_FILE, or None if unavailable.
 
-    Mirrors the pattern in tests/test_layout_create.py: live-API tests read
-    the key from a known dotenv path rather than relying on shell env, so
-    the test runner does not need to source it.
+    Looks up the env-var name in SMOKE_API_KEY_NAME (default VOOG_API_TOKEN).
+    Live-API tests read the key from a dotenv path rather than relying on
+    shell env, so the test runner does not need to source it.
     """
     if not ENV_FILE.exists():
         return None
+    prefix = f"{SMOKE_API_KEY_NAME}="
     for raw in ENV_FILE.read_text().splitlines():
         line = raw.strip()
-        if line.startswith("RUNNEL_VOOG_API_KEY="):
+        if line.startswith(prefix):
             return line.split("=", 1)[1].strip()
     return None
 
@@ -98,7 +109,7 @@ class TestMCPInitialize(unittest.TestCase):
     def test_server_initialize_handshake(self):
         env = {
             **os.environ,
-            "VOOG_HOST": "runnel.ee",
+            "VOOG_HOST": "example.voog.com",
             # Task 6 only checks the initialize handshake — no API call is
             # made. A dummy token is sufficient to satisfy load_config().
             "VOOG_API_TOKEN": "dummy",
@@ -136,8 +147,7 @@ class TestMCPInitialize(unittest.TestCase):
                 except Exception:
                     stderr = ""
                 self.fail(
-                    "Timed out waiting for initialize response from voog-mcp.\n"
-                    f"stderr:\n{stderr}"
+                    f"Timed out waiting for initialize response from voog-mcp.\nstderr:\n{stderr}"
                 )
 
             response = json.loads(response_line)
@@ -177,10 +187,32 @@ class TestMCPInitialize(unittest.TestCase):
         # HTTP call — the dummy token is sufficient. Without isError=True a
         # client cannot distinguish a tool-level failure from a successful
         # response (per spec § 7).
+        #
+        # The new multi-site server loads config from a voog.json file
+        # (pointed to via $VOOG_CONFIG). We write a minimal temp config with
+        # one site named "test" and supply its API token in the env. The
+        # tool call also includes site="test" so dispatch reaches the tool's
+        # own force=true check rather than the missing-site guard.
+        tmpdir_obj = tempfile.TemporaryDirectory()
+        tmpdir = tmpdir_obj.name
+        cfg_path = pathlib.Path(tmpdir) / "voog.json"
+        cfg_path.write_text(
+            json.dumps(
+                {
+                    "sites": {
+                        "test": {
+                            "host": "example.voog.com",
+                            "api_key_env": "TEST_VOOG_API_KEY",
+                        }
+                    },
+                    "default_site": "test",
+                }
+            )
+        )
         env = {
             **os.environ,
-            "VOOG_HOST": "runnel.ee",
-            "VOOG_API_TOKEN": "dummy",
+            "VOOG_CONFIG": str(cfg_path),
+            "TEST_VOOG_API_KEY": "dummy",
         }
         proc = subprocess.Popen(
             [str(VOOG_MCP_BIN)],
@@ -195,16 +227,21 @@ class TestMCPInitialize(unittest.TestCase):
             assert proc.stdout is not None
 
             # 1. initialize handshake
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": {},
-                    "clientInfo": {"name": "test", "version": "0.1"},
-                },
-            }) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {"name": "test", "version": "0.1"},
+                        },
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
             init_line = _readline_with_timeout(proc.stdout, timeout=10.0)
             self.assertTrue(init_line, "no initialize response")
@@ -212,24 +249,35 @@ class TestMCPInitialize(unittest.TestCase):
             self.assertIn("result", init, f"initialize failed: {init}")
 
             # 2. MCP requires notifications/initialized before further requests
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0",
-                "method": "notifications/initialized",
-                "params": {},
-            }) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/initialized",
+                        "params": {},
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
 
             # 3. Call page_delete without force=true → tool returns error_response.
-            #    Skip notifications, find the response with id=2.
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "page_delete",
-                    "arguments": {"page_id": 999},
-                },
-            }) + "\n")
+            #    site="test" is required by the new multi-site server; passing
+            #    it lets dispatch reach the tool's own validation (force=true check).
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "page_delete",
+                            "arguments": {"page_id": 999, "site": "test"},
+                        },
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
 
             response = None
@@ -267,6 +315,7 @@ class TestMCPInitialize(unittest.TestCase):
                         stream.close()
                     except Exception:
                         pass
+            tmpdir_obj.cleanup()
 
     def test_sdk_input_validation_returns_iserror_true(self):
         # Complement to test_tool_validation_error_returns_iserror_true:
@@ -282,7 +331,7 @@ class TestMCPInitialize(unittest.TestCase):
         # that protects that decision.
         env = {
             **os.environ,
-            "VOOG_HOST": "runnel.ee",
+            "VOOG_HOST": "example.voog.com",
             "VOOG_API_TOKEN": "dummy",
         }
         proc = subprocess.Popen(
@@ -297,44 +346,59 @@ class TestMCPInitialize(unittest.TestCase):
             assert proc.stdin is not None
             assert proc.stdout is not None
 
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": {},
-                    "clientInfo": {"name": "test", "version": "0.1"},
-                },
-            }) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {"name": "test", "version": "0.1"},
+                        },
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
             init_line = _readline_with_timeout(proc.stdout, timeout=10.0)
             self.assertTrue(init_line, "no initialize response")
             init = json.loads(init_line)
             self.assertIn("result", init, f"initialize failed: {init}")
 
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0",
-                "method": "notifications/initialized",
-                "params": {},
-            }) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/initialized",
+                        "params": {},
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
 
             # 999 is not in the redirect_type enum — SDK rejects it before
             # the tool body runs. No HTTP call hits Voog.
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "redirect_add",
-                    "arguments": {
-                        "source": "/x",
-                        "destination": "/y",
-                        "redirect_type": 999,
-                    },
-                },
-            }) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "redirect_add",
+                            "arguments": {
+                                "source": "/x",
+                                "destination": "/y",
+                                "redirect_type": 999,
+                            },
+                        },
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
 
             response = None
@@ -380,11 +444,12 @@ class TestMCPInitialize(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-SMOKE_REASON = "RUN_SMOKE=1 required (live-API integration test)"
-
-
 def _smoke_enabled() -> bool:
-    return bool(os.environ.get("RUN_SMOKE"))
+    # Both gates required: RUN_SMOKE=1 *and* a non-empty target host.
+    return bool(os.environ.get("RUN_SMOKE")) and bool(SMOKE_HOST)
+
+
+SMOKE_REASON = "RUN_SMOKE=1 and VOOG_SMOKE_HOST=<your-site> required (live-API integration test)"
 
 
 @unittest.skipUnless(_smoke_enabled(), SMOKE_REASON)
@@ -406,9 +471,7 @@ class _LiveMCPSubprocessTestCase(unittest.TestCase):
         super().setUpClass()
         cls._api_key = _read_smoke_api_key()
         if cls._api_key is None:
-            raise unittest.SkipTest(
-                f"RUNNEL_VOOG_API_KEY not found in {ENV_FILE}"
-            )
+            raise unittest.SkipTest(f"{SMOKE_API_KEY_NAME} not found in {ENV_FILE}")
 
     def setUp(self):
         env = {
@@ -458,10 +521,7 @@ class _LiveMCPSubprocessTestCase(unittest.TestCase):
             line = _readline_with_timeout(self.proc.stdout, self.READ_TIMEOUT)
             if not line:
                 stderr = self._drain_stderr()
-                self.fail(
-                    f"Timed out waiting for response id={expected_id}.\n"
-                    f"stderr:\n{stderr}"
-                )
+                self.fail(f"Timed out waiting for response id={expected_id}.\nstderr:\n{stderr}")
             msg = json.loads(line)
             if msg.get("id") == expected_id:
                 return msg
@@ -486,10 +546,7 @@ class _LiveMCPSubprocessTestCase(unittest.TestCase):
         self._write_message(payload)
         response = self._read_response(request_id)
         if "error" in response:
-            self.fail(
-                f"JSON-RPC error from {method}: {response['error']}\n"
-                f"params={params}"
-            )
+            self.fail(f"JSON-RPC error from {method}: {response['error']}\nparams={params}")
         self.assertIn("result", response, f"{method} returned no result")
         return response
 
@@ -580,9 +637,7 @@ class _LiveMCPSubprocessTestCase(unittest.TestCase):
         """
         content = result.get("content")
         assert content, f"tools/call result missing content: {result}"
-        return "".join(
-            block.get("text", "") for block in content if block.get("type") == "text"
-        )
+        return "".join(block.get("text", "") for block in content if block.get("type") == "text")
 
     @staticmethod
     def _resource_read_payloads(result: dict) -> list[dict]:
@@ -655,7 +710,7 @@ class TestMCPSmokeTools(_LiveMCPSubprocessTestCase):
         self.assertFalse(result.get("isError"), f"pages_list errored: {result}")
         text = self._tool_call_text(result)
         # Result body is success_response()'s formatted payload — at minimum
-        # the runnel.ee site has a homepage (id, path, title fields).
+        # the live site has a homepage (id, path, title fields).
         self.assertIn("pages", text.lower())
         self.assertIn('"id"', text)
         self.assertIn('"path"', text)
@@ -665,9 +720,7 @@ class TestMCPSmokeTools(_LiveMCPSubprocessTestCase):
             "tools/call",
             {"name": "redirects_list", "arguments": {}},
         )["result"]
-        self.assertFalse(
-            result.get("isError"), f"redirects_list errored: {result}"
-        )
+        self.assertFalse(result.get("isError"), f"redirects_list errored: {result}")
         text = self._tool_call_text(result)
         # Even a 0-rule site responds with the summary line "↪️  N redirect rules".
         self.assertIn("redirect", text.lower())
@@ -677,9 +730,7 @@ class TestMCPSmokeTools(_LiveMCPSubprocessTestCase):
             "tools/call",
             {"name": "products_list", "arguments": {}},
         )["result"]
-        self.assertFalse(
-            result.get("isError"), f"products_list errored: {result}"
-        )
+        self.assertFalse(result.get("isError"), f"products_list errored: {result}")
         text = self._tool_call_text(result)
         # Empty stores still respond — assert the call succeeded with a
         # JSON body (not an error_response, which would carry a Voog API
@@ -723,8 +774,8 @@ class TestMCPSmokeResources(_LiveMCPSubprocessTestCase):
         self.assertEqual(block.get("uri"), "voog://pages")
         pages = json.loads(block["text"])
         self.assertIsInstance(pages, list)
-        # runnel.ee has at least the homepage; assert simplified shape.
-        self.assertGreater(len(pages), 0, "runnel.ee /pages returned empty list")
+        # The live site has at least the homepage; assert simplified shape.
+        self.assertGreater(len(pages), 0, "/pages returned empty list")
         first = pages[0]
         for field in ("id", "path", "title", "hidden", "language_code"):
             self.assertIn(field, first, f"page missing {field}: {first}")
@@ -738,7 +789,7 @@ class TestMCPSmokeResources(_LiveMCPSubprocessTestCase):
         block = contents[0]
         layouts = json.loads(block["text"])
         self.assertIsInstance(layouts, list)
-        self.assertGreater(len(layouts), 0, "runnel.ee /layouts returned empty")
+        self.assertGreater(len(layouts), 0, "/layouts returned empty")
         # Bodies must be stripped from list view (per resource contract).
         for layout in layouts:
             self.assertNotIn("body", layout, f"body leaked into list: {layout}")
@@ -798,8 +849,8 @@ class TestMCPSmokeResources(_LiveMCPSubprocessTestCase):
         block = self._resource_read_payloads(result)[0]
         rules = json.loads(block["text"])
         self.assertIsInstance(rules, list)
-        # Even a 0-rule site verifies the contract — runnel.ee may have
-        # rules or not; we only assert shape.
+        # Even a 0-rule site verifies the contract — the configured site may
+        # have rules or not; we only assert shape.
 
 
 if __name__ == "__main__":
