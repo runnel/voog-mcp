@@ -77,16 +77,6 @@ def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[Tex
         source = arguments.get("source")
         destination = arguments.get("destination")
         rtype = arguments.get("redirect_type", 301)
-        # Defense in depth: the MCP SDK already validates inputSchema.enum
-        # via jsonschema (Server.call_tool decorator → _make_error_result
-        # → CallToolResult(isError=True)) before we ever run. This local
-        # check is redundant for spec-compliant clients but keeps the
-        # error message group-tagged (``redirect_add: vigane …``) and
-        # guards a hypothetical future caller that bypasses inputSchema.
-        if rtype not in VALID_REDIRECT_TYPES:
-            return error_response(
-                f"redirect_add: vigane redirect_type {rtype!r}. Lubatud: {VALID_REDIRECT_TYPES}"
-            )
         try:
             result = client.post(
                 "/redirect_rules",
