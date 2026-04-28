@@ -18,15 +18,15 @@ suffices.
 Errors propagate (no wrapping into MCP error responses) — the server layer
 turns raised exceptions into JSON-RPC errors.
 
-NOTE: ``_simplify_pages`` is deliberately duplicated from
-``voog_mcp.tools.pages`` so the ``pages_list`` tool and the ``voog://pages``
-resource produce the same shape. Group-specific projections rightly stay
-local; only id parsing and JSON wrapping are shared via :mod:`._helpers`.
+The list view's curated shape comes from :func:`voog_mcp.projections.simplify_pages`,
+shared with :mod:`voog_mcp.tools.pages` so the ``pages_list`` tool and the
+``voog://pages`` resource can't drift out of sync.
 """
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Resource
 
 from voog_mcp.client import VoogClient
+from voog_mcp.projections import simplify_pages
 from voog_mcp.resources._helpers import json_response, parse_id
 
 
@@ -56,7 +56,7 @@ def matches(uri: str) -> bool:
 async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
     if uri == URI_PREFIX:
         pages = client.get_all("/pages")
-        return json_response(_simplify_pages(pages))
+        return json_response(simplify_pages(pages))
 
     if not uri.startswith(URI_PREFIX + "/"):
         raise ValueError(f"pages resource: unsupported URI {uri!r}")
@@ -75,24 +75,3 @@ async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceConten
         return json_response(contents)
 
     raise ValueError(f"pages resource: unsupported URI {uri!r}")
-
-
-def _simplify_pages(pages: list) -> list:
-    """Project pages to simplified structure (matches voog_mcp.tools.pages)."""
-    simplified = []
-    for p in pages:
-        lang = p.get("language") or {}
-        layout = p.get("layout") or {}
-        simplified.append({
-            "id": p.get("id"),
-            "path": p.get("path"),
-            "title": p.get("title"),
-            "hidden": p.get("hidden"),
-            "layout_id": p.get("layout_id") or layout.get("id"),
-            "layout_name": p.get("layout_name") or p.get("layout_title") or layout.get("title"),
-            "content_type": p.get("content_type"),
-            "parent_id": p.get("parent_id"),
-            "language_code": lang.get("code"),
-            "public_url": p.get("public_url"),
-        })
-    return simplified

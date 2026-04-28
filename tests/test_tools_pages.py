@@ -69,6 +69,7 @@ class TestPagesTools(unittest.TestCase):
         self.assertIn("error", payload)
 
     def test_simplify_pages_projects_fields(self):
+        from voog_mcp.projections import simplify_pages
         raw = [{
             "id": 1, "path": "foo", "title": "Foo", "hidden": False,
             "layout": {"id": 10, "title": "Default"},
@@ -77,15 +78,16 @@ class TestPagesTools(unittest.TestCase):
             "language": {"code": "et"},
             "public_url": "https://runnel.ee/foo",
         }]
-        out = pages_tools._simplify_pages(raw)
+        out = simplify_pages(raw)
         self.assertEqual(out[0]["id"], 1)
         self.assertEqual(out[0]["layout_id"], 10)
         self.assertEqual(out[0]["layout_name"], "Default")
         self.assertEqual(out[0]["language_code"], "et")
 
     def test_simplify_pages_handles_missing_fields(self):
+        from voog_mcp.projections import simplify_pages
         raw = [{"id": 2, "path": "x", "title": "X"}]  # no layout, no language
-        out = pages_tools._simplify_pages(raw)
+        out = simplify_pages(raw)
         self.assertEqual(out[0]["id"], 2)
         self.assertIsNone(out[0]["layout_id"])
         self.assertIsNone(out[0]["layout_name"])

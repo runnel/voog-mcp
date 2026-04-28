@@ -19,11 +19,16 @@ detail view).
 Pattern mirrors :mod:`voog_mcp.resources.pages`: ``URI_PREFIX`` constant,
 exact-or-slashed-sub-path :func:`matches`, strict :func:`parse_id` (shared),
 errors propagate to the server layer (no wrapping into MCP error responses).
+
+The list view's curated shape comes from :func:`voog_mcp.projections.simplify_products`,
+shared with :mod:`voog_mcp.tools.products` so the ``products_list`` tool and
+the ``voog://products`` resource can't drift out of sync.
 """
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 from mcp.types import Resource
 
 from voog_mcp.client import VoogClient
+from voog_mcp.projections import simplify_products
 from voog_mcp.resources._helpers import json_response, parse_id
 
 
@@ -60,7 +65,7 @@ async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceConten
             base=client.ecommerce_url,
             params={"include": LIST_INCLUDE},
         )
-        return json_response(_simplify_products(products))
+        return json_response(simplify_products(products))
 
     if not uri.startswith(URI_PREFIX + "/"):
         raise ValueError(f"products resource: unsupported URI {uri!r}")
@@ -78,30 +83,3 @@ async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceConten
         return json_response(product)
 
     raise ValueError(f"products resource: unsupported URI {uri!r}")
-
-
-def _simplify_products(products: list) -> list:
-    """Project products list to a curated subset.
-
-    Keeps small ecommerce-relevant fields (status flags, prices) plus the
-    translations object (small, useful for multilingual list views, matches
-    the existing voog.py products_list CLI shape). Larger fields like
-    ``description``, ``physical_properties``, and ``asset_ids`` are stripped
-    — clients fetching ``voog://products/{id}`` get the full detail.
-    """
-    simplified = []
-    for product in products:
-        simplified.append({
-            "id": product.get("id"),
-            "name": product.get("name"),
-            "slug": product.get("slug"),
-            "sku": product.get("sku"),
-            "status": product.get("status"),
-            "in_stock": product.get("in_stock"),
-            "on_sale": product.get("on_sale"),
-            "price": product.get("price"),
-            "effective_price": product.get("effective_price"),
-            "translations": product.get("translations"),
-            "updated_at": product.get("updated_at"),
-        })
-    return simplified

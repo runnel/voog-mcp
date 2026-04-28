@@ -312,18 +312,25 @@ class TestProjectionConsistency(unittest.TestCase):
     """Critical cross-module invariant per PR #30 review.
 
     The PR description claims products_list tool and voog://products resource
-    produce identical shapes. This is enforced by duplicating _simplify_products
-    in both modules — but without a test, the two will inevitably drift.
-
-    This test fails immediately if anyone changes one projection without the
-    other, so the contract is locked in CI.
+    produce identical shapes. The shape is now enforced structurally: both
+    surfaces import :func:`simplify_products` from :mod:`voog_mcp.projections`,
+    so the two cannot drift. This test pins the import to that single source
+    of truth — if anyone re-introduces a local copy in either module, the
+    assertion fails.
     """
 
-    def test_simplify_products_matches_resource_module_shape(self):
+    def test_both_surfaces_use_shared_projection(self):
+        from voog_mcp import projections
         from voog_mcp.resources import products as resource_products
-        # Sample with both retained and stripped fields, including a heavy
-        # field (description, physical_properties) that must be stripped from
-        # both projections identically
+        self.assertIs(products_tools.simplify_products, projections.simplify_products)
+        self.assertIs(resource_products.simplify_products, projections.simplify_products)
+
+    def test_shared_projection_strips_heavy_fields(self):
+        # Sample with both retained and stripped fields. The heavy fields
+        # (description, physical_properties, asset_ids) must be stripped from
+        # the list view — clients fetching voog://products/{id} get the full
+        # detail.
+        from voog_mcp.projections import simplify_products
         sample = [{
             "id": 1, "name": "X", "slug": "x", "sku": "X-1",
             "status": "live", "in_stock": True, "on_sale": False,
@@ -334,9 +341,10 @@ class TestProjectionConsistency(unittest.TestCase):
             "physical_properties": {"weight": 100},
             "asset_ids": [1, 2, 3],
         }]
-        tool_output = products_tools._simplify_products(sample)
-        resource_output = resource_products._simplify_products(sample)
-        self.assertEqual(tool_output, resource_output)
+        out = simplify_products(sample)
+        self.assertNotIn("description", out[0])
+        self.assertNotIn("physical_properties", out[0])
+        self.assertNotIn("asset_ids", out[0])
 
 
 class TestUnknownTool(unittest.TestCase):
