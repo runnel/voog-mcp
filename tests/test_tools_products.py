@@ -139,7 +139,8 @@ class TestProductsList(unittest.TestCase):
         result = asyncio.run(products_tools.call_tool(
             "products_list", {}, client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("products_list", payload["error"])
 
@@ -171,7 +172,8 @@ class TestProductGet(unittest.TestCase):
         result = asyncio.run(products_tools.call_tool(
             "product_get", {"product_id": 999}, client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("product_get", payload["error"])
 
@@ -229,7 +231,8 @@ class TestProductUpdate(unittest.TestCase):
             client,
         ))
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("price", payload["error"])
 
@@ -241,7 +244,8 @@ class TestProductUpdate(unittest.TestCase):
             client,
         ))
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_empty_fields_rejected(self):
@@ -252,7 +256,8 @@ class TestProductUpdate(unittest.TestCase):
             client,
         ))
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_api_error_returns_error_response(self):
@@ -266,7 +271,8 @@ class TestProductUpdate(unittest.TestCase):
             {"product_id": 999, "fields": {"name-et": "X"}},
             client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("product_update", payload["error"])
 
@@ -279,7 +285,8 @@ class TestProductUpdate(unittest.TestCase):
             client,
         ))
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("lang segment", payload["error"])
 
@@ -303,7 +310,8 @@ class TestProductUpdate(unittest.TestCase):
             client,
         ))
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("empty value", payload["error"])
 
@@ -345,7 +353,8 @@ class TestUnknownTool(unittest.TestCase):
         result = asyncio.run(products_tools.call_tool(
             "nonexistent", {}, client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 

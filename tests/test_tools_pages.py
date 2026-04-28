@@ -64,8 +64,9 @@ class TestPagesTools(unittest.TestCase):
     def test_call_tool_unknown_name_returns_error(self):
         client = MagicMock()
         result = asyncio.run(pages_tools.call_tool("nonexistent", {}, client))
-        self.assertEqual(len(result), 1)
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        self.assertEqual(len(result.content), 1)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_simplify_pages_projects_fields(self):
@@ -95,8 +96,9 @@ class TestPagesTools(unittest.TestCase):
         client = MagicMock()
         client.get_all.side_effect = urllib.error.URLError("network down")
         result = asyncio.run(pages_tools.call_tool("pages_list", {}, client))
-        self.assertEqual(len(result), 1)
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        self.assertEqual(len(result.content), 1)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("pages_list ebaõnnestus", payload["error"])
 
@@ -104,7 +106,8 @@ class TestPagesTools(unittest.TestCase):
         client = MagicMock()
         client.get.side_effect = Exception("boom")
         result = asyncio.run(pages_tools.call_tool("page_get", {"page_id": 1}, client))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 

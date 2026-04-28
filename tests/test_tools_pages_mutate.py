@@ -170,7 +170,8 @@ class TestPageSetHidden(unittest.TestCase):
             client,
         ))
         client.put.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 
@@ -196,7 +197,8 @@ class TestPageSetLayout(unittest.TestCase):
             {"page_id": 999, "layout_id": 1},
             client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("page_set_layout", payload["error"])
 
@@ -210,7 +212,8 @@ class TestPageDelete(unittest.TestCase):
             client,
         ))
         client.delete.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("force", payload["error"])
 
@@ -223,7 +226,8 @@ class TestPageDelete(unittest.TestCase):
             client,
         ))
         client.delete.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_force_true_calls_delete(self):
@@ -251,7 +255,8 @@ class TestPageDelete(unittest.TestCase):
             {"page_id": 999, "force": True},
             client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("page_delete", payload["error"])
 
@@ -262,7 +267,8 @@ class TestUnknownTool(unittest.TestCase):
         result = asyncio.run(pages_mutate_tools.call_tool(
             "nonexistent", {}, client
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 

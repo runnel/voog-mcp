@@ -22,7 +22,7 @@ The list view's curated projection matches :mod:`voog_mcp.resources.products`
 and the 3-step asset upload protocol). The ``voog.py`` CLI shim still works
 for that operation.
 """
-from mcp.types import Tool, TextContent
+from mcp.types import CallToolResult, TextContent, Tool
 
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
@@ -113,7 +113,7 @@ def get_tools() -> list[Tool]:
     ]
 
 
-async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent]:
+async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
     arguments = arguments or {}
 
     if name == "products_list":
@@ -128,7 +128,7 @@ async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> li
     return error_response(f"Unknown tool: {name}")
 
 
-def _products_list(client: VoogClient) -> list[TextContent]:
+def _products_list(client: VoogClient) -> list[TextContent] | CallToolResult:
     try:
         products = client.get_all(
             "/products",
@@ -141,7 +141,7 @@ def _products_list(client: VoogClient) -> list[TextContent]:
         return error_response(f"products_list ebaõnnestus: {e}")
 
 
-def _product_get(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _product_get(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     product_id = arguments.get("product_id")
     try:
         product = client.get(
@@ -154,7 +154,7 @@ def _product_get(arguments: dict, client: VoogClient) -> list[TextContent]:
         return error_response(f"product_get id={product_id} ebaõnnestus: {e}")
 
 
-def _product_update(arguments: dict, client: VoogClient) -> list[TextContent]:
+def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     product_id = arguments.get("product_id")
     fields = arguments.get("fields") or {}
     if not fields:

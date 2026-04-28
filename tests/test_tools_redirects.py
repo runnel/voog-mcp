@@ -106,15 +106,17 @@ class TestRedirectsTools(unittest.TestCase):
             client,
         ))
         client.post.assert_not_called()
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
     def test_redirects_list_error_returns_error_response(self):
         client = MagicMock()
         client.get_all.side_effect = urllib.error.URLError("network down")
         result = asyncio.run(redirects_tools.call_tool("redirects_list", {}, client))
-        self.assertEqual(len(result), 1)
-        payload = json.loads(result[0].text)
+        self.assertEqual(len(result.content), 1)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("redirects_list", payload["error"])
 
@@ -126,14 +128,16 @@ class TestRedirectsTools(unittest.TestCase):
             {"source": "/a", "destination": "/b"},
             client,
         ))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
         self.assertIn("redirect_add", payload["error"])
 
     def test_call_tool_unknown_name_returns_error(self):
         client = MagicMock()
         result = asyncio.run(redirects_tools.call_tool("nonexistent", {}, client))
-        payload = json.loads(result[0].text)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
 
