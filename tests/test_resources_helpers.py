@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from voog_mcp.resources._helpers import parse_id, json_response
+from voog_mcp.resources._helpers import parse_id, json_response, prefix_matcher
 
 
 class TestParseId(unittest.TestCase):
@@ -99,6 +99,39 @@ class TestJsonResponse(unittest.TestCase):
         result = json_response(data)
         parsed = json.loads(result[0].content)
         self.assertEqual(parsed, data)
+
+
+class TestPrefixMatcher(unittest.TestCase):
+    def test_exact_prefix_matches(self):
+        matches = prefix_matcher("voog://pages")
+        self.assertTrue(matches("voog://pages"))
+
+    def test_slashed_subpath_matches(self):
+        matches = prefix_matcher("voog://pages")
+        self.assertTrue(matches("voog://pages/42"))
+        self.assertTrue(matches("voog://pages/42/contents"))
+
+    def test_unrelated_uri_does_not_match(self):
+        matches = prefix_matcher("voog://pages")
+        self.assertFalse(matches("voog://layouts"))
+        self.assertFalse(matches("voog://layouts/42"))
+
+    def test_pseudo_prefix_collision_rejected(self):
+        # The slash check is the whole point — voog://pagesx must NOT be
+        # claimed by a "voog://pages" group.
+        matches = prefix_matcher("voog://pages")
+        self.assertFalse(matches("voog://pagesx"))
+        self.assertFalse(matches("voog://pagesx/42"))
+
+    def test_each_call_returns_independent_matcher(self):
+        # Two matchers built from different prefixes must not see each other's
+        # URIs.
+        m_pages = prefix_matcher("voog://pages")
+        m_articles = prefix_matcher("voog://articles")
+        self.assertTrue(m_pages("voog://pages/1"))
+        self.assertFalse(m_pages("voog://articles/1"))
+        self.assertTrue(m_articles("voog://articles/1"))
+        self.assertFalse(m_articles("voog://pages/1"))
 
 
 if __name__ == "__main__":

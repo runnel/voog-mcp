@@ -8,18 +8,22 @@ messages varying. This module centralizes both.
 What stays in each resource module:
   - ``URI`` / ``URI_PREFIX`` constant
   - ``get_resources()`` returning the listable Resource(s)
-  - ``matches(uri)`` URI ownership check
+  - ``matches(uri)`` URI ownership check (built via :func:`prefix_matcher` for
+    multi-URI groups)
   - ``read_resource(uri, client)`` dispatch + endpoint calls
   - ``_simplify_*`` projection (group-specific field selection)
 
 What lives here:
   - :func:`parse_id` — strict positive-integer parsing with group-tagged errors
   - :func:`json_response` — wrap data as a single ``application/json`` content
+  - :func:`prefix_matcher` — closure factory for the
+    ``uri == prefix or uri.startswith(prefix + "/")`` ownership check
 
 Errors propagate (no wrapping into MCP error responses) — the server layer
 turns raised exceptions into JSON-RPC errors.
 """
 import json
+from typing import Callable
 
 from mcp.server.lowlevel.helper_types import ReadResourceContents
 
@@ -44,6 +48,22 @@ def parse_id(raw: str, uri: str, *, group_name: str) -> int:
     if parsed <= 0:
         raise ValueError(f"{group_name} resource: id must be positive in {uri!r}") from None
     return parsed
+
+
+def prefix_matcher(prefix: str) -> Callable[[str], bool]:
+    """Return a ``matches(uri)`` predicate for a multi-URI resource group.
+
+    The closure accepts ``uri == prefix`` (the listable root) and
+    ``uri.startswith(prefix + "/")`` (per-id sub-paths) — the trailing
+    slash check is what stops ``voog://pagesx`` from being silently
+    claimed by a ``voog://pages`` group.
+    """
+    sub_prefix = prefix + "/"
+
+    def matches(uri: str) -> bool:
+        return uri == prefix or uri.startswith(sub_prefix)
+
+    return matches
 
 
 def json_response(data) -> list[ReadResourceContents]:
