@@ -1,15 +1,11 @@
-"""Tests for voog_mcp._concurrency.parallel_map."""
+"""Tests for voog._concurrency.parallel_map."""
 import random
-import sys
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from voog_mcp._concurrency import parallel_map
+from voog._concurrency import parallel_map
 
 
 class TestParallelMapEmpty(unittest.TestCase):
@@ -17,7 +13,7 @@ class TestParallelMapEmpty(unittest.TestCase):
         self.assertEqual(parallel_map(lambda x: x * 2, []), [])
 
     def test_empty_list_does_not_spawn_pool(self):
-        with patch("voog_mcp._concurrency.ThreadPoolExecutor") as mock_pool:
+        with patch("voog._concurrency.ThreadPoolExecutor") as mock_pool:
             result = parallel_map(lambda x: x, [])
         self.assertEqual(result, [])
         mock_pool.assert_not_called()
@@ -118,7 +114,7 @@ class TestParallelMapPassesMaxWorkers(unittest.TestCase):
             captured.update(kwargs)
             return ThreadPoolExecutor(*args, **kwargs)
 
-        with patch("voog_mcp._concurrency.ThreadPoolExecutor", side_effect=spy):
+        with patch("voog._concurrency.ThreadPoolExecutor", side_effect=spy):
             parallel_map(lambda x: x, [1, 2, 3])
 
         self.assertEqual(captured.get("max_workers"), 8)
@@ -130,7 +126,7 @@ class TestParallelMapPassesMaxWorkers(unittest.TestCase):
             captured.update(kwargs)
             return ThreadPoolExecutor(*args, **kwargs)
 
-        with patch("voog_mcp._concurrency.ThreadPoolExecutor", side_effect=spy):
+        with patch("voog._concurrency.ThreadPoolExecutor", side_effect=spy):
             parallel_map(lambda x: x, [1, 2, 3], max_workers=3)
 
         self.assertEqual(captured.get("max_workers"), 3)

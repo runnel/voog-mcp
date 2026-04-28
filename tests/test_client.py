@@ -1,13 +1,8 @@
 """Unit tests for VoogClient."""
-import sys
 import unittest
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-# Ensure package importable
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from voog_mcp.client import VoogClient
+from voog.client import VoogClient
 
 
 class TestVoogClient(unittest.TestCase):
@@ -38,7 +33,7 @@ class TestVoogClientTimeout(unittest.TestCase):
         client = VoogClient(host="runnel.ee", api_token="t", timeout=15)
         fake_resp = MagicMock()
         fake_resp.read.return_value = b"{}"
-        with patch("voog_mcp.client.urllib.request.urlopen") as mock_urlopen:
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = fake_resp
             client.get("/pages")
         _, kwargs = mock_urlopen.call_args
@@ -48,7 +43,7 @@ class TestVoogClientTimeout(unittest.TestCase):
         client = VoogClient(host="runnel.ee", api_token="t")
         fake_resp = MagicMock()
         fake_resp.read.return_value = b"{}"
-        with patch("voog_mcp.client.urllib.request.urlopen") as mock_urlopen:
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = fake_resp
             client.get("/pages")
         _, kwargs = mock_urlopen.call_args
@@ -66,7 +61,7 @@ class TestRequestUrlEncoding(unittest.TestCase):
         client = VoogClient(host="x.com", api_token="t")
         fake_resp = MagicMock()
         fake_resp.read.return_value = b"{}"
-        with patch("voog_mcp.client.urllib.request.urlopen") as mock_urlopen:
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = fake_resp
             client.get("/x", params={"foo bar": "y"})
         url = mock_urlopen.call_args.args[0].full_url
@@ -77,7 +72,7 @@ class TestRequestUrlEncoding(unittest.TestCase):
         client = VoogClient(host="x.com", api_token="t")
         fake_resp = MagicMock()
         fake_resp.read.return_value = b"{}"
-        with patch("voog_mcp.client.urllib.request.urlopen") as mock_urlopen:
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = fake_resp
             client.get("/x", params={"include": "variant_types,translations"})
         url = mock_urlopen.call_args.args[0].full_url

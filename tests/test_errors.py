@@ -1,14 +1,10 @@
-"""Tests for voog_mcp.errors."""
+"""Tests for voog.errors."""
 import json
-import sys
 import unittest
-from pathlib import Path
 
 from mcp.types import CallToolResult, TextContent
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from voog_mcp.errors import error_response, success_response
+from voog.errors import error_response, success_response
 
 
 class TestErrorResponse(unittest.TestCase):

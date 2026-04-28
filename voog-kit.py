@@ -87,7 +87,7 @@ import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
-from voog_mcp.client import VoogClient
+from voog.client import VoogClient
 
 # --- Seadistus ---
 

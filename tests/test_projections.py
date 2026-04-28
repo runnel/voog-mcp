@@ -1,16 +1,12 @@
-"""Tests for voog_mcp.projections — shared simplify_* projections.
+"""Tests for voog.projections — shared simplify_* projections.
 
 These are the canonical projections used by both the tools surface and the
 resources surface. They live in their own module so the two surfaces can't
 silently drift apart (review fix: prompt 6).
 """
-import sys
 import unittest
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from voog_mcp.projections import (
+from voog.projections import (
     simplify_articles,
     simplify_layouts,
     simplify_pages,
