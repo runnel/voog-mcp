@@ -1,5 +1,4 @@
 """Tests for voog_mcp.tools.layouts."""
-import asyncio
 import json
 import sys
 import unittest
@@ -86,21 +85,21 @@ class TestLayoutRename(unittest.TestCase):
     def test_success_calls_put(self):
         client = MagicMock()
         client.put.return_value = {"id": 977702, "title": "Default v2"}
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_rename",
             {"layout_id": 977702, "new_title": "Default v2"},
             client,
-        ))
+        )
         client.put.assert_called_once_with("/layouts/977702", {"title": "Default v2"})
         self.assertEqual(len(result), 2)  # summary + JSON
 
     def test_rejects_title_with_forward_slash(self):
         client = MagicMock()
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_rename",
             {"layout_id": 1, "new_title": "foo/bar"},
             client,
-        ))
+        )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -108,29 +107,29 @@ class TestLayoutRename(unittest.TestCase):
 
     def test_rejects_title_with_backslash(self):
         client = MagicMock()
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_rename",
             {"layout_id": 1, "new_title": "foo\\bar"},
             client,
-        ))
+        )
         client.put.assert_not_called()
 
     def test_rejects_title_starting_with_dot(self):
         client = MagicMock()
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_rename",
             {"layout_id": 1, "new_title": ".hidden"},
             client,
-        ))
+        )
         client.put.assert_not_called()
 
     def test_rejects_empty_title(self):
         client = MagicMock()
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_rename",
             {"layout_id": 1, "new_title": ""},
             client,
-        ))
+        )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -141,11 +140,11 @@ class TestLayoutRename(unittest.TestCase):
         client.put.side_effect = urllib.error.HTTPError(
             "url", 404, "Not Found", {}, None
         )
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_rename",
             {"layout_id": 999, "new_title": "Whatever"},
             client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
@@ -157,11 +156,11 @@ class TestLayoutCreate(unittest.TestCase):
         client = MagicMock()
         client.post.return_value = {"id": 999, "title": "Page A", "component": False}
         body = "<!DOCTYPE html><html>{{ content }}</html>"
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_create",
             {"title": "Page A", "body": body, "kind": "layout"},
             client,
-        ))
+        )
         client.post.assert_called_once_with(
             "/layouts",
             {
@@ -178,11 +177,11 @@ class TestLayoutCreate(unittest.TestCase):
         client = MagicMock()
         client.post.return_value = {"id": 1000, "title": "site-header", "component": True}
         body = "<header>...</header>"
-        asyncio.run(layouts_tools.call_tool(
+        layouts_tools.call_tool(
             "layout_create",
             {"title": "site-header", "body": body, "kind": "component"},
             client,
-        ))
+        )
         args, _ = client.post.call_args
         payload = args[1]
         self.assertEqual(payload["component"], True)
@@ -193,7 +192,7 @@ class TestLayoutCreate(unittest.TestCase):
         # MCP must allow creating these (PR #28 review caught this gap).
         client = MagicMock()
         client.post.return_value = {"id": 999, "title": "Post", "component": False}
-        asyncio.run(layouts_tools.call_tool(
+        layouts_tools.call_tool(
             "layout_create",
             {
                 "title": "Post",
@@ -202,7 +201,7 @@ class TestLayoutCreate(unittest.TestCase):
                 "content_type": "blog_article",
             },
             client,
-        ))
+        )
         args, _ = client.post.call_args
         payload = args[1]
         self.assertEqual(payload["content_type"], "blog_article")
@@ -210,7 +209,7 @@ class TestLayoutCreate(unittest.TestCase):
     def test_create_layout_explicit_content_type_blog(self):
         client = MagicMock()
         client.post.return_value = {"id": 999, "title": "Index", "component": False}
-        asyncio.run(layouts_tools.call_tool(
+        layouts_tools.call_tool(
             "layout_create",
             {
                 "title": "Index",
@@ -219,7 +218,7 @@ class TestLayoutCreate(unittest.TestCase):
                 "content_type": "blog",
             },
             client,
-        ))
+        )
         args, _ = client.post.call_args
         payload = args[1]
         self.assertEqual(payload["content_type"], "blog")
@@ -229,7 +228,7 @@ class TestLayoutCreate(unittest.TestCase):
         # NOT end up in the payload — Voog rejects content_type on components.
         client = MagicMock()
         client.post.return_value = {"id": 1001, "title": "header", "component": True}
-        asyncio.run(layouts_tools.call_tool(
+        layouts_tools.call_tool(
             "layout_create",
             {
                 "title": "header",
@@ -238,14 +237,14 @@ class TestLayoutCreate(unittest.TestCase):
                 "content_type": "blog_article",  # nonsense for component
             },
             client,
-        ))
+        )
         args, _ = client.post.call_args
         payload = args[1]
         self.assertNotIn("content_type", payload)
 
     def test_create_layout_invalid_content_type_rejected(self):
         client = MagicMock()
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_create",
             {
                 "title": "X",
@@ -254,7 +253,7 @@ class TestLayoutCreate(unittest.TestCase):
                 "content_type": "wat",
             },
             client,
-        ))
+        )
         client.post.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -265,22 +264,22 @@ class TestLayoutCreate(unittest.TestCase):
         # When content_type is omitted entirely, default 'page' is sent
         client = MagicMock()
         client.post.return_value = {"id": 1, "title": "X", "component": False}
-        asyncio.run(layouts_tools.call_tool(
+        layouts_tools.call_tool(
             "layout_create",
             {"title": "X", "body": "y", "kind": "layout"},
             client,
-        ))
+        )
         args, _ = client.post.call_args
         payload = args[1]
         self.assertEqual(payload["content_type"], "page")
 
     def test_invalid_kind_rejected(self):
         client = MagicMock()
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_create",
             {"title": "X", "body": "y", "kind": "invalid"},
             client,
-        ))
+        )
         client.post.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -288,32 +287,32 @@ class TestLayoutCreate(unittest.TestCase):
 
     def test_empty_title_rejected(self):
         client = MagicMock()
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_create",
             {"title": "", "body": "y", "kind": "layout"},
             client,
-        ))
+        )
         client.post.assert_not_called()
 
     def test_title_with_slash_rejected(self):
         # Title-validation reused from layout_rename (same Voog rules)
         client = MagicMock()
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_create",
             {"title": "foo/bar", "body": "y", "kind": "layout"},
             client,
-        ))
+        )
         client.post.assert_not_called()
 
     def test_post_response_missing_id_returns_error(self):
         # Defensive: Voog responding with no id is a contract violation
         client = MagicMock()
         client.post.return_value = {"title": "x"}  # no id
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_create",
             {"title": "x", "body": "y", "kind": "layout"},
             client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
@@ -323,11 +322,11 @@ class TestLayoutCreate(unittest.TestCase):
         client.post.side_effect = urllib.error.HTTPError(
             "url", 422, "Unprocessable Entity", {}, None
         )
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "layout_create",
             {"title": "x", "body": "y", "kind": "layout"},
             client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
@@ -342,11 +341,11 @@ class TestAssetReplace(unittest.TestCase):
             "data": "body { color: red; }",
         }
         client.post.return_value = {"id": 101, "filename": "new.css"}
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "asset_replace",
             {"asset_id": 100, "new_filename": "new.css"},
             client,
-        ))
+        )
         client.get.assert_called_once_with("/layout_assets/100")
         client.post.assert_called_once_with(
             "/layout_assets",
@@ -364,11 +363,11 @@ class TestAssetReplace(unittest.TestCase):
 
     def test_filename_with_slash_rejected(self):
         client = MagicMock()
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "asset_replace",
             {"asset_id": 100, "new_filename": "foo/bar.css"},
             client,
-        ))
+        )
         client.get.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -376,11 +375,11 @@ class TestAssetReplace(unittest.TestCase):
 
     def test_filename_starting_with_dot_rejected(self):
         client = MagicMock()
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "asset_replace",
             {"asset_id": 100, "new_filename": ".hidden"},
             client,
-        ))
+        )
         client.get.assert_not_called()
 
     def test_get_missing_data_field_returns_error(self):
@@ -391,11 +390,11 @@ class TestAssetReplace(unittest.TestCase):
             "id": 100, "filename": "old.png", "asset_type": "image",
             # no 'data' field
         }
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "asset_replace",
             {"asset_id": 100, "new_filename": "new.png"},
             client,
-        ))
+        )
         client.post.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -406,11 +405,11 @@ class TestAssetReplace(unittest.TestCase):
         client = MagicMock()
         client.get.return_value = {"id": 100, "filename": "x", "asset_type": "css", "data": "x"}
         client.post.return_value = {"filename": "y"}  # no id
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "asset_replace",
             {"asset_id": 100, "new_filename": "y.css"},
             client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
@@ -420,11 +419,11 @@ class TestAssetReplace(unittest.TestCase):
         client.get.side_effect = urllib.error.HTTPError(
             "url", 404, "Not Found", {}, None
         )
-        result = asyncio.run(layouts_tools.call_tool(
+        result = layouts_tools.call_tool(
             "asset_replace",
             {"asset_id": 999, "new_filename": "x.css"},
             client,
-        ))
+        )
         client.post.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -434,7 +433,7 @@ class TestAssetReplace(unittest.TestCase):
 class TestUnknownTool(unittest.TestCase):
     def test_unknown_name_returns_error(self):
         client = MagicMock()
-        result = asyncio.run(layouts_tools.call_tool("nonexistent", {}, client))
+        result = layouts_tools.call_tool("nonexistent", {}, client)
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)

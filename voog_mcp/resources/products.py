@@ -60,7 +60,7 @@ def get_resources() -> list[Resource]:
     ]
 
 
-async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
+def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
     if uri == URI_PREFIX:
         products = client.get_all(
             "/products",

@@ -1,5 +1,4 @@
 """Tests for voog_mcp.resources.redirects."""
-import asyncio
 import json
 import sys
 import unittest
@@ -37,7 +36,7 @@ class TestRedirectsResources(unittest.TestCase):
             {"id": 1, "source": "/old", "destination": "/new", "redirect_type": 301, "active": True},
             {"id": 2, "source": "/x", "destination": "/y", "redirect_type": 302, "active": True},
         ]
-        result = asyncio.run(redirects_resources.read_resource("voog://redirects", client))
+        result = redirects_resources.read_resource("voog://redirects", client)
         client.get_all.assert_called_once_with("/redirect_rules")
         # Returns iterable of ReadResourceContents
         contents = list(result)
@@ -51,7 +50,7 @@ class TestRedirectsResources(unittest.TestCase):
     def test_read_resource_empty_list_serializes_cleanly(self):
         client = MagicMock()
         client.get_all.return_value = []
-        result = asyncio.run(redirects_resources.read_resource("voog://redirects", client))
+        result = redirects_resources.read_resource("voog://redirects", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed, [])
@@ -59,7 +58,7 @@ class TestRedirectsResources(unittest.TestCase):
     def test_read_resource_unknown_uri_raises(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(redirects_resources.read_resource("voog://other", client))
+            redirects_resources.read_resource("voog://other", client)
         client.get_all.assert_not_called()
 
     def test_read_resource_propagates_api_errors(self):
@@ -67,7 +66,7 @@ class TestRedirectsResources(unittest.TestCase):
         client.get_all.side_effect = urllib.error.URLError("network down")
         # Resource read errors propagate — server layer wraps them as JSON-RPC errors
         with self.assertRaises(urllib.error.URLError):
-            asyncio.run(redirects_resources.read_resource("voog://redirects", client))
+            redirects_resources.read_resource("voog://redirects", client)
 
 
 class TestServerResourceRegistry(unittest.TestCase):

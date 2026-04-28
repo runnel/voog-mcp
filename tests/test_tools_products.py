@@ -1,5 +1,4 @@
 """Tests for voog_mcp.tools.products."""
-import asyncio
 import json
 import sys
 import unittest
@@ -77,9 +76,9 @@ class TestProductsList(unittest.TestCase):
         client.get_all.return_value = [
             {"id": 1, "name": "Widget", "slug": "widget", "status": "live"},
         ]
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "products_list", {}, client,
-        ))
+        )
         client.get_all.assert_called_once_with(
             "/products",
             base="https://runnel.ee/admin/api/ecommerce/v1",
@@ -108,9 +107,9 @@ class TestProductsList(unittest.TestCase):
                 "physical_properties": {"weight": 100},  # heavy field stripped
             },
         ]
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "products_list", {}, client,
-        ))
+        )
         items = json.loads(result[1].text)
         self.assertEqual(len(items), 1)
         item = items[0]
@@ -126,9 +125,9 @@ class TestProductsList(unittest.TestCase):
         client = MagicMock()
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
         client.get_all.return_value = []
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "products_list", {}, client,
-        ))
+        )
         items = json.loads(result[1].text)
         self.assertEqual(items, [])
 
@@ -136,9 +135,9 @@ class TestProductsList(unittest.TestCase):
         client = MagicMock()
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
         client.get_all.side_effect = urllib.error.URLError("network down")
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "products_list", {}, client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
@@ -152,9 +151,9 @@ class TestProductGet(unittest.TestCase):
         client.get.return_value = {
             "id": 42, "name": "X", "slug": "x", "translations": {}, "variant_types": [],
         }
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "product_get", {"product_id": 42}, client,
-        ))
+        )
         client.get.assert_called_once_with(
             "/products/42",
             base="https://runnel.ee/admin/api/ecommerce/v1",
@@ -169,9 +168,9 @@ class TestProductGet(unittest.TestCase):
         client.get.side_effect = urllib.error.HTTPError(
             "url", 404, "Not Found", {}, None
         )
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "product_get", {"product_id": 999}, client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
@@ -183,11 +182,11 @@ class TestProductUpdate(unittest.TestCase):
         client = MagicMock()
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
         client.put.return_value = {"id": 42, "name": "Updated"}
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "product_update",
             {"product_id": 42, "fields": {"name-et": "Eesti", "slug-et": "eesti"}},
             client,
-        ))
+        )
         # Should PUT to ecommerce base with nested translations payload
         client.put.assert_called_once_with(
             "/products/42",
@@ -207,7 +206,7 @@ class TestProductUpdate(unittest.TestCase):
         client = MagicMock()
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
         client.put.return_value = {"id": 42}
-        asyncio.run(products_tools.call_tool(
+        products_tools.call_tool(
             "product_update",
             {
                 "product_id": 42,
@@ -217,7 +216,7 @@ class TestProductUpdate(unittest.TestCase):
                 },
             },
             client,
-        ))
+        )
         args, kwargs = client.put.call_args
         translations = args[1]["product"]["translations"]
         self.assertEqual(translations["name"], {"et": "Eesti", "en": "English"})
@@ -225,11 +224,11 @@ class TestProductUpdate(unittest.TestCase):
 
     def test_unknown_field_rejected(self):
         client = MagicMock()
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "product_update",
             {"product_id": 42, "fields": {"price-et": "100"}},  # 'price' not allowed
             client,
-        ))
+        )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -238,11 +237,11 @@ class TestProductUpdate(unittest.TestCase):
 
     def test_field_without_lang_suffix_rejected(self):
         client = MagicMock()
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "product_update",
             {"product_id": 42, "fields": {"name": "missing-lang"}},
             client,
-        ))
+        )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -250,11 +249,11 @@ class TestProductUpdate(unittest.TestCase):
 
     def test_empty_fields_rejected(self):
         client = MagicMock()
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "product_update",
             {"product_id": 42, "fields": {}},
             client,
-        ))
+        )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -266,11 +265,11 @@ class TestProductUpdate(unittest.TestCase):
         client.put.side_effect = urllib.error.HTTPError(
             "url", 404, "Not Found", {}, None
         )
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "product_update",
             {"product_id": 999, "fields": {"name-et": "X"}},
             client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
@@ -279,11 +278,11 @@ class TestProductUpdate(unittest.TestCase):
     def test_empty_lang_segment_rejected(self):
         # 'name-' splits to lang='' — Voog would reject with a generic 422
         client = MagicMock()
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "product_update",
             {"product_id": 42, "fields": {"name-": "X"}},
             client,
-        ))
+        )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -293,22 +292,22 @@ class TestProductUpdate(unittest.TestCase):
     def test_double_dash_lang_rejected(self):
         # 'name--et' splits to lang='-et' (starts with '-'); Voog would reject
         client = MagicMock()
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "product_update",
             {"product_id": 42, "fields": {"name--et": "X"}},
             client,
-        ))
+        )
         client.put.assert_not_called()
 
     def test_empty_value_rejected(self):
         # Voog rejects empty translations; we surface this earlier with a
         # precise error rather than letting the API speak generically
         client = MagicMock()
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "product_update",
             {"product_id": 42, "fields": {"name-et": ""}},
             client,
-        ))
+        )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -358,9 +357,9 @@ class TestProjectionConsistency(unittest.TestCase):
 class TestUnknownTool(unittest.TestCase):
     def test_unknown_name_returns_error(self):
         client = MagicMock()
-        result = asyncio.run(products_tools.call_tool(
+        result = products_tools.call_tool(
             "nonexistent", {}, client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)

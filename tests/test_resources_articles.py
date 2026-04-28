@@ -1,5 +1,4 @@
 """Tests for voog_mcp.resources.articles."""
-import asyncio
 import json
 import sys
 import unittest
@@ -61,7 +60,7 @@ class TestArticlesResourcesReadRoot(unittest.TestCase):
                 "body": "should-not-leak-into-list",  # body intentionally stripped
             },
         ]
-        result = asyncio.run(articles_resources.read_resource("voog://articles", client))
+        result = articles_resources.read_resource("voog://articles", client)
         client.get_all.assert_called_once_with("/articles")
         contents = list(result)
         self.assertEqual(len(contents), 1)
@@ -83,7 +82,7 @@ class TestArticlesResourcesReadRoot(unittest.TestCase):
         client.get_all.return_value = [
             {"id": 1, "title": "Bare"},  # no language, no page
         ]
-        result = asyncio.run(articles_resources.read_resource("voog://articles", client))
+        result = articles_resources.read_resource("voog://articles", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed[0]["id"], 1)
@@ -93,7 +92,7 @@ class TestArticlesResourcesReadRoot(unittest.TestCase):
     def test_read_root_empty(self):
         client = MagicMock()
         client.get_all.return_value = []
-        result = asyncio.run(articles_resources.read_resource("voog://articles", client))
+        result = articles_resources.read_resource("voog://articles", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed, [])
@@ -108,7 +107,7 @@ class TestArticlesResourcesReadSingleArticle(unittest.TestCase):
             "title": "Hello World",
             "body": body_html,
         }
-        result = asyncio.run(articles_resources.read_resource("voog://articles/5001", client))
+        result = articles_resources.read_resource("voog://articles/5001", client)
         client.get.assert_called_once_with("/articles/5001")
         client.get_all.assert_not_called()
         contents = list(result)
@@ -119,7 +118,7 @@ class TestArticlesResourcesReadSingleArticle(unittest.TestCase):
     def test_read_single_article_missing_body_returns_empty_string(self):
         client = MagicMock()
         client.get.return_value = {"id": 5001, "title": "Empty"}  # no body
-        result = asyncio.run(articles_resources.read_resource("voog://articles/5001", client))
+        result = articles_resources.read_resource("voog://articles/5001", client)
         contents = list(result)
         self.assertEqual(contents[0].mime_type, "text/html")
         self.assertEqual(contents[0].content, "")
@@ -127,7 +126,7 @@ class TestArticlesResourcesReadSingleArticle(unittest.TestCase):
     def test_read_single_article_null_body_returns_empty_string(self):
         client = MagicMock()
         client.get.return_value = {"id": 5001, "body": None}
-        result = asyncio.run(articles_resources.read_resource("voog://articles/5001", client))
+        result = articles_resources.read_resource("voog://articles/5001", client)
         contents = list(result)
         self.assertEqual(contents[0].content, "")
 
@@ -135,7 +134,7 @@ class TestArticlesResourcesReadSingleArticle(unittest.TestCase):
         # Pin behaviour: API returning body="" stays ""
         client = MagicMock()
         client.get.return_value = {"id": 5001, "body": ""}
-        result = asyncio.run(articles_resources.read_resource("voog://articles/5001", client))
+        result = articles_resources.read_resource("voog://articles/5001", client)
         contents = list(result)
         self.assertEqual(contents[0].mime_type, "text/html")
         self.assertEqual(contents[0].content, "")
@@ -143,34 +142,34 @@ class TestArticlesResourcesReadSingleArticle(unittest.TestCase):
     def test_read_single_article_rejects_non_integer_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(articles_resources.read_resource("voog://articles/abc", client))
+            articles_resources.read_resource("voog://articles/abc", client)
         client.get.assert_not_called()
 
     def test_read_single_article_rejects_zero_or_negative(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(articles_resources.read_resource("voog://articles/0", client))
+            articles_resources.read_resource("voog://articles/0", client)
         with self.assertRaises(ValueError):
-            asyncio.run(articles_resources.read_resource("voog://articles/-1", client))
+            articles_resources.read_resource("voog://articles/-1", client)
 
 
 class TestArticlesResourcesUnknownUri(unittest.TestCase):
     def test_bare_trailing_slash_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(articles_resources.read_resource("voog://articles/", client))
+            articles_resources.read_resource("voog://articles/", client)
 
     def test_subpath_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(articles_resources.read_resource(
+            articles_resources.read_resource(
                 "voog://articles/5001/comments", client
-            ))
+            )
 
     def test_completely_unrelated_uri_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(articles_resources.read_resource("voog://pages", client))
+            articles_resources.read_resource("voog://pages", client)
 
 
 class TestArticlesResourcesErrorPropagation(unittest.TestCase):
@@ -178,7 +177,7 @@ class TestArticlesResourcesErrorPropagation(unittest.TestCase):
         client = MagicMock()
         client.get_all.side_effect = urllib.error.URLError("network down")
         with self.assertRaises(urllib.error.URLError):
-            asyncio.run(articles_resources.read_resource("voog://articles", client))
+            articles_resources.read_resource("voog://articles", client)
 
     def test_single_article_propagates_api_errors(self):
         client = MagicMock()
@@ -186,7 +185,7 @@ class TestArticlesResourcesErrorPropagation(unittest.TestCase):
             "url", 404, "Not Found", {}, None
         )
         with self.assertRaises(urllib.error.HTTPError):
-            asyncio.run(articles_resources.read_resource("voog://articles/999", client))
+            articles_resources.read_resource("voog://articles/999", client)
 
 
 class TestServerResourceRegistry(unittest.TestCase):
