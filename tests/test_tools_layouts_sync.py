@@ -78,11 +78,14 @@ class TestLayoutsPull(unittest.TestCase):
             {"id": 100, "title": "default", "component": False, "updated_at": "2026-01-01T00:00:00Z"},
             {"id": 200, "title": "header", "component": True, "updated_at": "2026-01-02T00:00:00Z"},
         ]
-        # per-id detail with body
-        client.get.side_effect = [
-            {"id": 100, "title": "default", "body": "<html>{{ content }}</html>"},
-            {"id": 200, "title": "header", "body": "<nav>...</nav>"},
-        ]
+        # per-id detail with body — keyed by URL because parallel_map fetches
+        # may complete in any order (threads consume side_effect by call order,
+        # not submission order).
+        details = {
+            "/layouts/100": {"id": 100, "title": "default", "body": "<html>{{ content }}</html>"},
+            "/layouts/200": {"id": 200, "title": "header", "body": "<nav>...</nav>"},
+        }
+        client.get.side_effect = lambda url: details[url]
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "tree"
             result = layouts_sync_tools.call_tool(
@@ -200,18 +203,29 @@ class TestLayoutsPull(unittest.TestCase):
             self.assertIn("layouts_pull", payload["error"])
 
     def test_per_layout_detail_failure_continues(self):
-        # Single layout 404 → per-layout error, others still written
+        # Single layout 404 → per-layout error, others still written.
+        # Detail fetches now run in parallel (parallel_map), so map URL → response
+        # explicitly rather than relying on positional side_effect ordering —
+        # threads consume side_effect in completion order, not submission order.
         client = _make_client()
         client.get_all.return_value = [
             {"id": 1, "title": "ok", "component": False, "updated_at": ""},
             {"id": 2, "title": "bad", "component": False, "updated_at": ""},
             {"id": 3, "title": "ok2", "component": False, "updated_at": ""},
         ]
-        client.get.side_effect = [
-            {"id": 1, "body": "ok-body"},
-            urllib.error.HTTPError("u", 404, "Not Found", {}, None),
-            {"id": 3, "body": "ok2-body"},
-        ]
+        responses = {
+            "/layouts/1": {"id": 1, "body": "ok-body"},
+            "/layouts/2": urllib.error.HTTPError("u", 404, "Not Found", {}, None),
+            "/layouts/3": {"id": 3, "body": "ok2-body"},
+        }
+
+        def get_side_effect(url):
+            resp = responses[url]
+            if isinstance(resp, Exception):
+                raise resp
+            return resp
+
+        client.get.side_effect = get_side_effect
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "tree"
             result = layouts_sync_tools.call_tool(
@@ -255,6 +269,87 @@ class TestLayoutsPull(unittest.TestCase):
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("absolute path", payload["error"])
+
+    def test_uses_parallel_map_with_max_workers_eight(self):
+        # Per spec § 4.3: read-only fetches use max_workers=8. Verify the
+        # call site wires through to parallel_map with the right URL list
+        # and worker cap. (Mock the helper at the import site, not the
+        # underlying ThreadPoolExecutor.)
+        from unittest.mock import patch
+
+        client = _make_client()
+        client.get_all.return_value = [
+            {"id": 11, "title": "a", "component": False, "updated_at": ""},
+            {"id": 22, "title": "b", "component": True, "updated_at": ""},
+            {"id": 33, "title": "c", "component": False, "updated_at": ""},
+        ]
+        # parallel_map normally returns [(item, result, exc), ...] in input
+        # order — keep the contract honest in the fake.
+        fake_results = [
+            ("/layouts/11", {"body": "a-body"}, None),
+            ("/layouts/22", {"body": "b-body"}, None),
+            ("/layouts/33", {"body": "c-body"}, None),
+        ]
+        with patch.object(
+            layouts_sync_tools, "parallel_map", return_value=fake_results,
+        ) as mock_pmap:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                target = Path(tmpdir) / "tree"
+                layouts_sync_tools.call_tool(
+                    "layouts_pull", {"target_dir": str(target)}, client,
+                )
+
+        # parallel_map called exactly once with the right args
+        self.assertEqual(mock_pmap.call_count, 1)
+        call = mock_pmap.call_args
+        # Positional: fn, items
+        self.assertIs(call.args[0], client.get)
+        self.assertEqual(
+            list(call.args[1]),
+            ["/layouts/11", "/layouts/22", "/layouts/33"],
+        )
+        # max_workers must be 8 (read-only fetches)
+        self.assertEqual(call.kwargs.get("max_workers"), 8)
+
+    def test_one_detail_fetch_fails_others_written(self):
+        # Phase A produces a mixed-result list: one exception, two successes.
+        # Phase B (sequential write loop) must surface the failure in
+        # per_layout_errors AND write .tpl files for the other two layouts.
+        from unittest.mock import patch
+
+        client = _make_client()
+        client.get_all.return_value = [
+            {"id": 1, "title": "ok-a", "component": False, "updated_at": ""},
+            {"id": 2, "title": "broken", "component": False, "updated_at": ""},
+            {"id": 3, "title": "ok-b", "component": True, "updated_at": ""},
+        ]
+        boom = urllib.error.HTTPError("u", 500, "Server Error", {}, None)
+        fake_results = [
+            ("/layouts/1", {"body": "a-body"}, None),
+            ("/layouts/2", None, boom),
+            ("/layouts/3", {"body": "b-body"}, None),
+        ]
+        with patch.object(
+            layouts_sync_tools, "parallel_map", return_value=fake_results,
+        ):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                target = Path(tmpdir) / "tree"
+                result = layouts_sync_tools.call_tool(
+                    "layouts_pull", {"target_dir": str(target)}, client,
+                )
+
+                # Two .tpl files written, the broken one absent
+                self.assertTrue((target / "layouts" / "ok-a.tpl").exists())
+                self.assertFalse((target / "layouts" / "broken.tpl").exists())
+                self.assertTrue((target / "components" / "ok-b.tpl").exists())
+
+        breakdown = json.loads(result[1].text)
+        self.assertEqual(breakdown["layouts_written"], 1)
+        self.assertEqual(breakdown["components_written"], 1)
+        # Exactly one entry in per_layout_errors, shape preserved (spec § 4.5)
+        self.assertEqual(len(breakdown["per_layout_errors"]), 1)
+        self.assertEqual(breakdown["per_layout_errors"][0]["layout_id"], 2)
+        self.assertIn("error", breakdown["per_layout_errors"][0])
 
 
 def _make_pulled_tree(target: Path, manifest: dict, contents: dict):

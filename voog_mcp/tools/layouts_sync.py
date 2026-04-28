@@ -34,6 +34,7 @@ from pathlib import Path
 
 from mcp.types import CallToolResult, TextContent, Tool
 
+from voog_mcp._concurrency import parallel_map
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
 from voog_mcp.tools._helpers import validate_output_dir, write_json
@@ -151,21 +152,32 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
     layouts_dir = target / "layouts"
     components_dir = target / "components"
 
+    # Phase A — validate layouts list, then fetch every valid /layouts/{id}
+    # detail body in parallel. /layouts list endpoint omits body, so each
+    # detail is its own GET. max_workers=8 per spec § 4.3 (read-only fetches).
+    valid_layouts: list = []
     for layout in layouts:
         lid = layout.get("id")
         title = layout.get("title")
         if not lid or not title:
             per_layout_errors.append({"layout_id": lid, "error": "missing id or title"})
             continue
+        valid_layouts.append(layout)
 
-        # /layouts list endpoint omits body — fetch detail per layout
-        try:
-            detail = client.get(f"/layouts/{lid}")
-        except Exception as e:
-            per_layout_errors.append({"layout_id": lid, "error": str(e)})
+    detail_urls = [f"/layouts/{layout['id']}" for layout in valid_layouts]
+    fetch_results = parallel_map(client.get, detail_urls, max_workers=8)
+
+    # Phase B — sequential write loop. Sync filesystem I/O is fast; serial
+    # writes keep manifest assembly atomic and avoid mkdir/write races with
+    # no measurable speedup if parallelized.
+    for layout, (_url, detail, exc) in zip(valid_layouts, fetch_results):
+        lid = layout["id"]
+        title = layout["title"]
+        if exc is not None:
+            per_layout_errors.append({"layout_id": lid, "error": str(exc)})
             continue
 
-        body = detail.get("body", "") or ""
+        body = (detail or {}).get("body", "") or ""
         is_component = bool(layout.get("component"))
         folder = components_dir if is_component else layouts_dir
         folder.mkdir(exist_ok=True)
