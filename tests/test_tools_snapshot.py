@@ -326,6 +326,114 @@ class TestSiteSnapshot(unittest.TestCase):
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
+    def test_parallel_map_invoked_with_correct_args(self):
+        # Faas 2 contract: list endpoints + per-page + per-article + per-product
+        # detail loops fan out via parallel_map at max_workers=8. Verify the
+        # snapshot module dispatches each loop through the helper with the
+        # expected items + max_workers.
+        client = _make_client()
+
+        list_responses = {
+            "/pages": [{"id": 1, "title": "A"}, {"id": 2, "title": "B"}],
+            "/articles": [{"id": 100, "title": "Post"}],
+        }
+
+        def _get_all(path, **kwargs):
+            if path == "/products":
+                return [{"id": 500, "name": "Widget"}, {"id": 501, "name": "Gadget"}]
+            return list_responses.get(path, [])
+
+        def _get(path, **kwargs):
+            if path in ("/site", "/me"):
+                return {}
+            if path == "/pages/1/contents":
+                return [{"id": 11}]
+            if path == "/pages/2/contents":
+                return [{"id": 12}]
+            if path == "/articles/100":
+                return {"id": 100, "body": "x"}
+            if path.startswith("/products/"):
+                return {"id": int(path.rsplit("/", 1)[1])}
+            return {}
+
+        client.get_all.side_effect = _get_all
+        client.get.side_effect = _get
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            with patch(
+                "voog_mcp.tools.snapshot.parallel_map",
+                wraps=snapshot_tools.parallel_map,
+            ) as mock_pm:
+                snapshot_tools.call_tool(
+                    "site_snapshot", {"output_dir": str(out)}, client,
+                )
+
+        # Expect 4 parallel_map calls: list endpoints, page contents, article
+        # details, product details. Singletons + rendered HTML stay sequential.
+        self.assertEqual(mock_pm.call_count, 4)
+
+        # Every call must be max_workers=8 (read-only fan-out per spec § 4.3).
+        for call in mock_pm.call_args_list:
+            self.assertEqual(call.kwargs.get("max_workers"), 8)
+
+        # Verify the 4 calls received the expected item lists.
+        items_per_call = [call.args[1] for call in mock_pm.call_args_list]
+
+        # Loop 1: list endpoints
+        self.assertEqual(items_per_call[0], snapshot_tools.SITE_SNAPSHOT_LIST_ENDPOINTS)
+        # Loop 3: page IDs
+        self.assertEqual(items_per_call[1], [1, 2])
+        # Loop 4: article IDs
+        self.assertEqual(items_per_call[2], [100])
+        # Loop 5: product IDs
+        self.assertEqual(items_per_call[3], [500, 501])
+
+    def test_partial_failure_does_not_abort_other_resources(self):
+        # Spec § 4.5 — failure of one parallel fetch must not abort siblings.
+        # Mock one per-page contents call to raise; assert it shows up in
+        # `skipped`, the other resources still get written.
+        client = _make_client()
+
+        def _get_all(path, **kwargs):
+            if path == "/pages":
+                return [{"id": 1, "title": "A"}, {"id": 2, "title": "B"}, {"id": 3, "title": "C"}]
+            if path == "/products":
+                return []
+            return []
+
+        def _get(path, **kwargs):
+            if path == "/pages/2/contents":
+                # Simulate one fetch failing — others succeed.
+                raise urllib.error.HTTPError("u", 500, "Server Error", {}, None)
+            if path in ("/site", "/me"):
+                return {}
+            if path.startswith("/pages/") and path.endswith("/contents"):
+                return [{"id": 99}]
+            return {}
+
+        client.get_all.side_effect = _get_all
+        client.get.side_effect = _get
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            result = snapshot_tools.call_tool(
+                "site_snapshot", {"output_dir": str(out)}, client,
+            )
+            # The 2 successful per-page contents files exist; failed one does not.
+            self.assertTrue((out / "page_1_contents.json").exists())
+            self.assertFalse((out / "page_2_contents.json").exists())
+            self.assertTrue((out / "page_3_contents.json").exists())
+            # Sibling resources still written despite partial failure.
+            self.assertTrue((out / "pages.json").exists())
+
+        breakdown = json.loads(result[1].text)
+        # Exactly one skipped entry for the failed page contents.
+        skipped_files = [s["file"] for s in breakdown["skipped"]]
+        self.assertIn("page_2_contents.json", skipped_files)
+        # Counter accurate: 2 of 3 written.
+        self.assertEqual(breakdown["page_contents_written"], 2)
+
     def test_public_html_fetch_uses_timeout(self):
         # Public HTML fetch (rendered samples) is unauthenticated and runs
         # outside VoogClient — it needs its own timeout so a hung host
