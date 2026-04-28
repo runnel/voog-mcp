@@ -264,5 +264,5 @@ def _asset_replace(arguments: dict, client: VoogClient) -> list[TextContent]:
                 f"DELETE /layout_assets/{asset_id}."
             ),
         },
-        summary=f"🆕 asset {asset_id} ({old_filename!r}) → {new_id} ({new_filename!r}) (old asset NOT deleted)",
+        summary=f"✨ asset {asset_id} ({old_filename!r}) → {new_id} ({new_filename!r}) (old asset NOT deleted)",
     )
