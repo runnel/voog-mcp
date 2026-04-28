@@ -92,7 +92,7 @@ class TestPagesTools(unittest.TestCase):
         self.assertEqual(len(result.content), 1)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
-        self.assertIn("pages_list ebaõnnestus", payload["error"])
+        self.assertIn("pages_list failed", payload["error"])
 
     def test_page_get_error_returns_error_response(self):
         client = MagicMock()

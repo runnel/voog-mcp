@@ -79,7 +79,7 @@ def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[Tex
             rules = client.get_all("/redirect_rules")
             return success_response(rules, summary=f"↪️  {len(rules)} redirect rules")
         except Exception as e:
-            return error_response(f"redirects_list ebaõnnestus: {e}")
+            return error_response(f"redirects_list failed: {e}")
 
     if name == "redirect_add":
         source = arguments.get("source")
@@ -102,6 +102,6 @@ def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[Tex
                 summary=f"✅ {source} → {destination} ({rtype})",
             )
         except Exception as e:
-            return error_response(f"redirect_add ebaõnnestus: {e}")
+            return error_response(f"redirect_add failed: {e}")
 
     return error_response(f"Unknown tool: {name}")

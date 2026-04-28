@@ -171,7 +171,7 @@ def _layout_rename(arguments: dict, client: VoogClient) -> list[TextContent] | C
             summary=f"✓ layout {layout_id} → {new_title!r}",
         )
     except Exception as e:
-        return error_response(f"layout_rename id={layout_id} ebaõnnestus: {e}")
+        return error_response(f"layout_rename id={layout_id} failed: {e}")
 
 
 def _layout_create(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
@@ -213,7 +213,7 @@ def _layout_create(arguments: dict, client: VoogClient) -> list[TextContent] | C
             summary=f"✨ created {kind} {new_id}: {title!r}",
         )
     except Exception as e:
-        return error_response(f"layout_create title={title!r} ebaõnnestus: {e}")
+        return error_response(f"layout_create title={title!r} failed: {e}")
 
 
 def _asset_replace(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
@@ -226,7 +226,7 @@ def _asset_replace(arguments: dict, client: VoogClient) -> list[TextContent] | C
     try:
         old_asset = client.get(f"/layout_assets/{asset_id}")
     except Exception as e:
-        return error_response(f"asset_replace: GET old asset {asset_id} ebaõnnestus: {e}")
+        return error_response(f"asset_replace: GET old asset {asset_id} failed: {e}")
 
     asset_type = old_asset.get("asset_type")
     old_filename = old_asset.get("filename")
@@ -247,7 +247,7 @@ def _asset_replace(arguments: dict, client: VoogClient) -> list[TextContent] | C
             "data": content,
         })
     except Exception as e:
-        return error_response(f"asset_replace: POST new asset ebaõnnestus: {e}")
+        return error_response(f"asset_replace: POST new asset failed: {e}")
 
     new_id = result.get("id")
     if not new_id:

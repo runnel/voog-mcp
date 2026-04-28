@@ -157,7 +157,7 @@ def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | 
         pages = client.get_all("/pages")
         write_json(out / "pages.json", pages)
     except Exception as e:
-        return error_response(f"pages_snapshot ebaõnnestus: {e}")
+        return error_response(f"pages_snapshot failed: {e}")
 
     page_contents_written = 0
     per_page_errors: list = []

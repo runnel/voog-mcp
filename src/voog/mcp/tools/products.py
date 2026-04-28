@@ -108,8 +108,8 @@ def get_tools() -> list[Tool]:
                         "description": (
                             "Flat field-language map. Keys must match "
                             "`<field>-<lang>` where field ∈ {name, slug}. "
-                            "Example: {\"name-et\": \"Trippelgänger\", "
-                            "\"slug-en\": \"trippelganger\"}"
+                            "Example: {\"name-et\": \"Suvekott\", "
+                            "\"slug-en\": \"summer-bag\"}"
                         ),
                         "additionalProperties": {"type": "string"},
                     },
@@ -150,7 +150,7 @@ def _products_list(client: VoogClient) -> list[TextContent] | CallToolResult:
         simplified = simplify_products(products)
         return success_response(simplified, summary=f"🛒 {len(simplified)} products")
     except Exception as e:
-        return error_response(f"products_list ebaõnnestus: {e}")
+        return error_response(f"products_list failed: {e}")
 
 
 def _product_get(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
@@ -163,7 +163,7 @@ def _product_get(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
         )
         return success_response(product)
     except Exception as e:
-        return error_response(f"product_get id={product_id} ebaõnnestus: {e}")
+        return error_response(f"product_get id={product_id} failed: {e}")
 
 
 def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
@@ -215,4 +215,4 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
             summary=f"✓ product {product_id} updated: {changes}",
         )
     except Exception as e:
-        return error_response(f"product_update id={product_id} ebaõnnestus: {e}")
+        return error_response(f"product_update id={product_id} failed: {e}")

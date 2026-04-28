@@ -170,7 +170,7 @@ def _page_set_layout(arguments: dict, client: VoogClient) -> list[TextContent] |
             summary=f"✓ page {page_id} → layout {layout_id}",
         )
     except Exception as e:
-        return error_response(f"page_set_layout page={page_id} layout={layout_id} ebaõnnestus: {e}")
+        return error_response(f"page_set_layout page={page_id} layout={layout_id} failed: {e}")
 
 
 def _page_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
@@ -190,4 +190,4 @@ def _page_delete(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
             summary=f"🗑️  page {page_id} deleted",
         )
     except Exception as e:
-        return error_response(f"page_delete page={page_id} ebaõnnestus: {e}")
+        return error_response(f"page_delete page={page_id} failed: {e}")

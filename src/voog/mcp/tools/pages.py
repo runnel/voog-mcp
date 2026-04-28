@@ -53,7 +53,7 @@ def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[Tex
             simplified = simplify_pages(pages)
             return success_response(simplified, summary=f"📄 {len(simplified)} pages")
         except Exception as e:
-            return error_response(f"pages_list ebaõnnestus: {e}")
+            return error_response(f"pages_list failed: {e}")
 
     if name == "page_get":
         page_id = arguments.get("page_id")
@@ -61,6 +61,6 @@ def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[Tex
             p = client.get(f"/pages/{page_id}")
             return success_response(p)
         except Exception as e:
-            return error_response(f"page_get id={page_id} ebaõnnestus: {e}")
+            return error_response(f"page_get id={page_id} failed: {e}")
 
     return error_response(f"Unknown tool: {name}")

@@ -144,7 +144,7 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
         target.mkdir(parents=True, exist_ok=True)
         layouts = client.get_all("/layouts")
     except Exception as e:
-        return error_response(f"layouts_pull ebaõnnestus: {e}")
+        return error_response(f"layouts_pull failed: {e}")
 
     layouts_written = 0
     components_written = 0
