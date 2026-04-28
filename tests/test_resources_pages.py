@@ -1,5 +1,4 @@
 """Tests for voog_mcp.resources.pages."""
-import asyncio
 import json
 import sys
 import unittest
@@ -67,7 +66,7 @@ class TestPagesResourcesReadRoot(unittest.TestCase):
                 "public_url": "https://runnel.ee/foo",
             },
         ]
-        result = asyncio.run(pages_resources.read_resource("voog://pages", client))
+        result = pages_resources.read_resource("voog://pages", client)
         client.get_all.assert_called_once_with("/pages")
         contents = list(result)
         self.assertEqual(len(contents), 1)
@@ -81,7 +80,7 @@ class TestPagesResourcesReadRoot(unittest.TestCase):
     def test_read_root_empty(self):
         client = MagicMock()
         client.get_all.return_value = []
-        result = asyncio.run(pages_resources.read_resource("voog://pages", client))
+        result = pages_resources.read_resource("voog://pages", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed, [])
@@ -91,7 +90,7 @@ class TestPagesResourcesReadSinglePage(unittest.TestCase):
     def test_read_single_page_calls_correct_endpoint(self):
         client = MagicMock()
         client.get.return_value = {"id": 152377, "title": "Avaleht", "path": ""}
-        result = asyncio.run(pages_resources.read_resource("voog://pages/152377", client))
+        result = pages_resources.read_resource("voog://pages/152377", client)
         client.get.assert_called_once_with("/pages/152377")
         client.get_all.assert_not_called()
         contents = list(result)
@@ -104,13 +103,13 @@ class TestPagesResourcesReadSinglePage(unittest.TestCase):
     def test_read_single_page_rejects_non_integer_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(pages_resources.read_resource("voog://pages/abc", client))
+            pages_resources.read_resource("voog://pages/abc", client)
         client.get.assert_not_called()
 
     def test_read_single_page_rejects_negative_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(pages_resources.read_resource("voog://pages/-5", client))
+            pages_resources.read_resource("voog://pages/-5", client)
 
 
 class TestPagesResourcesReadContents(unittest.TestCase):
@@ -120,9 +119,9 @@ class TestPagesResourcesReadContents(unittest.TestCase):
             {"id": 1, "name": "title", "value": "Hello"},
             {"id": 2, "name": "body", "value": "World"},
         ]
-        result = asyncio.run(pages_resources.read_resource(
+        result = pages_resources.read_resource(
             "voog://pages/152377/contents", client
-        ))
+        )
         client.get.assert_called_once_with("/pages/152377/contents")
         contents = list(result)
         self.assertEqual(contents[0].mime_type, "application/json")
@@ -132,35 +131,35 @@ class TestPagesResourcesReadContents(unittest.TestCase):
     def test_read_contents_rejects_non_integer_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(pages_resources.read_resource(
+            pages_resources.read_resource(
                 "voog://pages/abc/contents", client
-            ))
+            )
 
 
 class TestPagesResourcesUnknownUri(unittest.TestCase):
     def test_bare_trailing_slash_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(pages_resources.read_resource("voog://pages/", client))
+            pages_resources.read_resource("voog://pages/", client)
 
     def test_unknown_subpath_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(pages_resources.read_resource(
+            pages_resources.read_resource(
                 "voog://pages/152377/unknown", client
-            ))
+            )
 
     def test_unknown_extra_segments_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(pages_resources.read_resource(
+            pages_resources.read_resource(
                 "voog://pages/152377/contents/extra", client
-            ))
+            )
 
     def test_completely_unrelated_uri_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(pages_resources.read_resource("voog://layouts", client))
+            pages_resources.read_resource("voog://layouts", client)
 
 
 class TestPagesResourcesErrorPropagation(unittest.TestCase):
@@ -168,7 +167,7 @@ class TestPagesResourcesErrorPropagation(unittest.TestCase):
         client = MagicMock()
         client.get_all.side_effect = urllib.error.URLError("network down")
         with self.assertRaises(urllib.error.URLError):
-            asyncio.run(pages_resources.read_resource("voog://pages", client))
+            pages_resources.read_resource("voog://pages", client)
 
     def test_single_page_propagates_api_errors(self):
         client = MagicMock()
@@ -176,7 +175,7 @@ class TestPagesResourcesErrorPropagation(unittest.TestCase):
             "url", 404, "Not Found", {}, None
         )
         with self.assertRaises(urllib.error.HTTPError):
-            asyncio.run(pages_resources.read_resource("voog://pages/999", client))
+            pages_resources.read_resource("voog://pages/999", client)
 
 
 class TestServerResourceRegistry(unittest.TestCase):

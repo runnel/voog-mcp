@@ -1,5 +1,4 @@
 """Tests for voog_mcp.tools.snapshot."""
-import asyncio
 import json
 import sys
 import tempfile
@@ -74,9 +73,9 @@ class TestPagesSnapshot(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
-            result = asyncio.run(snapshot_tools.call_tool(
+            result = snapshot_tools.call_tool(
                 "pages_snapshot", {"output_dir": str(out)}, client,
-            ))
+            )
             # Files written
             self.assertTrue((out / "pages.json").exists())
             self.assertTrue((out / "page_1_contents.json").exists())
@@ -109,9 +108,9 @@ class TestPagesSnapshot(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
-            result = asyncio.run(snapshot_tools.call_tool(
+            result = snapshot_tools.call_tool(
                 "pages_snapshot", {"output_dir": str(out)}, client,
-            ))
+            )
             self.assertTrue((out / "page_1_contents.json").exists())
             self.assertFalse((out / "page_2_contents.json").exists())
             self.assertTrue((out / "page_3_contents.json").exists())
@@ -126,9 +125,9 @@ class TestPagesSnapshot(unittest.TestCase):
         client.get_all.return_value = []
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "deep" / "nested" / "snap"
-            asyncio.run(snapshot_tools.call_tool(
+            snapshot_tools.call_tool(
                 "pages_snapshot", {"output_dir": str(out)}, client,
-            ))
+            )
             self.assertTrue((out / "pages.json").exists())
 
     def test_existing_dir_overwrites_pages_json(self):
@@ -141,9 +140,9 @@ class TestPagesSnapshot(unittest.TestCase):
             out = Path(tmpdir) / "snap"
             out.mkdir(parents=True)
             (out / "pages.json").write_text("STALE", encoding="utf-8")
-            asyncio.run(snapshot_tools.call_tool(
+            snapshot_tools.call_tool(
                 "pages_snapshot", {"output_dir": str(out)}, client,
-            ))
+            )
             # Stale content replaced
             self.assertNotEqual(
                 (out / "pages.json").read_text(encoding="utf-8"),
@@ -155,9 +154,9 @@ class TestPagesSnapshot(unittest.TestCase):
         client.get_all.side_effect = urllib.error.URLError("network down")
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
-            result = asyncio.run(snapshot_tools.call_tool(
+            result = snapshot_tools.call_tool(
                 "pages_snapshot", {"output_dir": str(out)}, client,
-            ))
+            )
             self.assertTrue(result.isError)
             payload = json.loads(result.content[0].text)
             self.assertIn("error", payload)
@@ -165,9 +164,9 @@ class TestPagesSnapshot(unittest.TestCase):
 
     def test_empty_output_dir_rejected(self):
         client = _make_client()
-        result = asyncio.run(snapshot_tools.call_tool(
+        result = snapshot_tools.call_tool(
             "pages_snapshot", {"output_dir": ""}, client,
-        ))
+        )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -178,9 +177,9 @@ class TestPagesSnapshot(unittest.TestCase):
         # tool can't silently dump files relative to whatever CWD the MCP
         # server happened to start from
         client = _make_client()
-        result = asyncio.run(snapshot_tools.call_tool(
+        result = snapshot_tools.call_tool(
             "pages_snapshot", {"output_dir": "snapshots/foo"}, client,
-        ))
+        )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -189,9 +188,9 @@ class TestPagesSnapshot(unittest.TestCase):
 
     def test_dot_relative_path_rejected(self):
         client = _make_client()
-        result = asyncio.run(snapshot_tools.call_tool(
+        result = snapshot_tools.call_tool(
             "pages_snapshot", {"output_dir": "./out"}, client,
-        ))
+        )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -201,9 +200,9 @@ class TestPagesSnapshot(unittest.TestCase):
 class TestSiteSnapshot(unittest.TestCase):
     def test_relative_path_rejected(self):
         client = _make_client()
-        result = asyncio.run(snapshot_tools.call_tool(
+        result = snapshot_tools.call_tool(
             "site_snapshot", {"output_dir": "backups/2026"}, client,
-        ))
+        )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -217,9 +216,9 @@ class TestSiteSnapshot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
             out.mkdir(parents=True)  # already exists
-            result = asyncio.run(snapshot_tools.call_tool(
+            result = snapshot_tools.call_tool(
                 "site_snapshot", {"output_dir": str(out)}, client,
-            ))
+            )
             client.get_all.assert_not_called()
             client.get.assert_not_called()
             self.assertTrue(result.isError)
@@ -265,9 +264,9 @@ class TestSiteSnapshot(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
-            result = asyncio.run(snapshot_tools.call_tool(
+            result = snapshot_tools.call_tool(
                 "site_snapshot", {"output_dir": str(out)}, client,
-            ))
+            )
             # List endpoint files
             self.assertTrue((out / "pages.json").exists())
             self.assertTrue((out / "articles.json").exists())
@@ -307,9 +306,9 @@ class TestSiteSnapshot(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
-            result = asyncio.run(snapshot_tools.call_tool(
+            result = snapshot_tools.call_tool(
                 "site_snapshot", {"output_dir": str(out)}, client,
-            ))
+            )
             # Other list endpoints still got their files
             self.assertTrue((out / "pages.json").exists())
             self.assertFalse((out / "elements.json").exists())  # skipped
@@ -320,9 +319,9 @@ class TestSiteSnapshot(unittest.TestCase):
 
     def test_empty_output_dir_rejected(self):
         client = _make_client()
-        result = asyncio.run(snapshot_tools.call_tool(
+        result = snapshot_tools.call_tool(
             "site_snapshot", {"output_dir": ""}, client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
@@ -356,9 +355,9 @@ class TestSiteSnapshot(unittest.TestCase):
                 fake = MagicMock()
                 fake.read.return_value = b"<html></html>"
                 mock_urlopen.return_value.__enter__.return_value = fake
-                asyncio.run(snapshot_tools.call_tool(
+                snapshot_tools.call_tool(
                     "site_snapshot", {"output_dir": str(out)}, client,
-                ))
+                )
             self.assertGreaterEqual(mock_urlopen.call_count, 1)
             # Every public-fetch call must be bounded by an explicit timeout.
             for call in mock_urlopen.call_args_list:
@@ -372,9 +371,9 @@ class TestSiteSnapshot(unittest.TestCase):
 class TestUnknownTool(unittest.TestCase):
     def test_unknown_name_returns_error(self):
         client = _make_client()
-        result = asyncio.run(snapshot_tools.call_tool(
+        result = snapshot_tools.call_tool(
             "nonexistent", {}, client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)

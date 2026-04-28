@@ -9,7 +9,8 @@ Reference implementation for the Phase D resource group contract:
   - ``get_uri_patterns() -> list[str]`` (claimed prefixes; the server-side
     collision guard rejects duplicates and strict sub-path overlaps at startup)
   - ``matches(uri: str) -> bool``
-  - ``async read_resource(uri, client) -> list[ReadResourceContents]``
+  - ``read_resource(uri, client) -> list[ReadResourceContents]`` (sync —
+    server dispatches via ``asyncio.to_thread``)
 
 Errors propagate (no wrapping into MCP error responses) — the server layer
 turns raised exceptions into JSON-RPC errors. JSON wrapping uses the shared
@@ -45,7 +46,7 @@ def matches(uri: str) -> bool:
     return uri == URI
 
 
-async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
+def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
     if uri != URI:
         raise ValueError(f"redirects resource: unsupported URI {uri!r}")
     rules = client.get_all("/redirect_rules")

@@ -1,5 +1,4 @@
 """Tests for voog_mcp.tools.pages_mutate."""
-import asyncio
 import json
 import sys
 import unittest
@@ -93,11 +92,11 @@ class TestPageSetHidden(unittest.TestCase):
     def test_single_page_success(self):
         client = MagicMock()
         client.put.return_value = {"id": 152377, "hidden": True}
-        result = asyncio.run(pages_mutate_tools.call_tool(
+        result = pages_mutate_tools.call_tool(
             "page_set_hidden",
             {"ids": [152377], "hidden": True},
             client,
-        ))
+        )
         client.put.assert_called_once_with("/pages/152377", {"hidden": True})
         # success_response with summary → 2 TextContents
         self.assertEqual(len(result), 2)
@@ -106,11 +105,11 @@ class TestPageSetHidden(unittest.TestCase):
         client = MagicMock()
         client.put.return_value = {}
         ids = [1, 2, 3]
-        asyncio.run(pages_mutate_tools.call_tool(
+        pages_mutate_tools.call_tool(
             "page_set_hidden",
             {"ids": ids, "hidden": False},
             client,
-        ))
+        )
         # 3 PUT calls
         self.assertEqual(client.put.call_count, 3)
         for i, call in enumerate(client.put.call_args_list):
@@ -126,11 +125,11 @@ class TestPageSetHidden(unittest.TestCase):
             urllib.error.HTTPError("url", 404, "Not Found", {}, None),
             {"id": 3, "hidden": True},
         ]
-        result = asyncio.run(pages_mutate_tools.call_tool(
+        result = pages_mutate_tools.call_tool(
             "page_set_hidden",
             {"ids": [1, 2, 3], "hidden": True},
             client,
-        ))
+        )
         # Bulk result is structured: returns 2 TextContents (summary + JSON breakdown)
         self.assertEqual(len(result), 2)
         breakdown = json.loads(result[1].text)
@@ -151,11 +150,11 @@ class TestPageSetHidden(unittest.TestCase):
             urllib.error.URLError("network down"),
             urllib.error.URLError("network down"),
         ]
-        result = asyncio.run(pages_mutate_tools.call_tool(
+        result = pages_mutate_tools.call_tool(
             "page_set_hidden",
             {"ids": [10, 20], "hidden": True},
             client,
-        ))
+        )
         # Even all-failures path returns success_response with the breakdown
         # (the operation itself completed; per-id results communicate failures)
         breakdown = json.loads(result[1].text)
@@ -164,11 +163,11 @@ class TestPageSetHidden(unittest.TestCase):
 
     def test_empty_ids_returns_error(self):
         client = MagicMock()
-        result = asyncio.run(pages_mutate_tools.call_tool(
+        result = pages_mutate_tools.call_tool(
             "page_set_hidden",
             {"ids": [], "hidden": True},
             client,
-        ))
+        )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -179,11 +178,11 @@ class TestPageSetLayout(unittest.TestCase):
     def test_success_calls_put(self):
         client = MagicMock()
         client.put.return_value = {"id": 152377, "layout_id": 977702}
-        result = asyncio.run(pages_mutate_tools.call_tool(
+        result = pages_mutate_tools.call_tool(
             "page_set_layout",
             {"page_id": 152377, "layout_id": 977702},
             client,
-        ))
+        )
         client.put.assert_called_once_with("/pages/152377", {"layout_id": 977702})
         self.assertEqual(len(result), 2)  # summary + JSON
 
@@ -192,11 +191,11 @@ class TestPageSetLayout(unittest.TestCase):
         client.put.side_effect = urllib.error.HTTPError(
             "url", 404, "Not Found", {}, None
         )
-        result = asyncio.run(pages_mutate_tools.call_tool(
+        result = pages_mutate_tools.call_tool(
             "page_set_layout",
             {"page_id": 999, "layout_id": 1},
             client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
@@ -206,11 +205,11 @@ class TestPageSetLayout(unittest.TestCase):
 class TestPageDelete(unittest.TestCase):
     def test_force_false_rejected(self):
         client = MagicMock()
-        result = asyncio.run(pages_mutate_tools.call_tool(
+        result = pages_mutate_tools.call_tool(
             "page_delete",
             {"page_id": 152377, "force": False},
             client,
-        ))
+        )
         client.delete.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -220,11 +219,11 @@ class TestPageDelete(unittest.TestCase):
     def test_force_omitted_rejected(self):
         # Defensive default: force defaults to false → delete blocked
         client = MagicMock()
-        result = asyncio.run(pages_mutate_tools.call_tool(
+        result = pages_mutate_tools.call_tool(
             "page_delete",
             {"page_id": 152377},
             client,
-        ))
+        )
         client.delete.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -233,11 +232,11 @@ class TestPageDelete(unittest.TestCase):
     def test_force_true_calls_delete(self):
         client = MagicMock()
         client.delete.return_value = None  # API returns 204 No Content
-        result = asyncio.run(pages_mutate_tools.call_tool(
+        result = pages_mutate_tools.call_tool(
             "page_delete",
             {"page_id": 152377, "force": True},
             client,
-        ))
+        )
         client.delete.assert_called_once_with("/pages/152377")
         # Returns success summary (no body to JSON-encode)
         self.assertGreaterEqual(len(result), 1)
@@ -250,11 +249,11 @@ class TestPageDelete(unittest.TestCase):
         client.delete.side_effect = urllib.error.HTTPError(
             "url", 404, "Not Found", {}, None
         )
-        result = asyncio.run(pages_mutate_tools.call_tool(
+        result = pages_mutate_tools.call_tool(
             "page_delete",
             {"page_id": 999, "force": True},
             client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
@@ -264,9 +263,9 @@ class TestPageDelete(unittest.TestCase):
 class TestUnknownTool(unittest.TestCase):
     def test_unknown_name_returns_error(self):
         client = MagicMock()
-        result = asyncio.run(pages_mutate_tools.call_tool(
+        result = pages_mutate_tools.call_tool(
             "nonexistent", {}, client
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
