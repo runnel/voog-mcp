@@ -11,7 +11,6 @@ Then a final PUT /products/{id} (ecommerce_url) with flat
 
 Mutating + creates new asset records — never run against live runnel.ee.
 """
-import asyncio
 import json
 import sys
 import tempfile
@@ -75,11 +74,11 @@ class TestValidation(unittest.TestCase):
 
     def test_missing_product_id_rejected(self):
         client = _make_client()
-        result = asyncio.run(products_images_tools.call_tool(
+        result = products_images_tools.call_tool(
             "product_set_images",
             {"files": ["/tmp/x.jpg"]},
             client,
-        ))
+        )
         client.post.assert_not_called()
         client.put.assert_not_called()
         self.assertTrue(result.isError)
@@ -89,11 +88,11 @@ class TestValidation(unittest.TestCase):
 
     def test_empty_files_rejected(self):
         client = _make_client()
-        result = asyncio.run(products_images_tools.call_tool(
+        result = products_images_tools.call_tool(
             "product_set_images",
             {"product_id": 42, "files": []},
             client,
-        ))
+        )
         client.post.assert_not_called()
         client.put.assert_not_called()
         self.assertTrue(result.isError)
@@ -102,11 +101,11 @@ class TestValidation(unittest.TestCase):
 
     def test_relative_path_rejected(self):
         client = _make_client()
-        result = asyncio.run(products_images_tools.call_tool(
+        result = products_images_tools.call_tool(
             "product_set_images",
             {"product_id": 42, "files": ["relative/path.jpg"]},
             client,
-        ))
+        )
         client.post.assert_not_called()
         client.put.assert_not_called()
         self.assertTrue(result.isError)
@@ -116,11 +115,11 @@ class TestValidation(unittest.TestCase):
 
     def test_nonexistent_file_rejected(self):
         client = _make_client()
-        result = asyncio.run(products_images_tools.call_tool(
+        result = products_images_tools.call_tool(
             "product_set_images",
             {"product_id": 42, "files": ["/nonexistent/path/img.jpg"]},
             client,
-        ))
+        )
         client.post.assert_not_called()
         client.put.assert_not_called()
         self.assertTrue(result.isError)
@@ -132,11 +131,11 @@ class TestValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
             txt = _write_image(tmpdir, "doc.txt", b"hello")
-            result = asyncio.run(products_images_tools.call_tool(
+            result = products_images_tools.call_tool(
                 "product_set_images",
                 {"product_id": 42, "files": [str(txt)]},
                 client,
-            ))
+            )
             client.post.assert_not_called()
             client.put.assert_not_called()
             self.assertTrue(result.isError)
@@ -149,11 +148,11 @@ class TestValidation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
             pdf = _write_image(tmpdir, "x.pdf", b"%PDF")
-            result = asyncio.run(products_images_tools.call_tool(
+            result = products_images_tools.call_tool(
                 "product_set_images",
                 {"product_id": 42, "files": [str(pdf)]},
                 client,
-            ))
+            )
             client.post.assert_not_called()
             client.put.assert_not_called()
 
@@ -169,11 +168,11 @@ class TestForceGuard(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "new.jpg")
-            result = asyncio.run(products_images_tools.call_tool(
+            result = products_images_tools.call_tool(
                 "product_set_images",
                 {"product_id": 42, "files": [str(img)]},
                 client,
-            ))
+            )
             client.post.assert_not_called()
             client.put.assert_not_called()
             self.assertTrue(result.isError)
@@ -196,11 +195,11 @@ class TestForceGuard(unittest.TestCase):
                 "voog_mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
-                result = asyncio.run(products_images_tools.call_tool(
+                result = products_images_tools.call_tool(
                     "product_set_images",
                     {"product_id": 42, "files": [str(img)]},
                     client,
-                ))
+                )
             payload = json.loads(result[-1].text)
             self.assertEqual(payload["new_asset_ids"], [200])
 
@@ -218,11 +217,11 @@ class TestForceGuard(unittest.TestCase):
                 "voog_mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
-                result = asyncio.run(products_images_tools.call_tool(
+                result = products_images_tools.call_tool(
                     "product_set_images",
                     {"product_id": 42, "files": [str(img)], "force": True},
                     client,
-                ))
+                )
             payload = json.loads(result[-1].text)
             self.assertEqual(payload["old_asset_ids"], [99])
             self.assertEqual(payload["new_asset_ids"], [200])
@@ -256,11 +255,11 @@ class TestSuccessPath(unittest.TestCase):
                 "voog_mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
-                result = asyncio.run(products_images_tools.call_tool(
+                result = products_images_tools.call_tool(
                     "product_set_images",
                     {"product_id": 42, "files": [str(img1), str(img2)]},
                     client,
-                ))
+                )
 
         # POST /assets called once per file with admin/api default base
         self.assertEqual(client.post.call_count, 2)
@@ -325,11 +324,11 @@ class TestSuccessPath(unittest.TestCase):
                 "voog_mcp.tools.products_images.urllib.request.Request"
             ) as mock_request:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
-                asyncio.run(products_images_tools.call_tool(
+                products_images_tools.call_tool(
                     "product_set_images",
                     {"product_id": 42, "files": [str(img)]},
                     client,
-                ))
+                )
             req_call = mock_request.call_args
             self.assertEqual(req_call.args[0], "https://s3/up")
             self.assertEqual(req_call.kwargs["data"], b"webp-bytes")
@@ -370,11 +369,11 @@ class TestPartialFailure(unittest.TestCase):
                 "voog_mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
-                result = asyncio.run(products_images_tools.call_tool(
+                result = products_images_tools.call_tool(
                     "product_set_images",
                     {"product_id": 42, "files": [str(img1), str(img2)]},
                     client,
-                ))
+                )
 
         # PUT /products/{id} must NOT have been called
         product_put_calls = [
@@ -405,11 +404,11 @@ class TestPartialFailure(unittest.TestCase):
             ) as mock_urlopen:
                 # S3 returns 403 → upload failed
                 mock_urlopen.return_value.__enter__.return_value.status = 403
-                result = asyncio.run(products_images_tools.call_tool(
+                result = products_images_tools.call_tool(
                     "product_set_images",
                     {"product_id": 42, "files": [str(img)]},
                     client,
-                ))
+                )
 
         # Confirm should not be called if S3 upload failed
         confirm_calls = [
@@ -450,11 +449,11 @@ class TestProductPutFailure(unittest.TestCase):
                 "voog_mcp.tools.products_images.urllib.request.urlopen"
             ) as mock_urlopen:
                 mock_urlopen.return_value.__enter__.return_value.status = 200
-                result = asyncio.run(products_images_tools.call_tool(
+                result = products_images_tools.call_tool(
                     "product_set_images",
                     {"product_id": 42, "files": [str(img)]},
                     client,
-                ))
+                )
 
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -469,9 +468,9 @@ class TestProductPutFailure(unittest.TestCase):
 class TestUnknownTool(unittest.TestCase):
     def test_unknown_name_returns_error(self):
         client = _make_client()
-        result = asyncio.run(products_images_tools.call_tool(
+        result = products_images_tools.call_tool(
             "nonexistent", {}, client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)

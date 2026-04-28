@@ -1,5 +1,4 @@
 """Tests for voog_mcp.tools.layouts_sync — layouts_pull + layouts_push."""
-import asyncio
 import json
 import sys
 import tempfile
@@ -86,9 +85,9 @@ class TestLayoutsPull(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "tree"
-            result = asyncio.run(layouts_sync_tools.call_tool(
+            result = layouts_sync_tools.call_tool(
                 "layouts_pull", {"target_dir": str(target)}, client,
-            ))
+            )
             # Layout file in layouts/
             self.assertTrue((target / "layouts" / "default.tpl").exists())
             self.assertEqual(
@@ -128,9 +127,9 @@ class TestLayoutsPull(unittest.TestCase):
             target = Path(tmpdir) / "existing"
             (target / "layouts").mkdir(parents=True)
             (target / "layouts" / "stale.tpl").write_text("OLD", encoding="utf-8")
-            result = asyncio.run(layouts_sync_tools.call_tool(
+            result = layouts_sync_tools.call_tool(
                 "layouts_pull", {"target_dir": str(target)}, client,
-            ))
+            )
             client.get_all.assert_not_called()
             client.get.assert_not_called()
             self.assertTrue(result.isError)
@@ -153,9 +152,9 @@ class TestLayoutsPull(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "fresh"
             target.mkdir(parents=True)  # exists but empty — OK
-            result = asyncio.run(layouts_sync_tools.call_tool(
+            result = layouts_sync_tools.call_tool(
                 "layouts_pull", {"target_dir": str(target)}, client,
-            ))
+            )
             self.assertTrue((target / "layouts" / "x.tpl").exists())
             payload = json.loads(result[1].text)
             self.assertEqual(payload["layouts_written"], 1)
@@ -171,9 +170,9 @@ class TestLayoutsPull(unittest.TestCase):
             target = Path(tmpdir) / "with_other"
             target.mkdir(parents=True)
             (target / "README.md").write_text("docs", encoding="utf-8")
-            asyncio.run(layouts_sync_tools.call_tool(
+            layouts_sync_tools.call_tool(
                 "layouts_pull", {"target_dir": str(target)}, client,
-            ))
+            )
             self.assertTrue((target / "layouts" / "x.tpl").exists())
             self.assertTrue((target / "README.md").exists())  # not clobbered
 
@@ -182,9 +181,9 @@ class TestLayoutsPull(unittest.TestCase):
         client.get_all.return_value = []
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "deep" / "nested" / "tree"
-            asyncio.run(layouts_sync_tools.call_tool(
+            layouts_sync_tools.call_tool(
                 "layouts_pull", {"target_dir": str(target)}, client,
-            ))
+            )
             self.assertTrue((target / "manifest.json").exists())
 
     def test_api_failure_returns_error(self):
@@ -192,9 +191,9 @@ class TestLayoutsPull(unittest.TestCase):
         client.get_all.side_effect = urllib.error.URLError("network down")
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "tree"
-            result = asyncio.run(layouts_sync_tools.call_tool(
+            result = layouts_sync_tools.call_tool(
                 "layouts_pull", {"target_dir": str(target)}, client,
-            ))
+            )
             self.assertTrue(result.isError)
             payload = json.loads(result.content[0].text)
             self.assertIn("error", payload)
@@ -215,9 +214,9 @@ class TestLayoutsPull(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "tree"
-            result = asyncio.run(layouts_sync_tools.call_tool(
+            result = layouts_sync_tools.call_tool(
                 "layouts_pull", {"target_dir": str(target)}, client,
-            ))
+            )
             self.assertTrue((target / "layouts" / "ok.tpl").exists())
             self.assertFalse((target / "layouts" / "bad.tpl").exists())
             self.assertTrue((target / "layouts" / "ok2.tpl").exists())
@@ -228,9 +227,9 @@ class TestLayoutsPull(unittest.TestCase):
 
     def test_empty_target_dir_rejected(self):
         client = _make_client()
-        result = asyncio.run(layouts_sync_tools.call_tool(
+        result = layouts_sync_tools.call_tool(
             "layouts_pull", {"target_dir": ""}, client,
-        ))
+        )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -238,9 +237,9 @@ class TestLayoutsPull(unittest.TestCase):
 
     def test_relative_path_rejected(self):
         client = _make_client()
-        result = asyncio.run(layouts_sync_tools.call_tool(
+        result = layouts_sync_tools.call_tool(
             "layouts_pull", {"target_dir": "tree/foo"}, client,
-        ))
+        )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -249,9 +248,9 @@ class TestLayoutsPull(unittest.TestCase):
 
     def test_dot_relative_path_rejected(self):
         client = _make_client()
-        result = asyncio.run(layouts_sync_tools.call_tool(
+        result = layouts_sync_tools.call_tool(
             "layouts_pull", {"target_dir": "./tree"}, client,
-        ))
+        )
         client.get_all.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -290,9 +289,9 @@ class TestLayoutsPush(unittest.TestCase):
                     "components/header.tpl": "<nav>v2</nav>",
                 },
             )
-            result = asyncio.run(layouts_sync_tools.call_tool(
+            result = layouts_sync_tools.call_tool(
                 "layouts_push", {"target_dir": str(target), "files": None}, client,
-            ))
+            )
         # 2 PUT calls
         self.assertEqual(client.put.call_count, 2)
         calls = sorted([
@@ -324,11 +323,11 @@ class TestLayoutsPush(unittest.TestCase):
                     "layouts/b.tpl": "B",
                 },
             )
-            result = asyncio.run(layouts_sync_tools.call_tool(
+            result = layouts_sync_tools.call_tool(
                 "layouts_push",
                 {"target_dir": str(target), "files": ["layouts/a.tpl"]},
                 client,
-            ))
+            )
         # Only /layouts/1 pushed
         self.assertEqual(client.put.call_count, 1)
         args = client.put.call_args
@@ -342,9 +341,9 @@ class TestLayoutsPush(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "tree"
             target.mkdir(parents=True)
-            result = asyncio.run(layouts_sync_tools.call_tool(
+            result = layouts_sync_tools.call_tool(
                 "layouts_push", {"target_dir": str(target)}, client,
-            ))
+            )
             client.put.assert_not_called()
             self.assertTrue(result.isError)
             payload = json.loads(result.content[0].text)
@@ -369,9 +368,9 @@ class TestLayoutsPush(unittest.TestCase):
                     # missing.tpl intentionally NOT created
                 },
             )
-            result = asyncio.run(layouts_sync_tools.call_tool(
+            result = layouts_sync_tools.call_tool(
                 "layouts_push", {"target_dir": str(target)}, client,
-            ))
+            )
         # Only one PUT (the existing file)
         self.assertEqual(client.put.call_count, 1)
         breakdown = json.loads(result[1].text)
@@ -403,9 +402,9 @@ class TestLayoutsPush(unittest.TestCase):
                     "layouts/b.tpl": "B",
                 },
             )
-            result = asyncio.run(layouts_sync_tools.call_tool(
+            result = layouts_sync_tools.call_tool(
                 "layouts_push", {"target_dir": str(target)}, client,
-            ))
+            )
         breakdown = json.loads(result[1].text)
         self.assertEqual(breakdown["total"], 2)
         self.assertEqual(breakdown["succeeded"], 1)
@@ -437,9 +436,9 @@ class TestLayoutsPush(unittest.TestCase):
                     "stylesheets/main.css": "body { color: red; }",
                 },
             )
-            result = asyncio.run(layouts_sync_tools.call_tool(
+            result = layouts_sync_tools.call_tool(
                 "layouts_push", {"target_dir": str(target)}, client,
-            ))
+            )
         # Only the layout entry was PUT — asset entry must NOT have been dispatched
         self.assertEqual(client.put.call_count, 1)
         self.assertEqual(client.put.call_args.args[0], "/layouts/100")
@@ -464,11 +463,11 @@ class TestLayoutsPush(unittest.TestCase):
                 },
                 contents={"layouts/a.tpl": "A"},
             )
-            result = asyncio.run(layouts_sync_tools.call_tool(
+            result = layouts_sync_tools.call_tool(
                 "layouts_push",
                 {"target_dir": str(target), "files": ["layouts/typo.tpl"]},
                 client,
-            ))
+            )
         client.put.assert_not_called()
         breakdown = json.loads(result[1].text)
         self.assertEqual(breakdown["total"], 1)
@@ -476,9 +475,9 @@ class TestLayoutsPush(unittest.TestCase):
 
     def test_relative_path_rejected(self):
         client = _make_client()
-        result = asyncio.run(layouts_sync_tools.call_tool(
+        result = layouts_sync_tools.call_tool(
             "layouts_push", {"target_dir": "tree/foo"}, client,
-        ))
+        )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -486,9 +485,9 @@ class TestLayoutsPush(unittest.TestCase):
 
     def test_empty_target_dir_rejected(self):
         client = _make_client()
-        result = asyncio.run(layouts_sync_tools.call_tool(
+        result = layouts_sync_tools.call_tool(
             "layouts_push", {"target_dir": ""}, client,
-        ))
+        )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -498,9 +497,9 @@ class TestLayoutsPush(unittest.TestCase):
 class TestUnknownTool(unittest.TestCase):
     def test_unknown_name_returns_error(self):
         client = _make_client()
-        result = asyncio.run(layouts_sync_tools.call_tool(
+        result = layouts_sync_tools.call_tool(
             "nonexistent", {}, client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)

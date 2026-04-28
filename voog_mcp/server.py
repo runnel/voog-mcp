@@ -1,4 +1,5 @@
 """MCP server setup."""
+import asyncio
 import logging
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -24,7 +25,9 @@ from voog_mcp.resources import redirects as redirects_resources
 logger = logging.getLogger("voog-mcp")
 
 # Tool group registry — Tasks 10-14 should append their module here.
-# Each module must export get_tools() -> list[Tool] and async call_tool(name, arguments, client) -> list[TextContent].
+# Each module must export get_tools() -> list[Tool] and call_tool(name, arguments, client) -> list[TextContent].
+# call_tool is sync — server.handle_call_tool dispatches it via asyncio.to_thread so blocking
+# urllib I/O does not stall the MCP event loop (review fix #3).
 TOOL_GROUPS = [
     layouts_tools,
     layouts_sync_tools,
@@ -42,7 +45,8 @@ TOOL_GROUPS = [
 #   - get_uri_patterns() -> list[str]   (claimed URI / URI_PREFIX strings;
 #                                        read by the startup collision guard)
 #   - matches(uri: str) -> bool         (does this group handle this URI?)
-#   - async read_resource(uri: str, client) -> list[ReadResourceContents]
+#   - read_resource(uri: str, client) -> list[ReadResourceContents]
+# read_resource is sync — handle_read_resource dispatches it via asyncio.to_thread.
 RESOURCE_GROUPS = [
     articles_resources,
     layouts_resources,
@@ -123,7 +127,10 @@ async def run_server():
         group = tool_dispatch.get(name)
         if group is None:
             return error_response(f"Unknown tool: {name}")
-        return await group.call_tool(name, arguments or {}, client)
+        # group.call_tool is sync (does blocking urllib I/O); offload to a worker
+        # thread so the MCP event loop stays responsive — notifications can flow,
+        # shutdown signals get processed even during a 30–60s site_snapshot run.
+        return await asyncio.to_thread(group.call_tool, name, arguments or {}, client)
 
     @server.list_resources()
     async def handle_list_resources():
@@ -134,7 +141,7 @@ async def run_server():
         uri_str = str(uri)
         for group in RESOURCE_GROUPS:
             if group.matches(uri_str):
-                return await group.read_resource(uri_str, client)
+                return await asyncio.to_thread(group.read_resource, uri_str, client)
         raise ValueError(f"Unknown resource URI: {uri_str}")
 
     async with stdio_server() as (read_stream, write_stream):

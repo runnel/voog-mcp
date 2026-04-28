@@ -1,5 +1,4 @@
 """Tests for voog_mcp.tools.redirects."""
-import asyncio
 import json
 import sys
 import unittest
@@ -52,7 +51,7 @@ class TestRedirectsTools(unittest.TestCase):
         client.get_all.return_value = [
             {"id": 1, "source": "/old", "destination": "/new", "redirect_type": 301},
         ]
-        result = asyncio.run(redirects_tools.call_tool("redirects_list", {}, client))
+        result = redirects_tools.call_tool("redirects_list", {}, client)
         client.get_all.assert_called_once_with("/redirect_rules")
         # success_response with summary → 2 TextContents
         self.assertEqual(len(result), 2)
@@ -60,11 +59,11 @@ class TestRedirectsTools(unittest.TestCase):
     def test_redirect_add_calls_client_with_defaults(self):
         client = MagicMock()
         client.post.return_value = {"id": 99, "source": "/a", "destination": "/b", "redirect_type": 301}
-        result = asyncio.run(redirects_tools.call_tool(
+        result = redirects_tools.call_tool(
             "redirect_add",
             {"source": "/a", "destination": "/b"},
             client,
-        ))
+        )
         client.post.assert_called_once_with(
             "/redirect_rules",
             {
@@ -81,11 +80,11 @@ class TestRedirectsTools(unittest.TestCase):
     def test_redirect_add_passes_explicit_type(self):
         client = MagicMock()
         client.post.return_value = {"id": 100}
-        asyncio.run(redirects_tools.call_tool(
+        redirects_tools.call_tool(
             "redirect_add",
             {"source": "/x", "destination": "/y", "redirect_type": 410},
             client,
-        ))
+        )
         client.post.assert_called_once_with(
             "/redirect_rules",
             {
@@ -100,11 +99,11 @@ class TestRedirectsTools(unittest.TestCase):
 
     def test_redirect_add_rejects_invalid_type(self):
         client = MagicMock()
-        result = asyncio.run(redirects_tools.call_tool(
+        result = redirects_tools.call_tool(
             "redirect_add",
             {"source": "/x", "destination": "/y", "redirect_type": 999},
             client,
-        ))
+        )
         client.post.assert_not_called()
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -113,7 +112,7 @@ class TestRedirectsTools(unittest.TestCase):
     def test_redirects_list_error_returns_error_response(self):
         client = MagicMock()
         client.get_all.side_effect = urllib.error.URLError("network down")
-        result = asyncio.run(redirects_tools.call_tool("redirects_list", {}, client))
+        result = redirects_tools.call_tool("redirects_list", {}, client)
         self.assertEqual(len(result.content), 1)
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
@@ -123,11 +122,11 @@ class TestRedirectsTools(unittest.TestCase):
     def test_redirect_add_error_returns_error_response(self):
         client = MagicMock()
         client.post.side_effect = Exception("boom")
-        result = asyncio.run(redirects_tools.call_tool(
+        result = redirects_tools.call_tool(
             "redirect_add",
             {"source": "/a", "destination": "/b"},
             client,
-        ))
+        )
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
@@ -135,7 +134,7 @@ class TestRedirectsTools(unittest.TestCase):
 
     def test_call_tool_unknown_name_returns_error(self):
         client = MagicMock()
-        result = asyncio.run(redirects_tools.call_tool("nonexistent", {}, client))
+        result = redirects_tools.call_tool("nonexistent", {}, client)
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)

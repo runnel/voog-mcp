@@ -1,5 +1,4 @@
 """Tests for voog_mcp.resources.layouts."""
-import asyncio
 import json
 import sys
 import unittest
@@ -56,7 +55,7 @@ class TestLayoutsResourcesReadRoot(unittest.TestCase):
                 "body": "should-not-leak-into-list",  # body intentionally stripped from list view
             },
         ]
-        result = asyncio.run(layouts_resources.read_resource("voog://layouts", client))
+        result = layouts_resources.read_resource("voog://layouts", client)
         client.get_all.assert_called_once_with("/layouts")
         contents = list(result)
         self.assertEqual(len(contents), 1)
@@ -74,7 +73,7 @@ class TestLayoutsResourcesReadRoot(unittest.TestCase):
     def test_read_root_empty(self):
         client = MagicMock()
         client.get_all.return_value = []
-        result = asyncio.run(layouts_resources.read_resource("voog://layouts", client))
+        result = layouts_resources.read_resource("voog://layouts", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed, [])
@@ -90,7 +89,7 @@ class TestLayoutsResourcesReadSingleLayout(unittest.TestCase):
             "body": body_src,
             "content_type": "page",
         }
-        result = asyncio.run(layouts_resources.read_resource("voog://layouts/977702", client))
+        result = layouts_resources.read_resource("voog://layouts/977702", client)
         client.get.assert_called_once_with("/layouts/977702")
         client.get_all.assert_not_called()
         contents = list(result)
@@ -102,7 +101,7 @@ class TestLayoutsResourcesReadSingleLayout(unittest.TestCase):
     def test_read_single_layout_missing_body_returns_empty_string(self):
         client = MagicMock()
         client.get.return_value = {"id": 977702, "title": "Empty"}  # body absent
-        result = asyncio.run(layouts_resources.read_resource("voog://layouts/977702", client))
+        result = layouts_resources.read_resource("voog://layouts/977702", client)
         contents = list(result)
         self.assertEqual(contents[0].mime_type, "text/plain")
         self.assertEqual(contents[0].content, "")
@@ -110,7 +109,7 @@ class TestLayoutsResourcesReadSingleLayout(unittest.TestCase):
     def test_read_single_layout_null_body_returns_empty_string(self):
         client = MagicMock()
         client.get.return_value = {"id": 977702, "title": "Null", "body": None}
-        result = asyncio.run(layouts_resources.read_resource("voog://layouts/977702", client))
+        result = layouts_resources.read_resource("voog://layouts/977702", client)
         contents = list(result)
         self.assertEqual(contents[0].content, "")
 
@@ -121,7 +120,7 @@ class TestLayoutsResourcesReadSingleLayout(unittest.TestCase):
         # callers reading an explicitly empty .tpl.
         client = MagicMock()
         client.get.return_value = {"id": 977702, "title": "Empty Tpl", "body": ""}
-        result = asyncio.run(layouts_resources.read_resource("voog://layouts/977702", client))
+        result = layouts_resources.read_resource("voog://layouts/977702", client)
         contents = list(result)
         self.assertEqual(contents[0].mime_type, "text/plain")
         self.assertEqual(contents[0].content, "")
@@ -129,35 +128,35 @@ class TestLayoutsResourcesReadSingleLayout(unittest.TestCase):
     def test_read_single_layout_rejects_non_integer_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(layouts_resources.read_resource("voog://layouts/abc", client))
+            layouts_resources.read_resource("voog://layouts/abc", client)
         client.get.assert_not_called()
 
     def test_read_single_layout_rejects_zero_or_negative(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(layouts_resources.read_resource("voog://layouts/0", client))
+            layouts_resources.read_resource("voog://layouts/0", client)
         with self.assertRaises(ValueError):
-            asyncio.run(layouts_resources.read_resource("voog://layouts/-1", client))
+            layouts_resources.read_resource("voog://layouts/-1", client)
 
 
 class TestLayoutsResourcesUnknownUri(unittest.TestCase):
     def test_bare_trailing_slash_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(layouts_resources.read_resource("voog://layouts/", client))
+            layouts_resources.read_resource("voog://layouts/", client)
 
     def test_subpath_rejected(self):
         # voog://layouts/{id}/anything is NOT a valid layouts URI
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(layouts_resources.read_resource(
+            layouts_resources.read_resource(
                 "voog://layouts/977702/contents", client
-            ))
+            )
 
     def test_completely_unrelated_uri_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(layouts_resources.read_resource("voog://pages", client))
+            layouts_resources.read_resource("voog://pages", client)
 
 
 class TestLayoutsResourcesErrorPropagation(unittest.TestCase):
@@ -165,7 +164,7 @@ class TestLayoutsResourcesErrorPropagation(unittest.TestCase):
         client = MagicMock()
         client.get_all.side_effect = urllib.error.URLError("network down")
         with self.assertRaises(urllib.error.URLError):
-            asyncio.run(layouts_resources.read_resource("voog://layouts", client))
+            layouts_resources.read_resource("voog://layouts", client)
 
     def test_single_layout_propagates_api_errors(self):
         client = MagicMock()
@@ -173,7 +172,7 @@ class TestLayoutsResourcesErrorPropagation(unittest.TestCase):
             "url", 404, "Not Found", {}, None
         )
         with self.assertRaises(urllib.error.HTTPError):
-            asyncio.run(layouts_resources.read_resource("voog://layouts/999", client))
+            layouts_resources.read_resource("voog://layouts/999", client)
 
 
 class TestServerResourceRegistry(unittest.TestCase):

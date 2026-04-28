@@ -55,7 +55,7 @@ def get_resources() -> list[Resource]:
     ]
 
 
-async def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
+def read_resource(uri: str, client: VoogClient) -> list[ReadResourceContents]:
     if uri == URI_PREFIX:
         pages = client.get_all("/pages")
         return json_response(simplify_pages(pages))

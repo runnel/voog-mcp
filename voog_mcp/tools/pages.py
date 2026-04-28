@@ -47,7 +47,7 @@ def get_tools() -> list[Tool]:
     ]
 
 
-async def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
+def call_tool(name: str, arguments: dict | None, client: VoogClient) -> list[TextContent] | CallToolResult:
     arguments = arguments or {}
     if name == "pages_list":
         try:

@@ -1,5 +1,4 @@
 """Tests for voog_mcp.resources.products."""
-import asyncio
 import json
 import sys
 import unittest
@@ -63,7 +62,7 @@ class TestProductsResourcesReadRoot(unittest.TestCase):
                 "updated_at": "2026-04-01T00:00:00Z",
             },
         ]
-        result = asyncio.run(products_resources.read_resource("voog://products", client))
+        result = products_resources.read_resource("voog://products", client)
 
         # Must use the ecommerce base URL and request translations include
         client.get_all.assert_called_once_with(
@@ -94,7 +93,7 @@ class TestProductsResourcesReadRoot(unittest.TestCase):
         client.get_all.return_value = [
             {"id": 1, "name": "Bare"},  # most fields absent
         ]
-        result = asyncio.run(products_resources.read_resource("voog://products", client))
+        result = products_resources.read_resource("voog://products", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         item = parsed[0]
@@ -107,7 +106,7 @@ class TestProductsResourcesReadRoot(unittest.TestCase):
         client = MagicMock()
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
         client.get_all.return_value = []
-        result = asyncio.run(products_resources.read_resource("voog://products", client))
+        result = products_resources.read_resource("voog://products", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed, [])
@@ -127,7 +126,7 @@ class TestProductsResourcesReadSingleProduct(unittest.TestCase):
         }
         client.get.return_value = full_product
 
-        result = asyncio.run(products_resources.read_resource("voog://products/42", client))
+        result = products_resources.read_resource("voog://products/42", client)
 
         # Must request both includes per spec § 5
         client.get.assert_called_once_with(
@@ -157,7 +156,7 @@ class TestProductsResourcesReadSingleProduct(unittest.TestCase):
             "translations": {},
             # no variant_types key
         }
-        result = asyncio.run(products_resources.read_resource("voog://products/42", client))
+        result = products_resources.read_resource("voog://products/42", client)
         contents = list(result)
         parsed = json.loads(contents[0].content)
         self.assertEqual(parsed["id"], 42)
@@ -166,35 +165,35 @@ class TestProductsResourcesReadSingleProduct(unittest.TestCase):
     def test_read_single_product_rejects_non_integer_id(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(products_resources.read_resource("voog://products/abc", client))
+            products_resources.read_resource("voog://products/abc", client)
         client.get.assert_not_called()
 
     def test_read_single_product_rejects_zero_or_negative(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(products_resources.read_resource("voog://products/0", client))
+            products_resources.read_resource("voog://products/0", client)
         with self.assertRaises(ValueError):
-            asyncio.run(products_resources.read_resource("voog://products/-5", client))
+            products_resources.read_resource("voog://products/-5", client)
 
 
 class TestProductsResourcesUnknownUri(unittest.TestCase):
     def test_bare_trailing_slash_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(products_resources.read_resource("voog://products/", client))
+            products_resources.read_resource("voog://products/", client)
 
     def test_subpath_rejected(self):
         # voog://products/{id}/variants is NOT a supported URI in v1
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(products_resources.read_resource(
+            products_resources.read_resource(
                 "voog://products/42/variants", client
-            ))
+            )
 
     def test_completely_unrelated_uri_rejected(self):
         client = MagicMock()
         with self.assertRaises(ValueError):
-            asyncio.run(products_resources.read_resource("voog://pages", client))
+            products_resources.read_resource("voog://pages", client)
 
 
 class TestProductsResourcesErrorPropagation(unittest.TestCase):
@@ -203,7 +202,7 @@ class TestProductsResourcesErrorPropagation(unittest.TestCase):
         client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
         client.get_all.side_effect = urllib.error.URLError("network down")
         with self.assertRaises(urllib.error.URLError):
-            asyncio.run(products_resources.read_resource("voog://products", client))
+            products_resources.read_resource("voog://products", client)
 
     def test_single_product_propagates_api_errors(self):
         client = MagicMock()
@@ -212,7 +211,7 @@ class TestProductsResourcesErrorPropagation(unittest.TestCase):
             "url", 404, "Not Found", {}, None
         )
         with self.assertRaises(urllib.error.HTTPError):
-            asyncio.run(products_resources.read_resource("voog://products/999", client))
+            products_resources.read_resource("voog://products/999", client)
 
 
 class TestServerResourceRegistry(unittest.TestCase):
