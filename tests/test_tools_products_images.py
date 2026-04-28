@@ -231,20 +231,35 @@ class TestSuccessPath(unittest.TestCase):
     """All uploads succeed → final PUT goes through with correct asset_ids."""
 
     def test_three_step_upload_per_file_then_product_put(self):
+        # Filename-keyed dispatch — uploads now run in parallel, so call
+        # ordering on client.post / client.put is non-deterministic. Pin
+        # asset_id to filename so the assertions don't race.
         client = _make_client()
-        # GET product (no existing images so force=false is fine)
         client.get.return_value = {"id": 42, "name": "Widget", "asset_ids": []}
-        # POST /assets called twice (one per file)
-        client.post.side_effect = [
-            {"id": 201, "upload_url": "https://s3.example.com/up201"},
-            {"id": 202, "upload_url": "https://s3.example.com/up202"},
-        ]
-        # PUT /assets/{id}/confirm twice + PUT /products/42 once
-        client.put.side_effect = [
-            {"id": 201, "public_url": "https://cdn/201.jpg", "width": 1200, "height": 800},
-            {"id": 202, "public_url": "https://cdn/202.jpg", "width": 1200, "height": 800},
-            {"id": 42, "asset_ids": [201, 202], "image_id": 201},
-        ]
+
+        post_ids = {"main.jpg": 201, "gallery.png": 202}
+
+        def post_dispatch(path, body, **kwargs):
+            aid = post_ids[body["filename"]]
+            return {"id": aid, "upload_url": f"https://s3.example.com/up{aid}"}
+        client.post.side_effect = post_dispatch
+
+        # PUT handler covers both per-asset confirms (2x) and the final
+        # product PUT (1x). The product PUT is the only path-keyed match
+        # that isn't an /assets/N/confirm.
+        product_put_payload = None
+
+        def put_dispatch(path, body=None, **kwargs):
+            nonlocal product_put_payload
+            if path.endswith("/confirm"):
+                aid = int(path.split("/")[2])
+                return {"id": aid, "public_url": f"https://cdn/{aid}.jpg",
+                        "width": 1200, "height": 800}
+            # /products/42
+            product_put_payload = body
+            return {"id": 42, "asset_ids": list((body or {}).get("asset_ids", [])),
+                    "image_id": (body or {}).get("image_id")}
+        client.put.side_effect = put_dispatch
 
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
@@ -261,39 +276,45 @@ class TestSuccessPath(unittest.TestCase):
                     client,
                 )
 
-        # POST /assets called once per file with admin/api default base
+        # POST /assets called once per file with admin/api default base —
+        # check by aggregating call args, not by index (parallel uploads).
         self.assertEqual(client.post.call_count, 2)
-        first_post_args = client.post.call_args_list[0]
-        self.assertEqual(first_post_args.args[0], "/assets")
-        body = first_post_args.args[1]
-        self.assertEqual(body["filename"], "main.jpg")
-        self.assertEqual(body["content_type"], "image/jpeg")
-        self.assertEqual(body["size"], len(b"\x89PNG\r\n\x1a\nfake"))
-
-        second_post_body = client.post.call_args_list[1].args[1]
-        self.assertEqual(second_post_body["content_type"], "image/png")
+        post_paths = [c.args[0] for c in client.post.call_args_list]
+        self.assertEqual(set(post_paths), {"/assets"})
+        post_bodies = {c.args[1]["filename"]: c.args[1]
+                       for c in client.post.call_args_list}
+        self.assertEqual(post_bodies["main.jpg"]["content_type"], "image/jpeg")
+        self.assertEqual(
+            post_bodies["main.jpg"]["size"], len(b"\x89PNG\r\n\x1a\nfake"))
+        self.assertEqual(post_bodies["gallery.png"]["content_type"], "image/png")
 
         # urlopen called once per file (binary PUT to upload_url)
         self.assertEqual(mock_urlopen.call_count, 2)
 
-        # PUT calls: 2× confirm + 1× product update
+        # PUT calls: 2× confirm + 1× product update — assert as a multiset
+        # since confirm completion order is non-deterministic.
         self.assertEqual(client.put.call_count, 3)
-        confirm1 = client.put.call_args_list[0]
-        self.assertEqual(confirm1.args[0], "/assets/201/confirm")
-        confirm2 = client.put.call_args_list[1]
-        self.assertEqual(confirm2.args[0], "/assets/202/confirm")
-
-        # Final product PUT — flat payload {image_id, asset_ids} on ecommerce_url
-        # (NOT wrapped in {product: {...}} — different from product_update,
-        # voog.py CLI confirms this shape)
-        product_put = client.put.call_args_list[2]
-        self.assertEqual(product_put.args[0], "/products/42")
+        put_paths = [c.args[0] for c in client.put.call_args_list]
         self.assertEqual(
-            product_put.args[1],
+            sorted(put_paths),
+            sorted(["/assets/201/confirm", "/assets/202/confirm", "/products/42"]),
+        )
+
+        # Final product PUT — flat payload {image_id, asset_ids} on
+        # ecommerce_url (NOT wrapped in {product: {...}} — different from
+        # product_update, voog.py CLI confirms this shape). uploaded order
+        # mirrors input order (parallel_map preserves it), so main.jpg is
+        # always first → asset_id 201 is the image_id.
+        product_put_call = next(
+            c for c in client.put.call_args_list
+            if c.args and c.args[0] == "/products/42"
+        )
+        self.assertEqual(
+            product_put_call.args[1],
             {"image_id": 201, "asset_ids": [201, 202]},
         )
         self.assertEqual(
-            product_put.kwargs["base"],
+            product_put_call.kwargs["base"],
             "https://test.example.com/admin/api/ecommerce/v1",
         )
 
@@ -302,8 +323,11 @@ class TestSuccessPath(unittest.TestCase):
         self.assertEqual(payload["new_asset_ids"], [201, 202])
         self.assertEqual(payload["old_asset_ids"], [])
         self.assertEqual(len(payload["uploaded"]), 2)
+        # Input order is preserved by parallel_map, so uploaded[0] is main.jpg.
         self.assertEqual(payload["uploaded"][0]["filename"], "main.jpg")
         self.assertEqual(payload["uploaded"][0]["asset_id"], 201)
+        self.assertEqual(payload["uploaded"][1]["filename"], "gallery.png")
+        self.assertEqual(payload["uploaded"][1]["asset_id"], 202)
         self.assertEqual(payload["failed"], [])
 
     def test_binary_upload_uses_correct_headers(self):
@@ -345,17 +369,34 @@ class TestPartialFailure(unittest.TestCase):
     images. Better to surface the failure cleanly and let the caller retry.
     Successful uploads are still surfaced in `uploaded` so the caller can
     re-link them manually if desired.
+
+    Under collect-then-decide (spec § 4.6) this invariant survives — what
+    changes is orphan count: up to N-1 successful uploads can be left in
+    Voog's library if any single upload fails (vs. 0..N-1 under the old
+    first-failure-break loop, where subsequent uploads were skipped).
     """
 
-    def test_one_upload_fails_product_not_updated(self):
+    def test_any_upload_failure_prevents_product_put(self):
+        """The 'any failure → no product PUT' invariant survives the move
+        from first-failure-break to collect-then-decide. Replaces an earlier
+        test that tacitly locked first-failure-stops-loop semantics by using
+        ordered ``side_effect`` lists (which would race under parallel
+        execution). Uses a filename-keyed side_effect so the success/failure
+        mapping is deterministic regardless of upload thread interleaving.
+        """
         client = _make_client()
         client.get.return_value = {"id": 42, "asset_ids": []}
-        # First POST /assets succeeds, second fails (HTTP 500 from Voog)
-        client.post.side_effect = [
-            {"id": 201, "upload_url": "https://s3/up201"},
-            urllib.error.HTTPError("url", 500, "Server Error", {}, None),
-        ]
-        # Confirm of the first one succeeds; no product PUT should follow
+
+        # Filename-keyed dispatch: the POST body carries `filename`, so we
+        # can deterministically pick success vs. error per file no matter
+        # which thread calls client.post first.
+        def post_dispatch(path, body, **kwargs):
+            if body["filename"] == "ok.jpg":
+                return {"id": 201, "upload_url": "https://s3/up201"}
+            raise urllib.error.HTTPError("url", 500, "Server Error", {}, None)
+        client.post.side_effect = post_dispatch
+        # Confirm of any successful upload returns benign data; product PUT
+        # would consume the next side_effect entry but should never run.
         client.put.return_value = {
             "id": 201, "public_url": "u", "width": 1, "height": 1,
         }
@@ -375,7 +416,8 @@ class TestPartialFailure(unittest.TestCase):
                     client,
                 )
 
-        # PUT /products/{id} must NOT have been called
+        # The invariant under test: PUT /products/{id} must NOT have been
+        # called when any upload failed.
         product_put_calls = [
             c for c in client.put.call_args_list
             if c.args and c.args[0] == "/products/42"
@@ -384,13 +426,134 @@ class TestPartialFailure(unittest.TestCase):
 
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
-        # Error path — orphan uploads surfaced via `details`
         self.assertIn("error", payload)
         details = payload["details"]
+        # Both files were attempted (collect-then-decide), exactly one
+        # succeeded and one failed. Orphan asset 201 is surfaced for the
+        # caller to recover.
         self.assertEqual(len(details["uploaded"]), 1)
+        self.assertEqual(details["uploaded"][0]["filename"], "ok.jpg")
         self.assertEqual(details["uploaded"][0]["asset_id"], 201)
         self.assertEqual(len(details["failed"]), 1)
         self.assertEqual(details["failed"][0]["filename"], "fails.jpg")
+
+    def test_two_of_four_uploads_fail_no_product_put(self):
+        """Collect-then-decide shape: with 4 uploads where 2 fail, all 4
+        upload attempts run (no first-failure abort), 2 orphans land in
+        ``uploaded``, 2 entries in ``failed``, and the product PUT never
+        fires. Filename-keyed dispatch keeps the assertion deterministic
+        under parallel execution.
+        """
+        client = _make_client()
+        client.get.return_value = {"id": 42, "asset_ids": []}
+
+        # 4 files: ok1, fail1, ok2, fail2. Success → asset id derived from
+        # filename so the ``uploaded`` list is checkable independent of
+        # upload completion order.
+        success_ids = {"ok1.jpg": 301, "ok2.jpg": 302}
+
+        def post_dispatch(path, body, **kwargs):
+            name = body["filename"]
+            if name in success_ids:
+                aid = success_ids[name]
+                return {"id": aid, "upload_url": f"https://s3/up{aid}"}
+            raise urllib.error.HTTPError("url", 500, "boom", {}, None)
+        client.post.side_effect = post_dispatch
+
+        # Per-asset confirm response, keyed by URL path; product PUT (if it
+        # ever ran, which it must not) would fall through to the default.
+        def put_dispatch(path, body=None, **kwargs):
+            if path.endswith("/confirm"):
+                aid = int(path.split("/")[2])
+                return {"id": aid, "public_url": f"u{aid}", "width": 1, "height": 1}
+            return {}
+        client.put.side_effect = put_dispatch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            files = [
+                _write_image(tmpdir, "ok1.jpg"),
+                _write_image(tmpdir, "fail1.jpg"),
+                _write_image(tmpdir, "ok2.jpg"),
+                _write_image(tmpdir, "fail2.jpg"),
+            ]
+            with patch(
+                "voog_mcp.tools.products_images.urllib.request.urlopen"
+            ) as mock_urlopen:
+                mock_urlopen.return_value.__enter__.return_value.status = 200
+                result = products_images_tools.call_tool(
+                    "product_set_images",
+                    {"product_id": 42, "files": [str(p) for p in files]},
+                    client,
+                )
+
+        # All 4 uploads were attempted (collect-then-decide, no abort)
+        self.assertEqual(client.post.call_count, 4)
+        # Product PUT must NOT have happened — any failure blocks it
+        product_put_calls = [
+            c for c in client.put.call_args_list
+            if c.args and c.args[0] == "/products/42"
+        ]
+        self.assertEqual(product_put_calls, [])
+
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        details = payload["details"]
+        self.assertEqual(len(details["uploaded"]), 2)
+        self.assertEqual(len(details["failed"]), 2)
+        uploaded_names = sorted(u["filename"] for u in details["uploaded"])
+        self.assertEqual(uploaded_names, ["ok1.jpg", "ok2.jpg"])
+        failed_names = sorted(f["filename"] for f in details["failed"])
+        self.assertEqual(failed_names, ["fail1.jpg", "fail2.jpg"])
+        uploaded_ids = sorted(u["asset_id"] for u in details["uploaded"])
+        self.assertEqual(uploaded_ids, [301, 302])
+
+    def test_failure_message_includes_orphan_recovery_guidance(self):
+        """Spec § 4.6: under parallel collect-then-decide, orphan count can
+        be up to N-1 (was 0..N-1 with first-failure-break). The error
+        message MUST hand the caller a concrete next step rather than make
+        them guess — the three documented recovery options must be present
+        verbatim in the message text.
+        """
+        client = _make_client()
+        client.get.return_value = {"id": 42, "asset_ids": []}
+
+        def post_dispatch(path, body, **kwargs):
+            if body["filename"] == "ok.jpg":
+                return {"id": 201, "upload_url": "https://s3/up201"}
+            raise urllib.error.HTTPError("url", 500, "boom", {}, None)
+        client.post.side_effect = post_dispatch
+        client.put.return_value = {
+            "id": 201, "public_url": "u", "width": 1, "height": 1,
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmpdir = Path(tmp)
+            img1 = _write_image(tmpdir, "ok.jpg")
+            img2 = _write_image(tmpdir, "fails.jpg")
+            with patch(
+                "voog_mcp.tools.products_images.urllib.request.urlopen"
+            ) as mock_urlopen:
+                mock_urlopen.return_value.__enter__.return_value.status = 200
+                result = products_images_tools.call_tool(
+                    "product_set_images",
+                    {"product_id": 42, "files": [str(img1), str(img2)]},
+                    client,
+                )
+
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        msg = payload["error"]
+        # Headline must include the "N of M" failure summary and product id
+        self.assertIn("1 of 2 upload(s) failed", msg)
+        self.assertIn("Product 42 NOT updated", msg)
+        # All three recovery options must be spelled out — callers shouldn't
+        # have to invent them.
+        self.assertIn("Orphan asset_id(s)", msg)
+        self.assertIn("Recovery options:", msg)
+        self.assertIn("Re-run product_set_images", msg)
+        self.assertIn("Manually link", msg)
+        self.assertIn("DELETE /assets/{id}", msg)
 
     def test_s3_upload_failure_captured_per_file(self):
         client = _make_client()
