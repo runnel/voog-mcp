@@ -3,6 +3,7 @@ import asyncio
 import logging
 import sys
 
+from voog_mcp.config import ConfigError
 from voog_mcp.server import run_server
 
 
@@ -10,7 +11,7 @@ def main():
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
     try:
         asyncio.run(run_server())
-    except RuntimeError as exc:
+    except ConfigError as exc:
         sys.stderr.write(f"❌ {exc}\n")
         sys.exit(1)
 
