@@ -11,17 +11,19 @@ from voog_mcp.config import load_config
 
 
 class TestLoadConfig(unittest.TestCase):
-    def test_missing_host_exits(self):
+    def test_missing_host_raises(self):
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop("VOOG_HOST", None)
             os.environ.pop("VOOG_API_TOKEN", None)
-            with self.assertRaises(SystemExit):
+            with self.assertRaises(RuntimeError) as ctx:
                 load_config()
+            self.assertIn("VOOG_HOST", str(ctx.exception))
 
-    def test_missing_token_exits(self):
+    def test_missing_token_raises(self):
         with patch.dict(os.environ, {"VOOG_HOST": "runnel.ee"}, clear=True):
-            with self.assertRaises(SystemExit):
+            with self.assertRaises(RuntimeError) as ctx:
                 load_config()
+            self.assertIn("VOOG_API_TOKEN", str(ctx.exception))
 
     def test_both_set_returns_config(self):
         env = {"VOOG_HOST": "runnel.ee", "VOOG_API_TOKEN": "abc"}
