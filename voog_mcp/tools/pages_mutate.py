@@ -20,6 +20,7 @@ boolean flag the LLM has to explicitly pass.
 """
 from mcp.types import CallToolResult, TextContent, Tool
 
+from voog_mcp._concurrency import parallel_map
 from voog_mcp.client import VoogClient
 from voog_mcp.errors import success_response, error_response
 
@@ -130,13 +131,18 @@ def _page_set_hidden(arguments: dict, client: VoogClient) -> list[TextContent] |
     if not ids:
         return error_response("page_set_hidden: ids must be a non-empty list")
 
+    def _put_one(pid):
+        return client.put(f"/pages/{pid}", {"hidden": hidden})
+
+    # Writes are more sensitive than reads — max_workers=4 (spec § 4.3).
+    parallel_results = parallel_map(_put_one, ids, max_workers=4)
+
     results = []
-    for pid in ids:
-        try:
-            client.put(f"/pages/{pid}", {"hidden": hidden})
+    for pid, _, exc in parallel_results:
+        if exc is None:
             results.append({"id": pid, "ok": True})
-        except Exception as e:
-            results.append({"id": pid, "ok": False, "error": str(e)})
+        else:
+            results.append({"id": pid, "ok": False, "error": str(exc)})
 
     succeeded = sum(1 for r in results if r["ok"])
     failed = len(results) - succeeded

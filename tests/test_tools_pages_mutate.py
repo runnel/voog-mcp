@@ -4,7 +4,7 @@ import sys
 import unittest
 import urllib.error
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -172,6 +172,52 @@ class TestPageSetHidden(unittest.TestCase):
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
+
+    def test_uses_parallel_map_with_max_workers_four(self):
+        # Spec § 4.3: writes use max_workers=4 (more conservative than reads).
+        client = MagicMock()
+        client.put.return_value = {}
+        with patch(
+            "voog_mcp.tools.pages_mutate.parallel_map",
+            wraps=pages_mutate_tools.parallel_map,
+        ) as wrapped:
+            pages_mutate_tools.call_tool(
+                "page_set_hidden",
+                {"ids": [1, 2, 3], "hidden": True},
+                client,
+            )
+        wrapped.assert_called_once()
+        # Validate max_workers=4 was passed (kwarg, not positional)
+        _args, kwargs = wrapped.call_args
+        self.assertEqual(kwargs.get("max_workers"), 4)
+
+    def test_one_of_n_put_failure_isolated(self):
+        # 1-of-N failure: that id reports ok=False with error; others ok=True.
+        client = MagicMock()
+
+        def put_side_effect(path, body):
+            if path == "/pages/2":
+                raise urllib.error.HTTPError("u", 500, "boom", {}, None)
+            return {}
+
+        client.put.side_effect = put_side_effect
+        result = pages_mutate_tools.call_tool(
+            "page_set_hidden",
+            {"ids": [1, 2, 3, 4], "hidden": True},
+            client,
+        )
+        breakdown = json.loads(result[1].text)
+        self.assertEqual(breakdown["total"], 4)
+        self.assertEqual(breakdown["succeeded"], 3)
+        self.assertEqual(breakdown["failed"], 1)
+        results_by_id = {r["id"]: r for r in breakdown["results"]}
+        self.assertTrue(results_by_id[1]["ok"])
+        self.assertFalse(results_by_id[2]["ok"])
+        self.assertIn("error", results_by_id[2])
+        self.assertTrue(results_by_id[3]["ok"])
+        self.assertTrue(results_by_id[4]["ok"])
+        # Order preserved in results list (matches input ids order)
+        self.assertEqual([r["id"] for r in breakdown["results"]], [1, 2, 3, 4])
 
 
 class TestPageSetLayout(unittest.TestCase):
