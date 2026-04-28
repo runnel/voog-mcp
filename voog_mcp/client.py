@@ -1,4 +1,11 @@
 """Voog Admin API + Ecommerce v1 API client."""
+# PEP 563 lazy annotations — voog.py is invoked under the system python3 (3.9
+# on macOS) which evaluates ``str | None`` at runtime as a TypeError. The MCP
+# server runs on the project venv (3.11+) where the syntax is native, but
+# ``voog.py`` reuses :class:`VoogClient` directly, so we keep annotations
+# string-only here.
+from __future__ import annotations
+
 import json
 import urllib.request
 import urllib.parse
@@ -20,7 +27,7 @@ class VoogClient:
             "User-Agent": "voog-mcp/0.1.0",
         }
 
-    def _request(self, method: str, path: str, *, base: str = None, data=None, params: dict = None):
+    def _request(self, method: str, path: str, *, base: str | None = None, data=None, params: dict | None = None):
         url = f"{base or self.base_url}{path}"
         if params:
             query = "&".join(f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items())
@@ -31,19 +38,19 @@ class VoogClient:
             body = resp.read()
             return json.loads(body) if body else None
 
-    def get(self, path: str, *, base: str = None, params: dict = None):
+    def get(self, path: str, *, base: str | None = None, params: dict | None = None):
         return self._request("GET", path, base=base, params=params)
 
-    def put(self, path: str, data=None, *, base: str = None):
+    def put(self, path: str, data=None, *, base: str | None = None):
         return self._request("PUT", path, base=base, data=data)
 
-    def post(self, path: str, data, *, base: str = None):
+    def post(self, path: str, data, *, base: str | None = None):
         return self._request("POST", path, base=base, data=data)
 
-    def delete(self, path: str, *, base: str = None):
+    def delete(self, path: str, *, base: str | None = None):
         return self._request("DELETE", path, base=base)
 
-    def get_all(self, path: str, *, base: str = None, params: dict = None):
+    def get_all(self, path: str, *, base: str | None = None, params: dict | None = None):
         """Pagination through all pages of results.
 
         Caller-provided ``params`` (e.g. ``{"include": "translations"}``) are
