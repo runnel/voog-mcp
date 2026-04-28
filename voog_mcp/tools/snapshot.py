@@ -316,7 +316,11 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
             req = urllib.request.Request(
                 url, headers={"User-Agent": "Mozilla/5.0 voog-mcp-snapshot/1.0"}
             )
-            with urllib.request.urlopen(req) as resp:
+            # Public HTML fetch is unauthenticated and bypasses VoogClient,
+            # so it needs its own timeout. 30s is shorter than the API
+            # default (60s) — a rendered page that hasn't responded by then
+            # is unlikely to ever, and we'd rather skip than hang.
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
         except Exception as e:
             skipped.append({
