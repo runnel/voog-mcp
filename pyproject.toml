@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "voog-mcp"
-version = "0.1.0"
+version = "1.0.0"
 description = "CLI and MCP server for Voog CMS — Liquid templates, pages, products, ecommerce"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,14 +12,14 @@ license = {text = "MIT"}
 authors = [{name = "Tõnu Runnel", email = "runnel@gmail.com"}]
 keywords = ["voog", "cms", "mcp", "liquid", "ecommerce"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-    "mcp>=0.9.0",
+    "mcp>=1.0,<2.0",
 ]
 
 [project.optional-dependencies]
@@ -30,7 +30,9 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/runnel/voog-mcp"
+Repository = "https://github.com/runnel/voog-mcp"
 Issues = "https://github.com/runnel/voog-mcp/issues"
+Changelog = "https://github.com/runnel/voog-mcp/blob/main/CHANGELOG.md"
 
 [project.scripts]
 voog = "voog.cli.main:main"
