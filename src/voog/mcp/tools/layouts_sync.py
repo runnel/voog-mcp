@@ -182,6 +182,18 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
             per_layout_errors.append({"layout_id": lid, "error": str(exc)})
             continue
 
+        # Voog admins can put anything in a layout title — guard against path
+        # separators and parent-dir tokens so a hostile or buggy title cannot
+        # write outside target_dir/{layouts,components}/.
+        if "/" in title or "\\" in title or ".." in title:
+            per_layout_errors.append(
+                {
+                    "layout_id": lid,
+                    "error": f"title contains path-unsafe characters: {title!r}",
+                }
+            )
+            continue
+
         body = (detail or {}).get("body", "") or ""
         is_component = bool(layout.get("component"))
         folder = components_dir if is_component else layouts_dir
@@ -284,6 +296,19 @@ def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
             continue
 
         full = target / rel_path
+        # Defense-in-depth: even with the pull-side title sanitizer in place, a
+        # hand-edited or corrupted manifest could still smuggle a "../" entry.
+        # Refuse to read or PUT anything that resolves outside target_dir.
+        resolved = full.resolve()
+        target_resolved = target.resolve()
+        if not resolved.is_relative_to(target_resolved):
+            results_by_path[rel_path] = {
+                "file": rel_path,
+                "ok": False,
+                "error": "rel_path escapes target directory (path traversal blocked)",
+            }
+            continue
+
         if not full.exists():
             results_by_path[rel_path] = {
                 "file": rel_path,
