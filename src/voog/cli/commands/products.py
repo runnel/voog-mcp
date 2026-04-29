@@ -7,6 +7,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from voog._upload_validation import _validate_upload_url
 from voog.client import VoogClient
 
 CONTENT_TYPES = {
@@ -198,6 +199,20 @@ def _upload_asset(path: Path, client: VoogClient) -> dict:
     )
     asset_id = asset["id"]
     upload_url = asset["upload_url"]
+
+    # Trust boundary: upload_url comes from the Voog API response. A bad
+    # value here means asset_id is already an orphan in Voog's library —
+    # surface that explicitly so the caller can clean it up. See
+    # voog._upload_validation for the rationale and allowlist.
+    try:
+        _validate_upload_url(upload_url)
+    except ValueError as e:
+        sys.stderr.write(
+            f"\nerror: upload_url validation failed for {path.name}: {e}\n"
+            f"  Asset {asset_id} is now an orphan in Voog's asset library.\n"
+            f"  Clean up via Voog admin UI or DELETE /assets/{asset_id}.\n"
+        )
+        raise
 
     # 2. Raw binary PUT to S3-style URL (NOT through VoogClient — no JSON, no auth)
     file_data = path.read_bytes()
