@@ -1,5 +1,6 @@
 # voog-mcp
 
+[![PyPI](https://img.shields.io/pypi/v/voog-mcp.svg)](https://pypi.org/project/voog-mcp/)
 [![tests](https://github.com/runnel/voog-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/runnel/voog-mcp/actions/workflows/test.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![python: 3.10 | 3.11 | 3.12](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
@@ -12,7 +13,14 @@ CLI and MCP server for [Voog CMS](https://www.voog.com/) — manage Liquid templ
 
 ## Install
 
-Install directly from GitHub:
+From PyPI:
+
+```bash
+pip install voog-mcp
+# or, no install: uvx voog-mcp --help
+```
+
+Or directly from GitHub (latest unreleased main):
 
 ```bash
 uvx --from git+https://github.com/runnel/voog-mcp.git voog --help

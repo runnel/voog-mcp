@@ -27,7 +27,7 @@ class VoogClient:
             "X-API-Token": api_token,
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "voog-mcp/1.0.1",
+            "User-Agent": "voog-mcp/1.0.2",
         }
 
     def _request(
