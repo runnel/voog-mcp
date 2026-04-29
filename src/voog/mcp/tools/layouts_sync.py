@@ -186,13 +186,7 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
         # separators, parent-dir tokens, null bytes (filesystem rejects these
         # with cryptic OSError), and whitespace-only titles (would produce
         # ".tpl" or " .tpl" — legal but nonsensical filenames).
-        if (
-            "/" in title
-            or "\\" in title
-            or ".." in title
-            or "\x00" in title
-            or not title.strip()
-        ):
+        if "/" in title or "\\" in title or ".." in title or "\x00" in title or not title.strip():
             per_layout_errors.append(
                 {
                     "layout_id": lid,
