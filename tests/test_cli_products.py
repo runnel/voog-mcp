@@ -19,9 +19,9 @@ from voog.cli.commands import products as products_cli
 
 def _make_client():
     client = MagicMock()
-    client.host = "test.example.com"
-    client.base_url = "https://test.example.com/admin/api"
-    client.ecommerce_url = "https://test.example.com/admin/api/ecommerce/v1"
+    client.host = "example.com"
+    client.base_url = "https://example.com/admin/api"
+    client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
     return client
 
 
