@@ -55,17 +55,23 @@ CONTENT_TYPES = {
 }
 
 # Allowlist of host suffixes for the presigned upload_url returned by Voog's
-# POST /assets. Voog uploads land on S3 (*.amazonaws.com); the .voog.com /
-# .voogcdn.com entries cover any future Voog-fronted CDN. Override at deploy
-# time via VOOG_UPLOAD_HOST_SUFFIXES (comma-separated) if Voog migrates.
-_DEFAULT_UPLOAD_HOST_SUFFIXES = (".amazonaws.com", ".voog.com", ".voogcdn.com")
+# POST /assets. Voog uploads land on S3 today, so the default is just
+# *.amazonaws.com — narrow on purpose, since `.voog.com` would let a
+# misbehaving API steer the file at a Voog admin endpoint instead of an S3
+# bucket. Override at deploy time via VOOG_UPLOAD_HOST_SUFFIXES (comma-
+# separated, e.g. "amazonaws.com,voogcdn.com") if Voog migrates the upload
+# host. Leading dot is optional in env input — entries are matched as bare
+# host or dot-boundary suffix (so "evil.com" never matches "notevil.com").
+_DEFAULT_UPLOAD_HOST_SUFFIXES = ("amazonaws.com",)
 
 
 def _allowed_upload_host_suffixes() -> tuple[str, ...]:
     raw = os.environ.get("VOOG_UPLOAD_HOST_SUFFIXES")
     if not raw:
         return _DEFAULT_UPLOAD_HOST_SUFFIXES
-    parts = tuple(p.strip() for p in raw.split(",") if p.strip())
+    # Strip leading dots — matching adds the boundary itself, so the input
+    # format is forgiving (".amazonaws.com" and "amazonaws.com" both work).
+    parts = tuple(p.strip().lstrip(".") for p in raw.split(",") if p.strip().lstrip("."))
     return parts or _DEFAULT_UPLOAD_HOST_SUFFIXES
 
 
@@ -82,7 +88,10 @@ def _validate_upload_url(upload_url: str) -> None:
         )
     host = (parsed.hostname or "").lower()
     suffixes = _allowed_upload_host_suffixes()
-    if not any(host == s.lstrip(".") or host.endswith(s) for s in suffixes):
+    # Match bare host (host == "amazonaws.com") OR dot-boundary suffix
+    # (host endswith ".amazonaws.com") — never a substring endswith, so
+    # "notevil.com" cannot match an "evil.com" entry.
+    if not any(host == s or host.endswith("." + s) for s in suffixes):
         raise ValueError(
             f"upload_url failed validation: host {host!r} not in allowlist "
             f"{suffixes} (set VOOG_UPLOAD_HOST_SUFFIXES to override) "

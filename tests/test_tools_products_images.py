@@ -13,6 +13,7 @@ Mutating + creates new asset records — never run against live runnel.ee.
 """
 
 import json
+import os
 import tempfile
 import unittest
 import urllib.error
@@ -184,7 +185,10 @@ class TestForceGuard(unittest.TestCase):
         # Empty asset_ids — replacing nothing — force=false is safe
         client = _make_client()
         client.get.return_value = {"id": 42, "name": "Widget", "asset_ids": []}
-        client.post.return_value = {"id": 200, "upload_url": "https://voog-test.s3.amazonaws.com/up200"}
+        client.post.return_value = {
+            "id": 200,
+            "upload_url": "https://voog-test.s3.amazonaws.com/up200",
+        }
         client.put.side_effect = [
             {
                 "id": 200,
@@ -209,7 +213,10 @@ class TestForceGuard(unittest.TestCase):
     def test_force_true_proceeds_with_existing_images(self):
         client = _make_client()
         client.get.return_value = {"id": 42, "name": "Widget", "asset_ids": [99]}
-        client.post.return_value = {"id": 200, "upload_url": "https://voog-test.s3.amazonaws.com/up200"}
+        client.post.return_value = {
+            "id": 200,
+            "upload_url": "https://voog-test.s3.amazonaws.com/up200",
+        }
         client.put.side_effect = [
             {"id": 200, "public_url": "https://cdn/200.jpg", "width": 800, "height": 600},
             {"id": 42, "asset_ids": [200], "image_id": 200},
@@ -340,7 +347,10 @@ class TestSuccessPath(unittest.TestCase):
         per voog.py."""
         client = _make_client()
         client.get.return_value = {"id": 42, "asset_ids": []}
-        client.post.return_value = {"id": 201, "upload_url": "https://voog-test.s3.amazonaws.com/up"}
+        client.post.return_value = {
+            "id": 201,
+            "upload_url": "https://voog-test.s3.amazonaws.com/up",
+        }
         client.put.side_effect = [
             {"id": 201, "public_url": "u", "width": 100, "height": 100},
             {"id": 42, "asset_ids": [201], "image_id": 201},
@@ -564,7 +574,10 @@ class TestPartialFailure(unittest.TestCase):
     def test_s3_upload_failure_captured_per_file(self):
         client = _make_client()
         client.get.return_value = {"id": 42, "asset_ids": []}
-        client.post.return_value = {"id": 201, "upload_url": "https://voog-test.s3.amazonaws.com/up"}
+        client.post.return_value = {
+            "id": 201,
+            "upload_url": "https://voog-test.s3.amazonaws.com/up",
+        }
 
         with tempfile.TemporaryDirectory() as tmp:
             img = _write_image(Path(tmp), "x.jpg")
@@ -600,7 +613,10 @@ class TestProductPutFailure(unittest.TestCase):
     def test_product_put_failure_surfaces_uploads(self):
         client = _make_client()
         client.get.return_value = {"id": 42, "asset_ids": []}
-        client.post.return_value = {"id": 201, "upload_url": "https://voog-test.s3.amazonaws.com/up"}
+        client.post.return_value = {
+            "id": 201,
+            "upload_url": "https://voog-test.s3.amazonaws.com/up",
+        }
         client.put.side_effect = [
             {"id": 201, "public_url": "u", "width": 1, "height": 1},  # confirm OK
             urllib.error.HTTPError("url", 422, "Unprocessable", {}, None),  # product PUT fails
@@ -712,6 +728,33 @@ class TestUploadUrlValidation(unittest.TestCase):
         payload = json.loads(result[-1].text)
         self.assertEqual(payload["new_asset_ids"], [201])
         self.assertEqual(payload["failed"], [])
+
+    def test_env_suffix_does_not_overmatch_substring(self):
+        # Regression for the naive endswith() shape: env entry "evil.com"
+        # (no leading dot) must NOT let a host like "notevil.com" pass.
+        # Matching is bare-host OR dot-boundary suffix only.
+        client = _make_client()
+        client.get.return_value = {"id": 42, "asset_ids": []}
+        client.post.return_value = {
+            "id": 201,
+            "upload_url": "https://notevil.com/upload",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            img = _write_image(Path(tmp), "x.jpg")
+            with (
+                patch.dict(os.environ, {"VOOG_UPLOAD_HOST_SUFFIXES": "evil.com"}, clear=False),
+                patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen,
+            ):
+                result = products_images_tools.call_tool(
+                    "product_set_images",
+                    {"product_id": 42, "files": [str(img)]},
+                    client,
+                )
+            mock_urlopen.assert_not_called()
+
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertEqual(len(payload["details"]["failed"]), 1)
 
 
 class TestUnknownTool(unittest.TestCase):
