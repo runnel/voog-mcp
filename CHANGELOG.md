@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] — 2026-04-29
+
+### Removed
+- Stale smoke-test classes (`TestMCPSmokeTools`, `TestMCPSmokeResources`) and supporting infrastructure from `tests/test_mcp_integration.py`. They were gated behind `RUN_SMOKE=1` + `VOOG_SMOKE_HOST` and used pre-multi-site env-var auth + pre-namespace resource URIs that are incompatible with the v1.0 server. Closes #59.
+
 ## [1.0.0] — 2026-04-29
 
 Stable release. API stabilized.
@@ -31,5 +36,6 @@ Initial public release. Refactored from internal personal tooling.
 - `voog.py` legacy script (replaced by `voog` CLI binary)
 - `voog_mcp/` package layout (replaced by `src/voog/mcp/`)
 
+[1.0.1]: https://github.com/runnel/voog-mcp/releases/tag/v1.0.1
 [1.0.0]: https://github.com/runnel/voog-mcp/releases/tag/v1.0.0
 [0.1.0]: https://github.com/runnel/voog-mcp/releases/tag/v0.1.0

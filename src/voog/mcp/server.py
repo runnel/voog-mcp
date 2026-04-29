@@ -118,7 +118,7 @@ def _validate_resource_uri_patterns(groups) -> None:
 
 async def run_server(global_cfg: GlobalConfig, env: dict[str, str]):
     factory = ClientFactory(global_cfg, env)
-    server = Server(name="voog-mcp", version="1.0.0")
+    server = Server(name="voog-mcp", version="1.0.1")
 
     tool_dispatch: dict = {}
     for group in TOOL_GROUPS:
