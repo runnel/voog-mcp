@@ -13,7 +13,6 @@ Mutating + creates new asset records — never run against live example.com.
 """
 
 import json
-import os
 import tempfile
 import unittest
 import urllib.error
@@ -642,45 +641,24 @@ class TestProductPutFailure(unittest.TestCase):
         self.assertEqual(details["uploaded"][0]["asset_id"], 201)
 
 
-class TestUploadUrlValidation(unittest.TestCase):
-    """SSRF defense-in-depth: upload_url comes from the Voog API response and
-    is sent to ``urllib.request.urlopen`` with raw file bytes. A compromised
-    or misbehaving Voog API could redirect the upload to an internal address
-    (e.g. AWS metadata at 169.254.169.254) or downgrade to HTTP. Validate
-    the URL scheme and host against an allowlist before opening the
-    connection.
+class TestUploadUrlValidationCallerFlow(unittest.TestCase):
+    """Caller-flow contract for the SSRF check.
+
+    Validator behavior (scheme/host/env/dot-boundary semantics) lives in
+    ``tests/test_upload_validation.py``. This test only verifies that the
+    MCP tool wires the validator in correctly: a bad ``upload_url`` from
+    the POST /assets response must short-circuit the upload and surface
+    the failure through the existing ``failed[]`` orphan-recovery channel,
+    so callers get the same UX as any other per-file upload failure.
     """
 
-    def test_upload_url_rejects_http_scheme(self):
+    def test_validation_failure_blocks_urlopen_and_surfaces_in_failed(self):
         client = _make_client()
         client.get.return_value = {"id": 42, "asset_ids": []}
-        # Voog returns an http:// URL — must be refused before urlopen runs.
-        client.post.return_value = {
-            "id": 201,
-            "upload_url": "http://attacker.example/upload",
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            img = _write_image(Path(tmp), "x.jpg")
-            with patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen:
-                result = products_images_tools.call_tool(
-                    "product_set_images",
-                    {"product_id": 42, "files": [str(img)]},
-                    client,
-                )
-            mock_urlopen.assert_not_called()
-
-        self.assertTrue(result.isError)
-        payload = json.loads(result.content[0].text)
-        details = payload["details"]
-        self.assertEqual(len(details["failed"]), 1)
-        self.assertEqual(details["failed"][0]["filename"], "x.jpg")
-        # Failure reason should mention the URL or scheme so callers can debug.
-        self.assertIn("upload_url", details["failed"][0]["error"].lower())
-
-    def test_upload_url_rejects_non_whitelisted_host(self):
-        client = _make_client()
-        client.get.return_value = {"id": 42, "asset_ids": []}
-        # https but the host is unknown to the allowlist — refuse.
+        # Voog returns a URL that fails validation (unknown host). The MCP
+        # tool must NOT open the connection and must route the failure to
+        # the per-file failed[] list with the asset_id so the caller can
+        # recover the orphan.
         client.post.return_value = {
             "id": 201,
             "upload_url": "https://attacker.example/upload",
@@ -699,62 +677,8 @@ class TestUploadUrlValidation(unittest.TestCase):
         payload = json.loads(result.content[0].text)
         details = payload["details"]
         self.assertEqual(len(details["failed"]), 1)
+        self.assertEqual(details["failed"][0]["filename"], "x.jpg")
         self.assertIn("upload_url", details["failed"][0]["error"].lower())
-
-    def test_upload_url_accepts_valid_voog_host(self):
-        # Happy path: an *.amazonaws.com presigned URL passes validation and
-        # the upload runs through to a successful product PUT.
-        client = _make_client()
-        client.get.return_value = {"id": 42, "asset_ids": []}
-        client.post.return_value = {
-            "id": 201,
-            "upload_url": "https://voog-prod.s3.eu-west-1.amazonaws.com/u/201?sig=abc",
-        }
-        client.put.side_effect = [
-            {"id": 201, "public_url": "https://cdn/201.jpg", "width": 1, "height": 1},
-            {"id": 42, "asset_ids": [201], "image_id": 201},
-        ]
-        with tempfile.TemporaryDirectory() as tmp:
-            img = _write_image(Path(tmp), "x.jpg")
-            with patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen:
-                mock_urlopen.return_value.__enter__.return_value.status = 200
-                result = products_images_tools.call_tool(
-                    "product_set_images",
-                    {"product_id": 42, "files": [str(img)]},
-                    client,
-                )
-            mock_urlopen.assert_called_once()
-
-        payload = json.loads(result[-1].text)
-        self.assertEqual(payload["new_asset_ids"], [201])
-        self.assertEqual(payload["failed"], [])
-
-    def test_env_suffix_does_not_overmatch_substring(self):
-        # Regression for the naive endswith() shape: env entry "evil.com"
-        # (no leading dot) must NOT let a host like "notevil.com" pass.
-        # Matching is bare-host OR dot-boundary suffix only.
-        client = _make_client()
-        client.get.return_value = {"id": 42, "asset_ids": []}
-        client.post.return_value = {
-            "id": 201,
-            "upload_url": "https://notevil.com/upload",
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            img = _write_image(Path(tmp), "x.jpg")
-            with (
-                patch.dict(os.environ, {"VOOG_UPLOAD_HOST_SUFFIXES": "evil.com"}, clear=False),
-                patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen,
-            ):
-                result = products_images_tools.call_tool(
-                    "product_set_images",
-                    {"product_id": 42, "files": [str(img)]},
-                    client,
-                )
-            mock_urlopen.assert_not_called()
-
-        self.assertTrue(result.isError)
-        payload = json.loads(result.content[0].text)
-        self.assertEqual(len(payload["details"]["failed"]), 1)
 
 
 class TestUnknownTool(unittest.TestCase):

@@ -34,14 +34,13 @@ complex than the rest of :mod:`voog_mcp.tools.products` (list/get/update),
 and isolating it keeps that module's read+translate flow easy to follow.
 """
 
-import os
-import urllib.parse
 import urllib.request
 from pathlib import Path
 
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog._concurrency import parallel_map
+from voog._upload_validation import _validate_upload_url
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
@@ -53,50 +52,6 @@ CONTENT_TYPES = {
     ".webp": "image/webp",
     ".gif": "image/gif",
 }
-
-# Allowlist of host suffixes for the presigned upload_url returned by Voog's
-# POST /assets. Voog uploads land on S3 today, so the default is just
-# *.amazonaws.com — narrow on purpose, since `.voog.com` would let a
-# misbehaving API steer the file at a Voog admin endpoint instead of an S3
-# bucket. Override at deploy time via VOOG_UPLOAD_HOST_SUFFIXES (comma-
-# separated, e.g. "amazonaws.com,voogcdn.com") if Voog migrates the upload
-# host. Leading dot is optional in env input — entries are matched as bare
-# host or dot-boundary suffix (so "evil.com" never matches "notevil.com").
-_DEFAULT_UPLOAD_HOST_SUFFIXES = ("amazonaws.com",)
-
-
-def _allowed_upload_host_suffixes() -> tuple[str, ...]:
-    raw = os.environ.get("VOOG_UPLOAD_HOST_SUFFIXES")
-    if not raw:
-        return _DEFAULT_UPLOAD_HOST_SUFFIXES
-    # Strip leading dots — matching adds the boundary itself, so the input
-    # format is forgiving (".amazonaws.com" and "amazonaws.com" both work).
-    parts = tuple(p.strip().lstrip(".") for p in raw.split(",") if p.strip().lstrip("."))
-    return parts or _DEFAULT_UPLOAD_HOST_SUFFIXES
-
-
-def _validate_upload_url(upload_url: str) -> None:
-    # Trust boundary: upload_url comes from the Voog API response. Refuse
-    # non-HTTPS or unexpected hosts to prevent SSRF if Voog API is
-    # compromised or returns a malicious URL (e.g. http://169.254.169.254/
-    # AWS metadata, or any internal address).
-    parsed = urllib.parse.urlparse(upload_url)
-    if parsed.scheme != "https":
-        raise ValueError(
-            f"upload_url failed validation: scheme must be https, got {parsed.scheme!r} "
-            f"({upload_url!r})"
-        )
-    host = (parsed.hostname or "").lower()
-    suffixes = _allowed_upload_host_suffixes()
-    # Match bare host (host == "amazonaws.com") OR dot-boundary suffix
-    # (host endswith ".amazonaws.com") — never a substring endswith, so
-    # "notevil.com" cannot match an "evil.com" entry.
-    if not any(host == s or host.endswith("." + s) for s in suffixes):
-        raise ValueError(
-            f"upload_url failed validation: host {host!r} not in allowlist "
-            f"{suffixes} (set VOOG_UPLOAD_HOST_SUFFIXES to override) "
-            f"({upload_url!r})"
-        )
 
 
 def get_tools() -> list[Tool]:
