@@ -341,6 +341,50 @@ class TestLayoutsPull(unittest.TestCase):
         # max_workers must be 8 (read-only fetches)
         self.assertEqual(call.kwargs.get("max_workers"), 8)
 
+    def test_layouts_pull_rejects_title_with_dotdot(self):
+        # A malicious or buggy Voog admin sets a layout title to "../../etc/passwd".
+        # _layouts_pull naively joins title into the file path, which would write
+        # OUTSIDE target_dir. Defense: skip the layout, capture per-layout error,
+        # and never touch the filesystem at the escaped path.
+        client = _make_client()
+        client.get_all.return_value = [
+            {"id": 1, "title": "ok", "component": False, "updated_at": ""},
+            {
+                "id": 2,
+                "title": "../../etc/passwd",
+                "component": False,
+                "updated_at": "",
+            },
+            {"id": 3, "title": "also/bad", "component": False, "updated_at": ""},
+            {"id": 4, "title": r"win\style", "component": False, "updated_at": ""},
+        ]
+        client.get.side_effect = lambda url: {"id": int(url.rsplit("/", 1)[1]), "body": "x"}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            result = layouts_sync_tools.call_tool(
+                "layouts_pull",
+                {"target_dir": str(target)},
+                client,
+            )
+            self.assertTrue((target / "layouts" / "ok.tpl").exists())
+            outside = Path(tmpdir) / "etc" / "passwd"
+            self.assertFalse(outside.exists())
+            for path in Path(tmpdir).rglob("*"):
+                if path.is_file():
+                    self.assertTrue(
+                        str(path).startswith(str(target)),
+                        f"file written outside target_dir: {path}",
+                    )
+
+        breakdown = json.loads(result[1].text)
+        self.assertEqual(breakdown["layouts_written"], 1)
+        errors = breakdown["per_layout_errors"]
+        self.assertEqual(len(errors), 3)
+        rejected_ids = {e["layout_id"] for e in errors}
+        self.assertEqual(rejected_ids, {2, 3, 4})
+        for entry in errors:
+            self.assertIn("path-unsafe", entry["error"])
+
     def test_one_detail_fetch_fails_others_written(self):
         # Phase A produces a mixed-result list: one exception, two successes.
         # Phase B (sequential write loop) must surface the failure in
@@ -680,6 +724,44 @@ class TestLayoutsPush(unittest.TestCase):
         wrapped.assert_called_once()
         _args, kwargs = wrapped.call_args
         self.assertEqual(kwargs.get("max_workers"), 4)
+
+    def test_layouts_push_blocks_manifest_path_traversal(self):
+        # Manifest entry with rel_path that escapes target_dir via "../".
+        # Defense-in-depth: even if a hand-edited or corrupted manifest contains
+        # "../escape.tpl", the push must NOT read/PUT it. Reported as per-file
+        # failure with "path traversal blocked".
+        client = _make_client()
+        client.put.return_value = {}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            outside = Path(tmpdir) / "escape.tpl"
+            outside.write_text("SECRET", encoding="utf-8")
+            _make_pulled_tree(
+                target,
+                manifest={
+                    "layouts/ok.tpl": {"id": 1, "type": "layout", "updated_at": ""},
+                    "../escape.tpl": {"id": 999, "type": "layout", "updated_at": ""},
+                },
+                contents={"layouts/ok.tpl": "ok-body"},
+            )
+            result = layouts_sync_tools.call_tool(
+                "layouts_push",
+                {"target_dir": str(target)},
+                client,
+            )
+        self.assertEqual(client.put.call_count, 1)
+        self.assertEqual(client.put.call_args.args[0], "/layouts/1")
+        # Belt-and-braces: no PUT body anywhere contains the planted secret.
+        for call in client.put.call_args_list:
+            body = call.args[1].get("body", "") if len(call.args) > 1 else ""
+            self.assertNotIn("SECRET", body)
+        breakdown = json.loads(result[1].text)
+        self.assertEqual(breakdown["total"], 2)
+        self.assertEqual(breakdown["succeeded"], 1)
+        self.assertEqual(breakdown["failed"], 1)
+        failed = [r for r in breakdown["results"] if not r["ok"]][0]
+        self.assertEqual(failed["file"], "../escape.tpl")
+        self.assertIn("path traversal blocked", failed["error"])
 
     def test_one_of_n_put_failure_isolated(self):
         # 1-of-N PUT failure: that file reports ok=False with error; others ok=True.
