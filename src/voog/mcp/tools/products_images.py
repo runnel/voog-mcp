@@ -34,6 +34,8 @@ complex than the rest of :mod:`voog_mcp.tools.products` (list/get/update),
 and isolating it keeps that module's read+translate flow easy to follow.
 """
 
+import os
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -51,6 +53,41 @@ CONTENT_TYPES = {
     ".webp": "image/webp",
     ".gif": "image/gif",
 }
+
+# Allowlist of host suffixes for the presigned upload_url returned by Voog's
+# POST /assets. Voog uploads land on S3 (*.amazonaws.com); the .voog.com /
+# .voogcdn.com entries cover any future Voog-fronted CDN. Override at deploy
+# time via VOOG_UPLOAD_HOST_SUFFIXES (comma-separated) if Voog migrates.
+_DEFAULT_UPLOAD_HOST_SUFFIXES = (".amazonaws.com", ".voog.com", ".voogcdn.com")
+
+
+def _allowed_upload_host_suffixes() -> tuple[str, ...]:
+    raw = os.environ.get("VOOG_UPLOAD_HOST_SUFFIXES")
+    if not raw:
+        return _DEFAULT_UPLOAD_HOST_SUFFIXES
+    parts = tuple(p.strip() for p in raw.split(",") if p.strip())
+    return parts or _DEFAULT_UPLOAD_HOST_SUFFIXES
+
+
+def _validate_upload_url(upload_url: str) -> None:
+    # Trust boundary: upload_url comes from the Voog API response. Refuse
+    # non-HTTPS or unexpected hosts to prevent SSRF if Voog API is
+    # compromised or returns a malicious URL (e.g. http://169.254.169.254/
+    # AWS metadata, or any internal address).
+    parsed = urllib.parse.urlparse(upload_url)
+    if parsed.scheme != "https":
+        raise ValueError(
+            f"upload_url failed validation: scheme must be https, got {parsed.scheme!r} "
+            f"({upload_url!r})"
+        )
+    host = (parsed.hostname or "").lower()
+    suffixes = _allowed_upload_host_suffixes()
+    if not any(host == s.lstrip(".") or host.endswith(s) for s in suffixes):
+        raise ValueError(
+            f"upload_url failed validation: host {host!r} not in allowlist "
+            f"{suffixes} (set VOOG_UPLOAD_HOST_SUFFIXES to override) "
+            f"({upload_url!r})"
+        )
 
 
 def get_tools() -> list[Tool]:
@@ -271,6 +308,7 @@ def _upload_asset(path: Path, client: VoogClient) -> dict:
     )
     asset_id = asset["id"]
     upload_url = asset["upload_url"]
+    _validate_upload_url(upload_url)
 
     # 2. Raw binary PUT to S3-style upload URL. Bypasses VoogClient because
     # this isn't JSON, isn't Voog-auth'd, and the URL is presigned.
