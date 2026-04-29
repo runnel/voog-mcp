@@ -8,12 +8,12 @@ from voog.client import VoogClient
 
 class TestVoogClient(unittest.TestCase):
     def test_init_sets_base_urls(self):
-        client = VoogClient(host="runnel.ee", api_token="testtoken")
-        self.assertEqual(client.base_url, "https://runnel.ee/admin/api")
-        self.assertEqual(client.ecommerce_url, "https://runnel.ee/admin/api/ecommerce/v1")
+        client = VoogClient(host="example.com", api_token="testtoken")
+        self.assertEqual(client.base_url, "https://example.com/admin/api")
+        self.assertEqual(client.ecommerce_url, "https://example.com/admin/api/ecommerce/v1")
 
     def test_init_sets_headers(self):
-        client = VoogClient(host="runnel.ee", api_token="testtoken")
+        client = VoogClient(host="example.com", api_token="testtoken")
         self.assertEqual(client.headers["X-API-Token"], "testtoken")
         self.assertEqual(client.headers["Content-Type"], "application/json")
 
@@ -23,15 +23,15 @@ class TestVoogClientTimeout(unittest.TestCase):
     connection (a hung HTTP call wedges the entire Claude session)."""
 
     def test_default_timeout_is_60_seconds(self):
-        client = VoogClient(host="runnel.ee", api_token="t")
+        client = VoogClient(host="example.com", api_token="t")
         self.assertEqual(client.timeout, 60)
 
     def test_custom_timeout_stored(self):
-        client = VoogClient(host="runnel.ee", api_token="t", timeout=15)
+        client = VoogClient(host="example.com", api_token="t", timeout=15)
         self.assertEqual(client.timeout, 15)
 
     def test_request_passes_timeout_to_urlopen(self):
-        client = VoogClient(host="runnel.ee", api_token="t", timeout=15)
+        client = VoogClient(host="example.com", api_token="t", timeout=15)
         fake_resp = MagicMock()
         fake_resp.read.return_value = b"{}"
         with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
@@ -41,7 +41,7 @@ class TestVoogClientTimeout(unittest.TestCase):
         self.assertEqual(kwargs.get("timeout"), 15)
 
     def test_request_uses_default_timeout_when_not_overridden(self):
-        client = VoogClient(host="runnel.ee", api_token="t")
+        client = VoogClient(host="example.com", api_token="t")
         fake_resp = MagicMock()
         fake_resp.read.return_value = b"{}"
         with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
@@ -84,7 +84,7 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
     """get_all merges caller params with pagination params."""
 
     def _make_client(self):
-        client = VoogClient(host="runnel.ee", api_token="t")
+        client = VoogClient(host="example.com", api_token="t")
         # Mock the underlying single-page get to avoid real HTTP
         client.get = MagicMock(return_value=[])  # one empty page → loop exits
         return client
@@ -122,7 +122,7 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
         # would silently re-fetch the same page every iteration and
         # infinite-loop on endpoints with ≥1 full page. The iteration
         # counter always wins.
-        client = VoogClient(host="runnel.ee", api_token="t")
+        client = VoogClient(host="example.com", api_token="t")
         client.get = MagicMock(
             side_effect=[
                 [{"id": i} for i in range(100)],  # page 1, full
@@ -137,7 +137,7 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
         self.assertEqual(second_call.kwargs["params"]["page"], 2)
 
     def test_pagination_increments_page_across_calls(self):
-        client = VoogClient(host="runnel.ee", api_token="t")
+        client = VoogClient(host="example.com", api_token="t")
         # First page returns full 100, second returns partial → loop exits
         client.get = MagicMock(
             side_effect=[

@@ -9,7 +9,7 @@ Covers the 3-step Voog asset upload protocol via mocks:
 Then a final PUT /products/{id} (ecommerce_url) with flat
 {image_id, asset_ids} payload.
 
-Mutating + creates new asset records — never run against live runnel.ee.
+Mutating + creates new asset records — never run against live example.com.
 """
 
 import json

@@ -54,7 +54,7 @@ class TestArticlesResourcesReadRoot(unittest.TestCase):
                 "id": 5001,
                 "title": "Hello World",
                 "path": "blog/hello-world",
-                "public_url": "https://runnel.ee/blog/hello-world",
+                "public_url": "https://example.com/blog/hello-world",
                 "published": True,
                 "published_at": "2026-04-01T00:00:00Z",
                 "updated_at": "2026-04-15T00:00:00Z",
