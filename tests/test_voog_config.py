@@ -70,10 +70,8 @@ class TestResolveSite(unittest.TestCase):
     def _make_global(self, default_site=None):
         return GlobalConfig(
             sites={
-                "stella": SiteConfig(
-                    name="stella", host="stellasoomlais.com", api_key_env="VOOG_API_KEY"
-                ),
-                "runnel": SiteConfig(name="runnel", host="runnel.ee", api_key_env="RUNNEL_KEY"),
+                "stella": SiteConfig(name="stella", host="mysite.com", api_key_env="VOOG_API_KEY"),
+                "runnel": SiteConfig(name="runnel", host="example.com", api_key_env="RUNNEL_KEY"),
             },
             default_site=default_site,
             env_file=None,

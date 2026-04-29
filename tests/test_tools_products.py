@@ -72,7 +72,7 @@ class TestGetTools(unittest.TestCase):
 class TestProductsList(unittest.TestCase):
     def test_products_list_uses_ecommerce_base_with_translations(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get_all.return_value = [
             {"id": 1, "name": "Widget", "slug": "widget", "status": "live"},
         ]
@@ -83,7 +83,7 @@ class TestProductsList(unittest.TestCase):
         )
         client.get_all.assert_called_once_with(
             "/products",
-            base="https://runnel.ee/admin/api/ecommerce/v1",
+            base="https://example.com/admin/api/ecommerce/v1",
             params={"include": "translations"},
         )
         # success_response with summary → 2 TextContents (summary + JSON)
@@ -91,7 +91,7 @@ class TestProductsList(unittest.TestCase):
 
     def test_products_list_simplified_projection(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get_all.return_value = [
             {
                 "id": 1,
@@ -138,7 +138,7 @@ class TestProductsList(unittest.TestCase):
 
     def test_products_list_empty(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get_all.return_value = []
         result = products_tools.call_tool(
             "products_list",
@@ -150,7 +150,7 @@ class TestProductsList(unittest.TestCase):
 
     def test_products_list_api_error(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get_all.side_effect = urllib.error.URLError("network down")
         result = products_tools.call_tool(
             "products_list",
@@ -166,7 +166,7 @@ class TestProductsList(unittest.TestCase):
 class TestProductGet(unittest.TestCase):
     def test_product_get_uses_ecommerce_base_with_both_includes(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get.return_value = {
             "id": 42,
             "name": "X",
@@ -181,7 +181,7 @@ class TestProductGet(unittest.TestCase):
         )
         client.get.assert_called_once_with(
             "/products/42",
-            base="https://runnel.ee/admin/api/ecommerce/v1",
+            base="https://example.com/admin/api/ecommerce/v1",
             params={"include": "variant_types,translations"},
         )
         # Detail returned in full (no projection)
@@ -189,7 +189,7 @@ class TestProductGet(unittest.TestCase):
 
     def test_product_get_api_error(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         result = products_tools.call_tool(
             "product_get",
@@ -205,7 +205,7 @@ class TestProductGet(unittest.TestCase):
 class TestProductUpdate(unittest.TestCase):
     def test_simple_translation_field_update(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.put.return_value = {"id": 42, "name": "Updated"}
         result = products_tools.call_tool(
             "product_update",
@@ -223,13 +223,13 @@ class TestProductUpdate(unittest.TestCase):
                     }
                 }
             },
-            base="https://runnel.ee/admin/api/ecommerce/v1",
+            base="https://example.com/admin/api/ecommerce/v1",
         )
         self.assertEqual(len(result), 2)
 
     def test_multilingual_update(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.put.return_value = {"id": 42}
         products_tools.call_tool(
             "product_update",
@@ -288,7 +288,7 @@ class TestProductUpdate(unittest.TestCase):
 
     def test_api_error_returns_error_response(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.put.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         result = products_tools.call_tool(
             "product_update",

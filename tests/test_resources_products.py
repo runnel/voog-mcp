@@ -50,7 +50,7 @@ class TestProductsResourcesMatches(unittest.TestCase):
 class TestProductsResourcesReadRoot(unittest.TestCase):
     def test_read_root_uses_ecommerce_base_with_translations_include(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get_all.return_value = [
             {
                 "id": 42,
@@ -71,7 +71,7 @@ class TestProductsResourcesReadRoot(unittest.TestCase):
         # Must use the ecommerce base URL and request translations include
         client.get_all.assert_called_once_with(
             "/products",
-            base="https://runnel.ee/admin/api/ecommerce/v1",
+            base="https://example.com/admin/api/ecommerce/v1",
             params={"include": "translations"},
         )
         client.get.assert_not_called()
@@ -93,7 +93,7 @@ class TestProductsResourcesReadRoot(unittest.TestCase):
 
     def test_read_root_handles_missing_optional_fields(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get_all.return_value = [
             {"id": 1, "name": "Bare"},  # most fields absent
         ]
@@ -108,7 +108,7 @@ class TestProductsResourcesReadRoot(unittest.TestCase):
 
     def test_read_root_empty(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get_all.return_value = []
         result = products_resources.read_resource("voog://stella/products", client)
         contents = list(result)
@@ -119,7 +119,7 @@ class TestProductsResourcesReadRoot(unittest.TestCase):
 class TestProductsResourcesReadSingleProduct(unittest.TestCase):
     def test_read_single_product_uses_ecommerce_base_with_both_includes(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         full_product = {
             "id": 42,
             "name": "T-shirt",
@@ -135,7 +135,7 @@ class TestProductsResourcesReadSingleProduct(unittest.TestCase):
         # Must request both includes per spec § 5
         client.get.assert_called_once_with(
             "/products/42",
-            base="https://runnel.ee/admin/api/ecommerce/v1",
+            base="https://example.com/admin/api/ecommerce/v1",
             params={"include": "variant_types,translations"},
         )
         client.get_all.assert_not_called()
@@ -153,7 +153,7 @@ class TestProductsResourcesReadSingleProduct(unittest.TestCase):
         # Voog only returns variant_types when product uses variants.
         # Resource MUST NOT crash when API omits the field.
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get.return_value = {
             "id": 42,
             "name": "Plain",
@@ -201,14 +201,14 @@ class TestProductsResourcesUnknownUri(unittest.TestCase):
 class TestProductsResourcesErrorPropagation(unittest.TestCase):
     def test_root_propagates_api_errors(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get_all.side_effect = urllib.error.URLError("network down")
         with self.assertRaises(urllib.error.URLError):
             products_resources.read_resource("voog://stella/products", client)
 
     def test_single_product_propagates_api_errors(self):
         client = MagicMock()
-        client.ecommerce_url = "https://runnel.ee/admin/api/ecommerce/v1"
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get.side_effect = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
         with self.assertRaises(urllib.error.HTTPError):
             products_resources.read_resource("voog://stella/products/999", client)

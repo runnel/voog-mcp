@@ -73,7 +73,7 @@ class TestPagesTools(unittest.TestCase):
                 "content_type": "page",
                 "parent_id": None,
                 "language": {"code": "et"},
-                "public_url": "https://runnel.ee/foo",
+                "public_url": "https://example.com/foo",
             }
         ]
         out = simplify_pages(raw)

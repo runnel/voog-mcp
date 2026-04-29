@@ -184,7 +184,7 @@ class TestLayoutCreate(unittest.TestCase):
         self.assertNotIn("content_type", payload)
 
     def test_create_layout_explicit_content_type_blog_article(self):
-        # runnel.ee already has 2 layouts with content_type=blog_article;
+        # example.com already has 2 layouts with content_type=blog_article;
         # MCP must allow creating these (PR #28 review caught this gap).
         client = MagicMock()
         client.post.return_value = {"id": 999, "title": "Post", "component": False}
