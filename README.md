@@ -1,10 +1,18 @@
 # voog-mcp
 
+[![tests](https://github.com/runnel/voog-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/runnel/voog-mcp/actions/workflows/test.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![python: 3.10 | 3.11 | 3.12](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
+
 CLI and MCP server for [Voog CMS](https://www.voog.com/) — manage Liquid templates, pages, products, ecommerce settings, and redirects from your terminal or directly from Claude / any MCP client.
+
+## What is Voog?
+
+[Voog](https://www.voog.com/) is a multilingual website builder and CMS with built-in ecommerce, used for content sites and small online stores. This package wraps its [admin API](https://www.voog.com/developers) so you can edit templates, pages, products, and redirects from your shell or an LLM agent.
 
 ## Install
 
-While in v0.x development, install directly from GitHub:
+Install directly from GitHub:
 
 ```bash
 uvx --from git+https://github.com/runnel/voog-mcp.git voog --help
@@ -97,6 +105,20 @@ voog_list_sites()
 voog_get_page(site="mysite", page_id=42)
 → {...}
 ```
+
+## What's NOT supported
+
+voog-mcp covers the surface area needed to manage content and a small ecommerce catalog. The following Voog API areas are intentionally out of scope for now:
+
+- Form definitions and form responses
+- Comments and visitor data
+- Site-level settings, languages, and translations
+- Customer, order, and cart data (ecommerce orders/checkout flows)
+- Users, roles, and permissions
+- General asset/media library uploads (product images are supported)
+- Site creation (voog-mcp targets existing sites)
+
+If you need any of these, open an [issue](https://github.com/runnel/voog-mcp/issues) — or a PR.
 
 ## License
 
