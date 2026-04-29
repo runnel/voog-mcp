@@ -751,6 +751,10 @@ class TestLayoutsPush(unittest.TestCase):
             )
         self.assertEqual(client.put.call_count, 1)
         self.assertEqual(client.put.call_args.args[0], "/layouts/1")
+        # Belt-and-braces: no PUT body anywhere contains the planted secret.
+        for call in client.put.call_args_list:
+            body = call.args[1].get("body", "") if len(call.args) > 1 else ""
+            self.assertNotIn("SECRET", body)
         breakdown = json.loads(result[1].text)
         self.assertEqual(breakdown["total"], 2)
         self.assertEqual(breakdown["succeeded"], 1)

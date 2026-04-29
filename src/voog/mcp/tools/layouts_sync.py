@@ -183,9 +183,16 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
             continue
 
         # Voog admins can put anything in a layout title — guard against path
-        # separators and parent-dir tokens so a hostile or buggy title cannot
-        # write outside target_dir/{layouts,components}/.
-        if "/" in title or "\\" in title or ".." in title:
+        # separators, parent-dir tokens, null bytes (filesystem rejects these
+        # with cryptic OSError), and whitespace-only titles (would produce
+        # ".tpl" or " .tpl" — legal but nonsensical filenames).
+        if (
+            "/" in title
+            or "\\" in title
+            or ".." in title
+            or "\x00" in title
+            or not title.strip()
+        ):
             per_layout_errors.append(
                 {
                     "layout_id": lid,
@@ -299,6 +306,8 @@ def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
         # Defense-in-depth: even with the pull-side title sanitizer in place, a
         # hand-edited or corrupted manifest could still smuggle a "../" entry.
         # Refuse to read or PUT anything that resolves outside target_dir.
+        # resolve() follows symlinks — a symlink inside target_dir pointing
+        # outside is blocked too (symlink attacks are a classic exfil vector).
         resolved = full.resolve()
         target_resolved = target.resolve()
         if not resolved.is_relative_to(target_resolved):
