@@ -674,6 +674,7 @@ class TestServerToolRegistry(unittest.TestCase):
         # products, redirects) plus layouts_sync (Task 11b — filesystem-
         # touching layouts pull/push) and products_images (deferred from
         # Task 13 — 3-step asset upload protocol).
+        # Task 2 (endpoint coverage): raw passthrough tools also added.
         from voog.mcp import server
         from voog.mcp.tools import (
             layouts as layouts_t,
@@ -694,6 +695,9 @@ class TestServerToolRegistry(unittest.TestCase):
             products_images as products_images_t,
         )
         from voog.mcp.tools import (
+            raw as raw_t,
+        )
+        from voog.mcp.tools import (
             redirects as redirects_t,
         )
         from voog.mcp.tools import (
@@ -707,6 +711,7 @@ class TestServerToolRegistry(unittest.TestCase):
             pages_mutate_t,
             products_t,
             products_images_t,
+            raw_t,
             redirects_t,
             snapshot_t,
         }

@@ -40,6 +40,7 @@ from voog.mcp.tools import pages as pages_tools
 from voog.mcp.tools import pages_mutate as pages_mutate_tools
 from voog.mcp.tools import products as products_tools
 from voog.mcp.tools import products_images as products_images_tools
+from voog.mcp.tools import raw as raw_tools
 from voog.mcp.tools import redirects as redirects_tools
 from voog.mcp.tools import snapshot as snapshot_tools
 
@@ -52,6 +53,7 @@ TOOL_GROUPS = [
     pages_mutate_tools,
     products_tools,
     products_images_tools,
+    raw_tools,
     redirects_tools,
     snapshot_tools,
 ]
