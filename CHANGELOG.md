@@ -4,6 +4,12 @@ All notable changes to this project will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] — 2026-04-29
+
+### Added
+- `pip install voog-mcp` — first release distributed via PyPI (in addition to git+URL installs).
+- `.github/workflows/publish.yml` — automated PyPI publish on `v*` tag push, using PyPI Trusted Publishers (OIDC, no API tokens).
+
 ## [1.0.1] — 2026-04-29
 
 ### Removed
@@ -36,6 +42,7 @@ Initial public release. Refactored from internal personal tooling.
 - `voog.py` legacy script (replaced by `voog` CLI binary)
 - `voog_mcp/` package layout (replaced by `src/voog/mcp/`)
 
+[1.0.2]: https://github.com/runnel/voog-mcp/releases/tag/v1.0.2
 [1.0.1]: https://github.com/runnel/voog-mcp/releases/tag/v1.0.1
 [1.0.0]: https://github.com/runnel/voog-mcp/releases/tag/v1.0.0
 [0.1.0]: https://github.com/runnel/voog-mcp/releases/tag/v0.1.0
