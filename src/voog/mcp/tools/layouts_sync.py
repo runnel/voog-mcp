@@ -291,7 +291,7 @@ def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
                 "id": info.get("id"),
                 "error": (
                     f"unsupported manifest type {entry_type!r}; layouts_push "
-                    "only handles type='layout' (use voog.py CLI for asset push)"
+                    "only handles type='layout' (use the `voog push` CLI for asset push)"
                 ),
             }
             continue

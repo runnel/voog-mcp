@@ -12,12 +12,12 @@ Three pure-API tools:
                            is left in place for caller to delete after
                            updating templates that reference the old name.
 
-Filesystem-touching tools (``layouts_pull`` / ``layouts_push``) are deferred
-to a follow-up. The ``voog.py`` CLI shim still works for those — users can
-invoke it via Bash for now, while these three pure-API tools handle the
-common per-layout operations from MCP.
+Note: ``layouts_pull`` / ``layouts_push`` (filesystem-touching, manifest-based)
+live in :mod:`voog.mcp.tools.layouts_sync`; this module hosts the three pure-API
+operations. The ``voog`` CLI also exposes both groups via ``voog pull`` /
+``voog push`` for shell-driven workflows.
 
-Pattern mirrors :mod:`voog_mcp.tools.pages_mutate`: explicit MCP annotations
+Pattern mirrors :mod:`voog.mcp.tools.pages_mutate`: explicit MCP annotations
 on every tool (per PR #27 review — spec defaults destructiveHint=true when
 readOnlyHint=false, so non-destructive mutating tools must be explicit).
 """
