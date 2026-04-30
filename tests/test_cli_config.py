@@ -9,6 +9,16 @@ from voog.config import GlobalConfig, SiteConfig
 
 
 class TestListSites(unittest.TestCase):
+    def _patch_loaders(self, merged: GlobalConfig, home: GlobalConfig | None = None):
+        """Patch both loaders the new list_sites uses (merged + home for diff)."""
+        home_cfg = home if home is not None else merged
+        return patch.multiple(
+            "voog.cli.commands.config",
+            load_merged_config=lambda **_: merged,
+            load_global_config=lambda *a, **kw: home_cfg,
+            find_cwd_config=lambda *a, **kw: None,
+        )
+
     def test_prints_each_site(self):
         cfg = GlobalConfig(
             sites={
@@ -17,10 +27,9 @@ class TestListSites(unittest.TestCase):
             },
             default_site="alpha",
         )
-        with patch("voog.cli.commands.config.load_global_config", return_value=cfg):
-            with patch("sys.stdout", new_callable=StringIO) as stdout:
-                args = type("Args", (), {"config": None})()
-                rc = config_cmd.list_sites(args)
+        with self._patch_loaders(cfg), patch("sys.stdout", new_callable=StringIO) as stdout:
+            args = type("Args", (), {"config": None})()
+            rc = config_cmd.list_sites(args)
         out = stdout.getvalue()
         self.assertEqual(rc, 0)
         self.assertIn("alpha", out)
@@ -30,10 +39,9 @@ class TestListSites(unittest.TestCase):
 
     def test_no_sites_prints_message(self):
         cfg = GlobalConfig()
-        with patch("voog.cli.commands.config.load_global_config", return_value=cfg):
-            with patch("sys.stdout", new_callable=StringIO) as stdout:
-                args = type("Args", (), {"config": None})()
-                rc = config_cmd.list_sites(args)
+        with self._patch_loaders(cfg), patch("sys.stdout", new_callable=StringIO) as stdout:
+            args = type("Args", (), {"config": None})()
+            rc = config_cmd.list_sites(args)
         self.assertEqual(rc, 0)
         self.assertIn("no sites configured", stdout.getvalue().lower())
 

@@ -9,6 +9,12 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 ### Added
 - `voog.json` site entries now accept `api_key` inline (in addition to the existing `api_key_env` env-var-name reference). Closes #70.
 
+### Changed
+- Per-repo site selection now uses `voog.json` (same schema as the home-level config) instead of the bespoke `voog-site.json` format. Drop a minimal `{"default_site": "<name>"}` at the repo root. Closes #71.
+
+### Deprecated
+- `voog-site.json` still works with a deprecation warning. Migration: rename to `voog.json` and use `default_site` instead of `site`. Earliest removal: v2.0.
+
 ## [1.0.2] — 2026-04-29
 
 ### Added
