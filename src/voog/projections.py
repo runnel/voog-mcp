@@ -1,6 +1,6 @@
 """Shared simplify_* projections used by both tools and resources surfaces.
 
-Both ``voog_mcp.tools.<group>`` and ``voog_mcp.resources.<group>`` expose list
+Both ``voog.mcp.tools.<group>`` and ``voog.mcp.resources.<group>`` expose list
 views of the same Voog API entities. Each surface promises the *same shape* —
 "caller can't tell which surface produced the data", which keeps Claude's
 mental model consistent. Living the projection in one place stops the two

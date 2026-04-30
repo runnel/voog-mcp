@@ -1,4 +1,4 @@
-"""Tests for voog_mcp.tools.products."""
+"""Tests for voog.mcp.tools.products."""
 
 import json
 import unittest
@@ -132,7 +132,7 @@ class TestProductsList(unittest.TestCase):
             "updated_at",
         ):
             self.assertIn(keep, item)
-        # Heavier fields stripped (consistent with voog_mcp.resources.products)
+        # Heavier fields stripped (consistent with voog.mcp.resources.products)
         self.assertNotIn("description", item)
         self.assertNotIn("physical_properties", item)
 
@@ -345,7 +345,7 @@ class TestProjectionConsistency(unittest.TestCase):
 
     The PR description claims products_list tool and voog://products resource
     produce identical shapes. The shape is now enforced structurally: both
-    surfaces import :func:`simplify_products` from :mod:`voog_mcp.projections`,
+    surfaces import :func:`simplify_products` from :mod:`voog.projections`,
     so the two cannot drift. This test pins the import to that single source
     of truth — if anyone re-introduces a local copy in either module, the
     assertion fails.

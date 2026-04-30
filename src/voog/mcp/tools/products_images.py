@@ -14,12 +14,12 @@ The 3-step protocol per file (matches ``voog.py``'s ``upload_asset``):
 
 Then a final PUT ``/products/{id}`` (ecommerce_url) with flat
 ``{image_id, asset_ids}`` payload — note: NOT wrapped in ``{product: {...}}``
-unlike :func:`voog_mcp.tools.products._product_update`. Voog's wrapper
+unlike :func:`voog.mcp.tools.products._product_update`. Voog's wrapper
 convention varies per operation, not per resource; ``voog.py`` empirically
 confirms this endpoint accepts the flat shape.
 
 **Partial failure semantics (collect-then-decide):** uploads run in parallel
-(:func:`voog_mcp._concurrency.parallel_map`, ``max_workers=3`` per spec § 4.3 —
+(:func:`voog._concurrency.parallel_map`, ``max_workers=3`` per spec § 4.3 —
 each upload is a multi-MB binary, so the cap is conservative). All uploads
 run to completion *before* the product PUT decision; if any single upload
 fails, the final product PUT is skipped — better to surface the failure
@@ -30,7 +30,7 @@ Surfaced in ``uploaded`` for the caller to re-link via admin UI, re-run the
 tool with the failed file(s) removed, or DELETE ``/assets/{id}`` to clean up.
 
 **Why this lives in its own module:** the 3-step protocol is markedly more
-complex than the rest of :mod:`voog_mcp.tools.products` (list/get/update),
+complex than the rest of :mod:`voog.mcp.tools.products` (list/get/update),
 and isolating it keeps that module's read+translate flow easy to follow.
 """
 

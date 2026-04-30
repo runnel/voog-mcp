@@ -1,4 +1,4 @@
-"""Tests for voog_mcp.tools._helpers shared primitives."""
+"""Tests for voog.mcp.tools._helpers shared primitives."""
 
 import json
 import tempfile

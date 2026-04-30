@@ -124,7 +124,7 @@ class TestMCPInitialize(unittest.TestCase):
     def test_tool_validation_error_returns_iserror_true(self):
         # Verifies that error_response surfaces as CallToolResult(isError=True)
         # over the wire. We pick page_delete with force omitted: the tool's
-        # own validation refuses (so this exercises voog_mcp.errors.error_response,
+        # own validation refuses (so this exercises voog.errors.error_response,
         # not the SDK's input-validation path) and returns without making any
         # HTTP call — the dummy token is sufficient. Without isError=True a
         # client cannot distinguish a tool-level failure from a successful

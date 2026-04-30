@@ -1,4 +1,4 @@
-"""Tests for voog_mcp.tools.products_images.
+"""Tests for voog.mcp.tools.products_images.
 
 Covers the 3-step Voog asset upload protocol via mocks:
 

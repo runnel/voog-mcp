@@ -16,12 +16,12 @@ Per spec § 5: list view uses ``?include=translations`` (matches the existing
 ``?include=variant_types,translations`` (variants + i18n metadata for the
 detail view).
 
-Pattern mirrors :mod:`voog_mcp.resources.pages`: ``URI_TEMPLATE`` constant,
+Pattern mirrors :mod:`voog.mcp.resources.pages`: ``URI_TEMPLATE`` constant,
 site-namespaced :func:`matches`, strict :func:`parse_id` (shared),
 errors propagate to the server layer (no wrapping into MCP error responses).
 
-The list view's curated shape comes from :func:`voog_mcp.projections.simplify_products`,
-shared with :mod:`voog_mcp.tools.products` so the ``products_list`` tool and
+The list view's curated shape comes from :func:`voog.projections.simplify_products`,
+shared with :mod:`voog.mcp.tools.products` so the ``products_list`` tool and
 the ``voog://{site}/products`` resource can't drift out of sync.
 """
 
