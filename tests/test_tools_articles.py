@@ -198,6 +198,24 @@ class TestArticlePublish(unittest.TestCase):
         self.assertIs(body["publishing"], True)
 
 
+    def test_rejects_when_all_autosaved_null(self):
+        # If a freshly-created article never had any content set, publishing
+        # would produce an empty post. Reject with a clear error pointing at
+        # article_update.
+        client = MagicMock()
+        client.get.return_value = {
+            "id": 99,
+            "autosaved_title": None,
+            "autosaved_body": None,
+            "autosaved_excerpt": None,
+        }
+        result = articles_tools.call_tool(
+            "article_publish", {"article_id": 99}, client
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+
 class TestArticleDelete(unittest.TestCase):
     def test_requires_force(self):
         client = MagicMock()

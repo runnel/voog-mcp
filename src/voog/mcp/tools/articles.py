@@ -324,8 +324,17 @@ def _article_publish(arguments: dict, client: VoogClient):
     except Exception as e:
         return error_response(f"article_publish: GET {article_id} failed: {e}")
 
+    autosaved_keys = ("autosaved_title", "autosaved_body", "autosaved_excerpt")
+    if all(article.get(k) is None for k in autosaved_keys):
+        return error_response(
+            f"article_publish: article {article_id} has no autosaved values to "
+            "publish — autosaved_title, autosaved_body, and autosaved_excerpt "
+            "are all null. Call article_update first to set the content, then "
+            "publish."
+        )
+
     body = {"publishing": True}
-    for key in ("autosaved_title", "autosaved_body", "autosaved_excerpt"):
+    for key in autosaved_keys:
         if article.get(key) is not None:
             body[key] = article[key]
 
