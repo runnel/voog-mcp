@@ -120,3 +120,31 @@ def simplify_layouts(layouts: list) -> list:
             }
         )
     return simplified
+
+
+def simplify_languages(languages: list) -> list:
+    """Project languages list to {id, code, title, default, published, position}."""
+    return [
+        {
+            "id": lang.get("id"),
+            "code": lang.get("code"),
+            "title": lang.get("title"),
+            "default_language": lang.get("default_language"),
+            "published": lang.get("published"),
+            "position": lang.get("position"),
+        }
+        for lang in languages
+    ]
+
+
+def simplify_nodes(nodes: list) -> list:
+    """Project nodes list to {id, title, parent_id, position}."""
+    return [
+        {
+            "id": n.get("id"),
+            "title": n.get("title"),
+            "parent_id": n.get("parent_id"),
+            "position": n.get("position"),
+        }
+        for n in nodes
+    ]

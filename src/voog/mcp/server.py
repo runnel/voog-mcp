@@ -37,6 +37,7 @@ from voog.mcp.resources import redirects as redirects_resources
 from voog.mcp.tools import articles as articles_tools
 from voog.mcp.tools import layouts as layouts_tools
 from voog.mcp.tools import layouts_sync as layouts_sync_tools
+from voog.mcp.tools import multilingual as multilingual_tools
 from voog.mcp.tools import pages as pages_tools
 from voog.mcp.tools import pages_mutate as pages_mutate_tools
 from voog.mcp.tools import products as products_tools
@@ -52,6 +53,7 @@ TOOL_GROUPS = [
     articles_tools,
     layouts_tools,
     layouts_sync_tools,
+    multilingual_tools,
     pages_tools,
     pages_mutate_tools,
     products_tools,
