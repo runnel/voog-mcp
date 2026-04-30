@@ -1,4 +1,4 @@
-"""Tests for voog_mcp.tools.snapshot."""
+"""Tests for voog.mcp.tools.snapshot."""
 
 import json
 import tempfile

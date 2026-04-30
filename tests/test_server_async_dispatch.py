@@ -1,4 +1,4 @@
-"""Tests for voog_mcp.server dispatch wiring (review fix #3).
+"""Tests for voog.mcp.server dispatch wiring (review fix #3).
 
 The point: confirm that ``handle_call_tool`` / ``handle_read_resource`` invoke
 the sync group functions via ``asyncio.to_thread`` so blocking urllib I/O does

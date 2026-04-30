@@ -7,7 +7,7 @@ What stays in each resource module:
     multi-URI groups)
   - ``read_resource(uri, client)`` dispatch + endpoint calls
 
-Projections (group-specific field selection) live in :mod:`voog_mcp.projections`
+Projections (group-specific field selection) live in :mod:`voog.projections`
 since both tools and resources share them.
 
 What lives here:

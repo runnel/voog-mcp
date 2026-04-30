@@ -7,7 +7,7 @@ Three tools:
   - ``page_delete``      — DELETE a page (irreversible, ``destructiveHint=True``,
                             requires explicit ``force=True``)
 
-Pattern mirrors :mod:`voog_mcp.tools.pages` (read-only): each tool returns
+Pattern mirrors :mod:`voog.mcp.tools.pages` (read-only): each tool returns
 ``success_response`` with a human-readable summary plus the JSON result, or
 ``error_response`` on failure. Bulk operations (``page_set_hidden``) return a
 structured per-id breakdown rather than failing fast — the caller sees which

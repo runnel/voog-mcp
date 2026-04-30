@@ -1,4 +1,4 @@
-"""Tests for voog_mcp.resources.pages."""
+"""Tests for voog.mcp.resources.pages."""
 
 import json
 import unittest

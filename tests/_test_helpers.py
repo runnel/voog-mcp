@@ -1,4 +1,4 @@
-"""Shared test helpers for voog_mcp tests.
+"""Shared test helpers for voog.mcp tests.
 
 Private to the test tree — the leading underscore keeps unittest discover's
 default ``test*.py`` pattern from picking it up as a test module.

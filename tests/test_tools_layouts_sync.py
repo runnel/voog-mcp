@@ -1,4 +1,4 @@
-"""Tests for voog_mcp.tools.layouts_sync — layouts_pull + layouts_push."""
+"""Tests for voog.mcp.tools.layouts_sync — layouts_pull + layouts_push."""
 
 import json
 import tempfile

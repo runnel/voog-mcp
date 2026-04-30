@@ -14,8 +14,8 @@ API client so the rest of the logic remains site-agnostic.
 Errors propagate (no wrapping into MCP error responses) — the server layer
 turns raised exceptions into JSON-RPC errors.
 
-The list view's curated shape comes from :func:`voog_mcp.projections.simplify_pages`,
-shared with :mod:`voog_mcp.tools.pages` so the ``pages_list`` tool and the
+The list view's curated shape comes from :func:`voog.projections.simplify_pages`,
+shared with :mod:`voog.mcp.tools.pages` so the ``pages_list`` tool and the
 ``voog://{site}/pages`` resource can't drift out of sync.
 """
 
