@@ -25,6 +25,35 @@ class TestParallelMapSingleItem(unittest.TestCase):
         results = parallel_map(lambda x: x * 2, [5])
         self.assertEqual(results, [(5, 10, None)])
 
+    def test_single_item_skips_thread_pool(self):
+        # Single-item lists run synchronously — no pool start/teardown.
+        with patch("voog._concurrency.ThreadPoolExecutor") as mock_pool:
+            results = parallel_map(lambda x: x * 2, [5])
+        self.assertEqual(results, [(5, 10, None)])
+        mock_pool.assert_not_called()
+
+    def test_single_item_success(self):
+        results = parallel_map(lambda x: f"out-{x}", ["a"])
+        self.assertEqual(len(results), 1)
+        item, value, exc = results[0]
+        self.assertEqual(item, "a")
+        self.assertEqual(value, "out-a")
+        self.assertIsNone(exc)
+
+    def test_single_item_exception_captured(self):
+        # Same shape as parallel-path exception capture.
+        boom = RuntimeError("boom")
+
+        def raises(_):
+            raise boom
+
+        results = parallel_map(raises, ["x"])
+        self.assertEqual(len(results), 1)
+        item, value, exc = results[0]
+        self.assertEqual(item, "x")
+        self.assertIsNone(value)
+        self.assertIs(exc, boom)
+
 
 class TestParallelMapMultipleItems(unittest.TestCase):
     def test_all_items_invoked(self):
