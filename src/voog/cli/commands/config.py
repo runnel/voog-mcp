@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import sys
 from pathlib import Path
 
@@ -23,7 +25,7 @@ def add_arguments(subparsers):
     p = subparsers.add_parser("config", help="Manage global configuration")
     sub = p.add_subparsers(dest="config_action", required=True)
 
-    init_p = sub.add_parser("init", help="Interactively create voog.json + .env")
+    init_p = sub.add_parser("init", help="Interactively create voog.json with inline tokens")
     init_p.set_defaults(func=init)
 
     list_p = sub.add_parser("list-sites", help="List configured sites")
@@ -80,12 +82,30 @@ def init(args) -> int:
 
     body = json.dumps({"sites": sites, "default_site": default}, indent=2)
     cfg_path.write_text(f"{body}\n")
+    _harden_permissions(cfg_path)
     print(f"\nWrote {cfg_path}")
-    print(
-        "\nNote: each site can also use 'api_key_env' (env var name) "
-        "instead of inline 'api_key' — useful for shared/CI configs."
+    sys.stderr.write(
+        "\nNote: this file now contains your API token(s) in plaintext. "
+        f"Permissions set to 0600 (owner-only). Do not commit {cfg_path.name} "
+        "to a shared repo — for shared/CI configs use 'api_key_env' to "
+        "reference an env var instead of storing the token inline.\n"
     )
     return 0
+
+
+def _harden_permissions(path: Path) -> None:
+    """Set 0600 (owner read/write only) so the file can't be read by other
+    users on the same machine. POSIX-only; no-op on Windows where chmod
+    bits don't map to ACLs the same way."""
+    if os.name != "posix":
+        return
+    try:
+        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    except OSError as exc:
+        sys.stderr.write(
+            f"warning: could not set 0600 permissions on {path} ({exc}). "
+            "Set them manually to keep your API tokens private.\n"
+        )
 
 
 def _token_source_label(site) -> str:

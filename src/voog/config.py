@@ -120,6 +120,10 @@ def load_global_config(
         api_key = entry.get("api_key")
         if not host:
             raise ConfigError(f"site '{name}' must have a 'host' field")
+        if api_key is not None and not str(api_key).strip():
+            raise ConfigError(f"site '{name}' has an empty or whitespace-only 'api_key'")
+        if api_key_env is not None and not str(api_key_env).strip():
+            raise ConfigError(f"site '{name}' has an empty or whitespace-only 'api_key_env'")
         if not api_key and not api_key_env:
             raise ConfigError(
                 f"site '{name}' must have either 'api_key' (inline token) "

@@ -134,6 +134,24 @@ class TestLoadGlobalConfig(unittest.TestCase):
             self.assertIn("api_key", msg)
             self.assertIn("api_key_env", msg)
 
+    def test_site_config_rejects_whitespace_only_api_key(self):
+        with TemporaryDirectory() as tmp:
+            cfg_path = Path(tmp) / "voog.json"
+            cfg_path.write_text(json.dumps({"sites": {"x": {"host": "x.com", "api_key": "   "}}}))
+            with self.assertRaises(ConfigError) as ctx:
+                load_global_config(cfg_path)
+            self.assertIn("whitespace", str(ctx.exception).lower())
+
+    def test_site_config_rejects_whitespace_only_api_key_env(self):
+        with TemporaryDirectory() as tmp:
+            cfg_path = Path(tmp) / "voog.json"
+            cfg_path.write_text(
+                json.dumps({"sites": {"x": {"host": "x.com", "api_key_env": "  "}}})
+            )
+            with self.assertRaises(ConfigError) as ctx:
+                load_global_config(cfg_path)
+            self.assertIn("whitespace", str(ctx.exception).lower())
+
 
 class TestResolveSiteToken(unittest.TestCase):
     def test_inline_api_key_used_when_only_one_set(self):
@@ -156,6 +174,17 @@ class TestResolveSiteToken(unittest.TestCase):
         site = SiteConfig(name="x", host="x.com", api_key="vk_inline", api_key_env="X_KEY")
         with patch.dict("os.environ", {}, clear=True):
             token = resolve_site_token(site, env={})
+            self.assertEqual(token, "vk_inline")
+
+    def test_empty_string_env_var_falls_through_to_inline(self):
+        """Pin existing behavior: an empty-string env var (X_KEY="") is
+        treated the same as 'unset' and the inline api_key wins. This
+        matches the `env.get(...) or os.environ.get(...)` short-circuit
+        on falsy values and is the principle of least surprise (an
+        empty token would fail at the API anyway)."""
+        site = SiteConfig(name="x", host="x.com", api_key="vk_inline", api_key_env="X_KEY")
+        with patch.dict("os.environ", {}, clear=True):
+            token = resolve_site_token(site, env={"X_KEY": ""})
             self.assertEqual(token, "vk_inline")
 
     def test_raises_when_env_var_unset_and_no_inline(self):
