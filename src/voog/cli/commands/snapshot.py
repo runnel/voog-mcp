@@ -85,16 +85,17 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
         print(f"  {filename}")
         written += 1
 
-    # 3. Per-page contents
+    # 3. Per-page contents — parallelized (mirror of MCP _site_snapshot).
+    page_ids = [p.get("id") for p in pages_data if p.get("id")]
+    page_content_results = parallel_map(
+        lambda pid: client.get(f"/pages/{pid}/contents"),
+        page_ids,
+        max_workers=8,
+    )
     page_contents_count = 0
-    for p in pages_data:
-        pid = p.get("id")
-        if not pid:
-            continue
-        try:
-            contents = client.get(f"/pages/{pid}/contents")
-        except Exception as e:
-            print(f"  warning: page {pid} contents: {e}")
+    for pid, contents, exc in page_content_results:
+        if exc is not None:
+            print(f"  warning: page {pid} contents: {exc}")
             continue
         _write_json(out / f"page_{pid}_contents.json", contents)
         written += 1
@@ -102,16 +103,17 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
     if page_contents_count:
         print(f"  page contents x {page_contents_count}")
 
-    # 4. Per-article details
+    # 4. Per-article details — parallelized.
+    article_ids = [a.get("id") for a in articles_data if a.get("id")]
+    article_detail_results = parallel_map(
+        lambda aid: client.get(f"/articles/{aid}"),
+        article_ids,
+        max_workers=8,
+    )
     article_detail_count = 0
-    for a in articles_data:
-        aid = a.get("id")
-        if not aid:
-            continue
-        try:
-            detail = client.get(f"/articles/{aid}")
-        except Exception as e:
-            print(f"  warning: article {aid}: {e}")
+    for aid, detail, exc in article_detail_results:
+        if exc is not None:
+            print(f"  warning: article {aid}: {exc}")
             continue
         _write_json(out / f"article_{aid}.json", detail)
         written += 1
@@ -119,7 +121,7 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
     if article_detail_count:
         print(f"  article details x {article_detail_count}")
 
-    # 5. Ecommerce: products list + per-product details
+    # 5. Ecommerce: products list + per-product details (parallelized).
     try:
         products_data = client.get_all("/products", base=client.ecommerce_url)
     except Exception as e:
@@ -130,19 +132,24 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
         _write_json(out / "products.json", products_data)
         print(f"  products.json ({len(products_data)})")
         written += 1
+        product_ids = [prod.get("id") for prod in products_data if prod.get("id")]
+
+        def _fetch_product_detail(pid):
+            return client.get(
+                f"/products/{pid}",
+                base=client.ecommerce_url,
+                params={"include": "variant_types,translations"},
+            )
+
+        product_detail_results = parallel_map(
+            _fetch_product_detail,
+            product_ids,
+            max_workers=8,
+        )
         product_detail_count = 0
-        for prod in products_data:
-            pid = prod.get("id")
-            if not pid:
-                continue
-            try:
-                detail = client.get(
-                    f"/products/{pid}",
-                    base=client.ecommerce_url,
-                    params={"include": "variant_types,translations"},
-                )
-            except Exception as e:
-                print(f"  warning: product {pid}: {e}")
+        for pid, detail, exc in product_detail_results:
+            if exc is not None:
+                print(f"  warning: product {pid}: {exc}")
                 continue
             _write_json(out / f"product_{pid}.json", detail)
             written += 1

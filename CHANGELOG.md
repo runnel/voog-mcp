@@ -4,6 +4,15 @@ All notable changes to this project will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Performance
+- `voog site-snapshot` now fetches per-page contents, per-article details, and per-product details in parallel (max 8 workers each), matching the MCP `_site_snapshot` pattern. The CLI was the last sequential outlier. Closes #85.
+
+### Changed
+- `parallel_map` docstring documents the single-item synchronous path's behavior delta (runs ``fn`` on the calling thread, not a worker thread). Closes #85.
+- `test_pages_snapshot_uses_parallel_map` (CLI + MCP) now also asserts ``max_workers=8`` and that the captured fetch fn targets ``/pages/{pid}/contents``. Closes #85.
+
 ## [1.1.1] — 2026-04-30
 
 ### Changed

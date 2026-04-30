@@ -136,7 +136,8 @@ class TestPagesSnapshot(unittest.TestCase):
 
     def test_pages_snapshot_uses_parallel_map(self):
         # Lock the contract: per-page contents fan-out goes through
-        # voog._concurrency.parallel_map, not a sequential client.get loop.
+        # voog._concurrency.parallel_map, with the right page ids, the right
+        # max_workers, and a fetch fn that hits /pages/{pid}/contents.
         client = _make_client()
         client.get_all.return_value = [{"id": 1}, {"id": 2}, {"id": 3}]
 
@@ -149,12 +150,16 @@ class TestPagesSnapshot(unittest.TestCase):
                     {"output_dir": str(out)},
                     client,
                 )
-            # The second parallel_map call is the per-page fan-out (the first
-            # would be in site_snapshot, but we're only invoking pages_snapshot
-            # here so this is the only call).
             mock_pmap.assert_called_once()
             call_args = mock_pmap.call_args
             self.assertEqual(list(call_args.args[1]), [1, 2, 3])
+            self.assertEqual(call_args.kwargs.get("max_workers"), 8)
+            # Invoke the captured fn with a fake pid — confirms the lambda
+            # actually targets /pages/{pid}/contents, not some other endpoint.
+            fetch_fn = call_args.args[0]
+            client.get.reset_mock()
+            fetch_fn(42)
+            client.get.assert_called_once_with("/pages/42/contents")
 
     def test_creates_parent_dirs(self):
         client = _make_client()
