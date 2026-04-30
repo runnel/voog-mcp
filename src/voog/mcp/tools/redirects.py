@@ -2,6 +2,7 @@
 
 from mcp.types import CallToolResult, TextContent, Tool
 
+from voog._payloads import build_redirect_payload
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
@@ -93,14 +94,7 @@ def call_tool(
         try:
             result = client.post(
                 "/redirect_rules",
-                {
-                    "redirect_rule": {
-                        "source": source,
-                        "destination": destination,
-                        "redirect_type": rtype,
-                        "active": True,
-                    }
-                },
+                build_redirect_payload(source, destination, redirect_type=rtype),
             )
             return success_response(
                 result,

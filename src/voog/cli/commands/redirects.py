@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from voog._payloads import build_redirect_payload
 from voog.client import VoogClient
 
 
@@ -41,14 +42,11 @@ def cmd_list(args, client: VoogClient) -> int:
 
 
 def cmd_add(args, client: VoogClient) -> int:
-    payload = {
-        "redirect_rule": {
-            "source": args.source,
-            "destination": args.target,
-            "redirect_type": args.status_code,
-            "active": True,
-        }
-    }
+    payload = build_redirect_payload(
+        args.source,
+        args.target,
+        redirect_type=args.status_code,
+    )
     rule = client.post("/redirect_rules", payload)
     print(
         f"  created redirect {rule.get('id')}: {args.source} -> {args.target} [{args.status_code}]"
