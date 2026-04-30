@@ -142,5 +142,145 @@ class TestHappyPath(unittest.TestCase):
         self.assertEqual(rc, 0)
 
 
+# ---------------------------------------------------------------------------
+# cmd_list and cmd_product — non-image commands
+# ---------------------------------------------------------------------------
+
+
+def _list_args() -> argparse.Namespace:
+    return argparse.Namespace()
+
+
+def _product_args(product_id: int, fields: list[str]) -> argparse.Namespace:
+    return argparse.Namespace(product_id=product_id, fields=fields)
+
+
+class TestProductsList(unittest.TestCase):
+    """Tests for `voog products` (cmd_list)."""
+
+    def test_uses_ecommerce_base_with_translations_include(self):
+        client = _make_client()
+        client.get_all.return_value = [
+            {"id": 1, "slug": "widget", "name": "Widget"},
+        ]
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            rc = products_cli.cmd_list(_list_args(), client)
+        self.assertEqual(rc, 0)
+        client.get_all.assert_called_once_with(
+            "/products",
+            base=client.ecommerce_url,
+            params={"include": "translations"},
+        )
+        self.assertIn("Widget", stdout.getvalue())
+        self.assertIn("Total: 1", stdout.getvalue())
+
+    def test_strips_zero_width_chars_from_name(self):
+        # Voog admins occasionally paste names with zero-width spaces
+        # that break terminal alignment. The list command sanitizes
+        # them out for display.
+        client = _make_client()
+        client.get_all.return_value = [
+            {"id": 1, "slug": "widget", "name": "Widget﻿"},
+            {"id": 2, "slug": "tool", "name": "Tool​"},
+        ]
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            products_cli.cmd_list(_list_args(), client)
+        out = stdout.getvalue()
+        self.assertNotIn("﻿", out)
+        self.assertNotIn("​", out)
+        self.assertIn("Widget", out)
+        self.assertIn("Tool", out)
+
+
+class TestProductGetUpdate(unittest.TestCase):
+    """Tests for `voog product` (cmd_product) — GET when no fields,
+    PUT translations payload when fields given."""
+
+    def test_no_fields_prints_full_product_json(self):
+        client = _make_client()
+        client.get.return_value = {"id": 42, "name": "Widget", "translations": {}}
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            rc = products_cli.cmd_product(_product_args(42, []), client)
+        self.assertEqual(rc, 0)
+        client.get.assert_called_once_with(
+            "/products/42",
+            base=client.ecommerce_url,
+            params={"include": "variant_types,variants,translations"},
+        )
+        # JSON dump output present
+        self.assertIn('"id": 42', stdout.getvalue())
+
+    def test_odd_number_of_fields_returns_two(self):
+        # Field/value pairs come in even pairs. Odd count = usage error.
+        client = _make_client()
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            rc = products_cli.cmd_product(
+                _product_args(42, ["name-et", "Foo", "name-en"]),  # missing value
+                client,
+            )
+        self.assertEqual(rc, 2)
+        self.assertIn("key/value pairs", stderr.getvalue())
+        client.put.assert_not_called()
+
+    def test_unknown_field_attribute_returns_two(self):
+        # Only `name` and `slug` are settable via this command.
+        client = _make_client()
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            rc = products_cli.cmd_product(
+                _product_args(42, ["price-et", "10"]),  # not allowed
+                client,
+            )
+        self.assertEqual(rc, 2)
+        self.assertIn("name, slug", stderr.getvalue())
+        client.put.assert_not_called()
+
+    def test_field_without_dash_returns_two(self):
+        client = _make_client()
+        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            rc = products_cli.cmd_product(
+                _product_args(42, ["name", "Foo"]),  # no language code
+                client,
+            )
+        self.assertEqual(rc, 2)
+        self.assertIn("'name-et'", stderr.getvalue())
+
+    def test_translation_payload_shape(self):
+        client = _make_client()
+        client.put.return_value = {"id": 42, "name": "Widget", "slug": "widget"}
+        client.get.return_value = {"translations": {"name": {"et": "W", "en": "W"}}}
+        with patch("sys.stdout", new_callable=io.StringIO):
+            rc = products_cli.cmd_product(
+                _product_args(
+                    42,
+                    ["name-et", "Vidin", "name-en", "Widget", "slug-et", "vidin"],
+                ),
+                client,
+            )
+        self.assertEqual(rc, 0)
+        client.put.assert_called_once_with(
+            "/products/42",
+            {
+                "product": {
+                    "translations": {
+                        "name": {"et": "Vidin", "en": "Widget"},
+                        "slug": {"et": "vidin"},
+                    }
+                }
+            },
+            base=client.ecommerce_url,
+        )
+
+    def test_only_one_attribute_omits_empty_dict(self):
+        # Setting only name-et leaves slug untouched — payload should
+        # not include an empty `slug` translations dict.
+        client = _make_client()
+        client.put.return_value = {"id": 42}
+        client.get.return_value = {}
+        with patch("sys.stdout", new_callable=io.StringIO):
+            products_cli.cmd_product(_product_args(42, ["name-et", "Vidin"]), client)
+        payload = client.put.call_args.args[1]
+        self.assertEqual(payload["product"]["translations"], {"name": {"et": "Vidin"}})
+
+
 if __name__ == "__main__":
     unittest.main()
