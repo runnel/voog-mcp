@@ -85,7 +85,7 @@ In a repo dedicated to one Voog site, drop a `voog.json` at the repo root to pin
 {"default_site": "mysite"}
 ```
 
-The cwd-level `voog.json` deep-merges over the home config, with cwd winning per-key. You can also redefine entire sites here (handy for client repos that should bring their own host/token without touching the home config):
+The cwd-level `voog.json` deep-merges over the home config, with cwd winning per-key. Inside `sites`, the merge is per-site name — a cwd entry replaces the whole site definition (host + token), it does not merge individual fields. You can also redefine entire sites here (handy for client repos that should bring their own host/token without touching the home config):
 
 ```json
 {

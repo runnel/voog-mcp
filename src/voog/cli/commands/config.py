@@ -10,9 +10,11 @@ from voog.client import VoogClient
 from voog.config import (
     ConfigError,
     default_global_config_path,
+    find_cwd_config,
     find_env_file,
     load_env_file,
     load_global_config,
+    load_merged_config,
     resolve_site_token,
 )
 
@@ -96,23 +98,31 @@ def _token_source_label(site) -> str:
 
 
 def list_sites(args) -> int:
-    cfg = load_global_config(args.config)
+    cwd = Path.cwd()
+    home_path = args.config or default_global_config_path()
+    cfg = load_merged_config(cwd=cwd, home_path=home_path)
     if not cfg.sites:
         print("(no sites configured — run `voog config init`)")
         return 0
+    home_cfg = load_global_config(args.config)
+    cwd_path = find_cwd_config(cwd, home_path=home_path)
+    cwd_only_names = set(cfg.sites) - set(home_cfg.sites)
     for name, site in cfg.sites.items():
         marker = " (default)" if cfg.default_site == name else ""
-        print(f"  {name}: {site.host}  {_token_source_label(site)}{marker}")
+        origin = f" — from {cwd_path}" if cwd_path is not None and name in cwd_only_names else ""
+        print(f"  {name}: {site.host}  {_token_source_label(site)}{marker}{origin}")
     return 0
 
 
 def check(args) -> int:
     """Verify each site by sending a HEAD to /admin/api/site."""
-    cfg = load_global_config(args.config)
+    cwd = Path.cwd()
+    home_path = args.config or default_global_config_path()
+    cfg = load_merged_config(cwd=cwd, home_path=home_path)
     if not cfg.sites:
         sys.stderr.write("error: no sites configured\n")
         return 1
-    env_path = find_env_file(cfg, Path.cwd())
+    env_path = find_env_file(cfg, cwd)
     env = load_env_file(env_path) if env_path else {}
     failures = 0
     for name, site in cfg.sites.items():

@@ -54,6 +54,7 @@ from voog.config import (
     find_env_file,
     find_repo_site_pointer,
     load_env_file,
+    load_global_config,
     load_merged_config,
     resolve_site,
     resolve_site_token,
@@ -108,8 +109,10 @@ def _build_client(args: argparse.Namespace) -> VoogClient:
     # implicit --site override against the merged config.
     pointer = find_repo_site_pointer(cwd)
     if pointer and pointer.legacy_host:
-        global_cfg = load_merged_config(cwd=cwd, home_path=config_path)
-        env_path = find_env_file(global_cfg, cwd)
+        # Stay self-contained: this path predates cwd-level voog.json
+        # and a malformed cwd voog.json above must not break it.
+        home_only_cfg = load_global_config(config_path)
+        env_path = find_env_file(home_only_cfg, cwd)
         env = load_env_file(env_path) if env_path else {}
         token = env.get(pointer.legacy_api_key_env) or os.environ.get(pointer.legacy_api_key_env)
         if not token:
@@ -118,10 +121,21 @@ def _build_client(args: argparse.Namespace) -> VoogClient:
 
     global_cfg = load_merged_config(cwd=cwd, home_path=config_path)
     flag_site = args.site
+    pointer_supplied_flag = False
     if flag_site is None and pointer is not None and pointer.site_name is not None:
         flag_site = pointer.site_name
+        pointer_supplied_flag = True
 
-    site = resolve_site(global_cfg, flag_site=flag_site)
+    try:
+        site = resolve_site(global_cfg, flag_site=flag_site)
+    except UnknownSiteError as exc:
+        if pointer_supplied_flag:
+            raise UnknownSiteError(
+                f"{pointer.path} points to '{flag_site}' but that site is not "
+                f"in the merged config. Available: {sorted(global_cfg.sites)}"
+            ) from exc
+        raise
+
     env_path = find_env_file(global_cfg, cwd)
     env = load_env_file(env_path) if env_path else {}
     try:

@@ -13,7 +13,7 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 - Per-repo site selection now uses `voog.json` (same schema as the home-level config) instead of the bespoke `voog-site.json` format. Drop a minimal `{"default_site": "<name>"}` at the repo root. Closes #71.
 
 ### Deprecated
-- `voog-site.json` still works with a deprecation warning. Migration: rename to `voog.json` and use `default_site` instead of `site`.
+- `voog-site.json` still works with a deprecation warning. Migration: rename to `voog.json` and use `default_site` instead of `site`. Earliest removal: v2.0.
 
 ## [1.0.2] — 2026-04-29
 

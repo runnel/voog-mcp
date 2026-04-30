@@ -128,6 +128,10 @@ def load_global_config(
         sites[name] = SiteConfig(name=name, host=host, api_key_env=api_key_env, api_key=api_key)
 
     default_site = raw.get("default_site")
+    if default_site is not None and not isinstance(default_site, str):
+        raise ConfigError(
+            f"default_site at {cfg_path} must be a string (got {type(default_site).__name__})"
+        )
     if not partial and default_site is not None and default_site not in sites:
         raise ConfigError(f"default_site '{default_site}' is not in sites: {sorted(sites)}")
 
@@ -233,10 +237,10 @@ def find_repo_site_pointer(cwd: Path) -> RepoSitePointer | None:
             except json.JSONDecodeError as exc:
                 raise ConfigError(f"malformed {candidate}: {exc}") from exc
             if isinstance(raw, dict) and "site" in raw:
+                snippet = json.dumps({"default_site": raw["site"]})
                 warnings.warn(
                     f"{candidate} is deprecated. Replace with a cwd-level "
-                    f"voog.json containing "
-                    f'{{"default_site": "{raw["site"]}"}} for the same effect.',
+                    f"voog.json containing {snippet} for the same effect.",
                     DeprecationWarning,
                     stacklevel=2,
                 )
@@ -267,19 +271,16 @@ def find_repo_site_pointer(cwd: Path) -> RepoSitePointer | None:
 def resolve_site(
     global_cfg: GlobalConfig,
     flag_site: str | None,
-    cwd: Path | None = None,
 ) -> SiteConfig:
     """Resolve which site to use against an already-merged config.
 
     Order: ``flag_site`` → ``global_cfg.default_site`` → ConfigError.
     Raises ``UnknownSiteError`` if a name is given but not in the
-    registry. ``cwd`` is accepted for API stability but is no longer
-    consulted: callers should pass an already-merged config built via
-    ``load_merged_config(cwd=...)`` if they want cwd-level overrides.
-    The legacy ``voog-site.json`` lookup lives in the CLI's
+    registry. As of v1.1, callers must pass an already-merged config
+    built via ``load_merged_config(cwd=...)`` if they want cwd-level
+    overrides. The legacy ``voog-site.json`` lookup lives in the CLI's
     ``_build_client`` (deprecation path).
     """
-    del cwd  # unused; preserved for backward-compatible signature
     if flag_site is not None:
         if flag_site not in global_cfg.sites:
             raise UnknownSiteError(
