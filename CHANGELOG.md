@@ -4,7 +4,7 @@ All notable changes to this project will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.1] — 2026-04-30
 
 ### Changed
 - `voog pages-pull` now uses the shared `simplify_pages` projection helper instead of its own inline copy. No behavior change. Closes #73.
@@ -65,6 +65,7 @@ Initial public release. Refactored from internal personal tooling.
 - `voog.py` legacy script (replaced by `voog` CLI binary)
 - `voog_mcp/` package layout (replaced by `src/voog/mcp/`)
 
+[1.1.1]: https://github.com/runnel/voog-mcp/releases/tag/v1.1.1
 [1.1.0]: https://github.com/runnel/voog-mcp/releases/tag/v1.1.0
 [1.0.2]: https://github.com/runnel/voog-mcp/releases/tag/v1.0.2
 [1.0.1]: https://github.com/runnel/voog-mcp/releases/tag/v1.0.1
