@@ -120,6 +120,10 @@ def load_global_config(
         api_key = entry.get("api_key")
         if not host:
             raise ConfigError(f"site '{name}' must have a 'host' field")
+        if api_key is not None and not str(api_key).strip():
+            raise ConfigError(f"site '{name}' has an empty or whitespace-only 'api_key'")
+        if api_key_env is not None and not str(api_key_env).strip():
+            raise ConfigError(f"site '{name}' has an empty or whitespace-only 'api_key_env'")
         if not api_key and not api_key_env:
             raise ConfigError(
                 f"site '{name}' must have either 'api_key' (inline token) "
@@ -142,14 +146,17 @@ def load_global_config(
 def resolve_site_token(site: SiteConfig, env: dict[str, str]) -> str:
     """Resolve the API token for a site.
 
-    Order: ``api_key_env`` (if set AND env var defined in ``env`` or
-    ``os.environ``) → ``api_key`` (inline) → ConfigError. The env-var
-    path wins when both are configured: this is the "shared/CI escape
-    hatch" — a checked-in config can carry an inline default while a
-    deployment overrides via environment.
+    Order: ``api_key_env`` (if set AND env var resolves to a non-blank
+    value in ``env`` or ``os.environ``) → ``api_key`` (inline) →
+    ConfigError. The env-var path wins when both are configured:
+    this is the "shared/CI escape hatch" — a checked-in config can
+    carry an inline default while a deployment overrides via
+    environment. Blank env vars (empty string or whitespace-only) are
+    treated as "unset" so we don't ship a bogus token to the API.
     """
     if site.api_key_env:
-        token = env.get(site.api_key_env) or os.environ.get(site.api_key_env)
+        raw_value = env.get(site.api_key_env) or os.environ.get(site.api_key_env) or ""
+        token = raw_value.strip()
         if token:
             return token
     if site.api_key:

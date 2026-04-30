@@ -134,6 +134,24 @@ class TestLoadGlobalConfig(unittest.TestCase):
             self.assertIn("api_key", msg)
             self.assertIn("api_key_env", msg)
 
+    def test_site_config_rejects_whitespace_only_api_key(self):
+        with TemporaryDirectory() as tmp:
+            cfg_path = Path(tmp) / "voog.json"
+            cfg_path.write_text(json.dumps({"sites": {"x": {"host": "x.com", "api_key": "   "}}}))
+            with self.assertRaises(ConfigError) as ctx:
+                load_global_config(cfg_path)
+            self.assertIn("whitespace", str(ctx.exception).lower())
+
+    def test_site_config_rejects_whitespace_only_api_key_env(self):
+        with TemporaryDirectory() as tmp:
+            cfg_path = Path(tmp) / "voog.json"
+            cfg_path.write_text(
+                json.dumps({"sites": {"x": {"host": "x.com", "api_key_env": "  "}}})
+            )
+            with self.assertRaises(ConfigError) as ctx:
+                load_global_config(cfg_path)
+            self.assertIn("whitespace", str(ctx.exception).lower())
+
 
 class TestResolveSiteToken(unittest.TestCase):
     def test_inline_api_key_used_when_only_one_set(self):
@@ -157,6 +175,36 @@ class TestResolveSiteToken(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True):
             token = resolve_site_token(site, env={})
             self.assertEqual(token, "vk_inline")
+
+    def test_empty_string_env_var_falls_through_to_inline(self):
+        """Pin existing behavior: an empty-string env var (X_KEY="") is
+        treated the same as 'unset' and the inline api_key wins."""
+        site = SiteConfig(name="x", host="x.com", api_key="vk_inline", api_key_env="X_KEY")
+        with patch.dict("os.environ", {}, clear=True):
+            token = resolve_site_token(site, env={"X_KEY": ""})
+            self.assertEqual(token, "vk_inline")
+
+    def test_whitespace_only_env_var_falls_through_to_inline(self):
+        """A whitespace-only env var (X_KEY=" ") would otherwise pass the
+        falsy short-circuit and ship a bogus token to the API. We strip
+        and treat it as 'unset' so the inline fallback wins."""
+        site = SiteConfig(name="x", host="x.com", api_key="vk_inline", api_key_env="X_KEY")
+        with patch.dict("os.environ", {}, clear=True):
+            token = resolve_site_token(site, env={"X_KEY": "  \t "})
+            self.assertEqual(token, "vk_inline")
+
+    def test_whitespace_only_env_var_raises_when_no_inline_fallback(self):
+        site = SiteConfig(name="x", host="x.com", api_key_env="X_KEY")
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(ConfigError):
+                resolve_site_token(site, env={"X_KEY": "  "})
+
+    def test_env_var_value_is_stripped_when_used(self):
+        """Surrounding whitespace in env-var values is stripped, not passed
+        through to the API client where it would cause a 401."""
+        site = SiteConfig(name="x", host="x.com", api_key_env="X_KEY")
+        token = resolve_site_token(site, env={"X_KEY": "  vk_real_token  "})
+        self.assertEqual(token, "vk_real_token")
 
     def test_raises_when_env_var_unset_and_no_inline(self):
         site = SiteConfig(name="x", host="x.com", api_key_env="X_KEY")

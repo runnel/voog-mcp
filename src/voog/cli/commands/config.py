@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -23,7 +24,7 @@ def add_arguments(subparsers):
     p = subparsers.add_parser("config", help="Manage global configuration")
     sub = p.add_subparsers(dest="config_action", required=True)
 
-    init_p = sub.add_parser("init", help="Interactively create voog.json + .env")
+    init_p = sub.add_parser("init", help="Interactively create voog.json with inline tokens")
     init_p.set_defaults(func=init)
 
     list_p = sub.add_parser("list-sites", help="List configured sites")
@@ -78,14 +79,57 @@ def init(args) -> int:
                 return 1
             default = choice
 
-    body = json.dumps({"sites": sites, "default_site": default}, indent=2)
-    cfg_path.write_text(f"{body}\n")
+    body = json.dumps({"sites": sites, "default_site": default}, indent=2) + "\n"
+    if not _write_secret_file(cfg_path, body):
+        return 1
     print(f"\nWrote {cfg_path}")
-    print(
-        "\nNote: each site can also use 'api_key_env' (env var name) "
-        "instead of inline 'api_key' — useful for shared/CI configs."
+    sys.stderr.write(
+        "\nNote: this file now contains your API token(s) in plaintext. "
+        f"Permissions set to 0600 (owner-only). Do not commit {cfg_path.name} "
+        "to a shared repo — for shared/CI configs use 'api_key_env' to "
+        "reference an env var instead of storing the token inline.\n"
     )
     return 0
+
+
+def _write_secret_file(path: Path, body: str) -> bool:
+    """Atomically create ``path`` with mode 0600, write ``body``, and
+    return True. On POSIX we use ``os.open(O_CREAT|O_EXCL, 0o600)``
+    so the file is never readable to anyone else even briefly. On
+    Windows (where chmod bits do not map to ACLs the same way), fall
+    back to a plain write and surface a one-line caveat. On any
+    OSError, the half-written file is removed and we return False.
+    """
+    if os.name == "posix":
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        try:
+            fd = os.open(str(path), flags, 0o600)
+        except OSError as exc:
+            sys.stderr.write(f"error: could not create {path}: {exc}\n")
+            return False
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(body)
+        except OSError as exc:
+            sys.stderr.write(f"error: could not write {path}: {exc}\n")
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            return False
+        return True
+
+    # Windows fallback
+    try:
+        path.write_text(body, encoding="utf-8")
+    except OSError as exc:
+        sys.stderr.write(f"error: could not write {path}: {exc}\n")
+        return False
+    sys.stderr.write(
+        f"warning: file {path} written with default permissions on Windows. "
+        "Restrict access via NTFS ACLs to keep your API tokens private.\n"
+    )
+    return True
 
 
 def _token_source_label(site) -> str:
