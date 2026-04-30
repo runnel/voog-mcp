@@ -34,6 +34,7 @@ from voog.mcp.resources import layouts as layouts_resources
 from voog.mcp.resources import pages as pages_resources
 from voog.mcp.resources import products as products_resources
 from voog.mcp.resources import redirects as redirects_resources
+from voog.mcp.tools import articles as articles_tools
 from voog.mcp.tools import layouts as layouts_tools
 from voog.mcp.tools import layouts_sync as layouts_sync_tools
 from voog.mcp.tools import pages as pages_tools
@@ -47,6 +48,7 @@ from voog.mcp.tools import snapshot as snapshot_tools
 logger = logging.getLogger("voog")
 
 TOOL_GROUPS = [
+    articles_tools,
     layouts_tools,
     layouts_sync_tools,
     pages_tools,

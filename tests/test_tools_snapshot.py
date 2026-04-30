@@ -677,6 +677,9 @@ class TestServerToolRegistry(unittest.TestCase):
         # Task 2 (endpoint coverage): raw passthrough tools also added.
         from voog.mcp import server
         from voog.mcp.tools import (
+            articles as articles_t,
+        )
+        from voog.mcp.tools import (
             layouts as layouts_t,
         )
         from voog.mcp.tools import (
@@ -705,6 +708,7 @@ class TestServerToolRegistry(unittest.TestCase):
         )
 
         expected = {
+            articles_t,
             layouts_t,
             layouts_sync_t,
             pages_t,
