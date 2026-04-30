@@ -7,9 +7,13 @@ Three tools — all use ``client.ecommerce_url`` as base:
                            translations, updated_at)
   - ``product_get``     — read-only, returns full product detail with
                            variant_types + translations
-  - ``product_update``  — mutating, updates translation-keyed fields
-                           (name, slug per-language) — reversible by
-                           calling again with previous values
+  - ``product_update``  — mutating, updates product fields via the full
+                           ``{"product": {...}}`` envelope. Accepts three
+                           combinable argument shapes: ``attributes`` (root-
+                           level fields), ``translations`` (nested per-lang),
+                           and ``fields`` (legacy v1.1 flat shape kept for
+                           back-compat). Reversible by calling again with
+                           previous values; idempotent.
 
 Mirrors :mod:`voog.mcp.tools.layouts` pattern: explicit MCP annotation
 triples on every tool, defensive validation, ``success_response``/``error_response``.
@@ -31,11 +35,33 @@ from voog.projections import (
     simplify_products,
 )
 
-# Voog API supports translation-keyed updates only on these fields. Each
-# entry in `fields` (the input arg) must be `<field>-<lang>`, e.g. `name-et`,
-# `slug-en`. Other fields (status, price, sku, ...) need a different payload
-# shape and are out of scope for v1.
-TRANSLATABLE_FIELDS = ("name", "slug")
+# Voog product PUT envelope: {"product": {...}}. Allowed keys at the root
+# of the envelope. Whitelist instead of pass-through so typos surface as
+# a clean error rather than a 422 round-trip.
+ATTR_KEYS = frozenset(
+    [
+        "status",
+        "price",
+        "sale_price",
+        "sku",
+        "stock",
+        "description",
+        "category_ids",
+        "image_id",
+        "asset_ids",
+        "physical_properties",
+        "uses_variants",
+        "variant_types",
+        "variants",
+    ]
+)
+
+# Translatable fields supported by Voog ecommerce. Keep aligned with
+# voog/cli/commands/products.py.
+TRANSLATABLE_FIELDS = frozenset(["name", "slug", "description"])
+
+# product.status enum per Voog (HTTP 422 otherwise — see project memory).
+VALID_STATUS = frozenset(["draft", "live"])
 
 
 def get_tools() -> list[Tool]:
@@ -85,32 +111,53 @@ def get_tools() -> list[Tool]:
         Tool(
             name="product_update",
             description=(
-                "Update product translation-keyed fields (name, slug per "
-                "language). Pass `fields` as a flat object with keys like "
-                "`name-et`, `slug-en`, `name-en`. The handler builds the "
-                "nested {translations: {name: {et: ...}, slug: {en: ...}}} "
-                "API payload. Reversible (call again with previous values), "
-                "idempotent (same fields twice = same end state). For non-"
-                "translation fields (status, price, sku) use the Voog admin "
-                "UI for now."
+                "Update a product. Three argument shapes (combinable):\n"
+                "  - `attributes`: flat object of root-level product fields "
+                "(status, price, sale_price, sku, stock, description, "
+                "category_ids, image_id, asset_ids, physical_properties, "
+                "uses_variants, variant_types, variants).\n"
+                "  - `translations`: nested {field: {lang: value}} for "
+                "translatable fields (name, slug, description). Each "
+                "field-language pair must be non-empty.\n"
+                "  - `fields` (legacy v1.1 shape): flat 'name-et', 'slug-en' "
+                "keys — auto-routed to translations. Kept for back-compat.\n"
+                "At least one of attributes/translations/fields must be "
+                "non-empty. Validates status enum {'draft', 'live'} and "
+                "rejects unknown attribute keys (catches typos before they "
+                "round-trip to a 422). Reversible by calling with previous "
+                "values; idempotent (same input twice = same end state)."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
-                    "product_id": {"type": "integer", "description": "Voog product id"},
+                    "site": {"type": "string"},
+                    "product_id": {"type": "integer"},
+                    "attributes": {
+                        "type": "object",
+                        "description": (
+                            "Root-level product fields. Allowed keys: "
+                            "status, price, sale_price, sku, stock, "
+                            "description, category_ids, image_id, "
+                            "asset_ids, physical_properties, uses_variants, "
+                            "variant_types, variants."
+                        ),
+                    },
+                    "translations": {
+                        "type": "object",
+                        "description": (
+                            "Nested {field: {lang: value}}. Allowed fields: "
+                            "name, slug, description."
+                        ),
+                    },
                     "fields": {
                         "type": "object",
                         "description": (
-                            "Flat field-language map. Keys must match "
-                            "`<field>-<lang>` where field ∈ {name, slug}. "
-                            'Example: {"name-et": "Suvekott", '
-                            '"slug-en": "summer-bag"}'
+                            "Legacy v1.1 shape: flat 'name-et', 'slug-en' "
+                            "keys. Auto-routed to translations."
                         ),
-                        "additionalProperties": {"type": "string"},
                     },
                 },
-                "required": ["site", "product_id", "fields"],
+                "required": ["site", "product_id"],
             },
             annotations={
                 "readOnlyHint": False,
@@ -166,36 +213,83 @@ def _product_get(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
 
 def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     product_id = arguments.get("product_id")
-    fields = arguments.get("fields") or {}
-    if not fields:
-        return error_response("product_update: fields must be a non-empty object")
+    attributes = arguments.get("attributes") or {}
+    translations = arguments.get("translations") or {}
+    legacy_fields = arguments.get("fields") or {}
 
-    # Build nested translations payload from flat field-lang keys.
-    translations: dict = {}
-    for key, value in fields.items():
+    if not (attributes or translations or legacy_fields):
+        return error_response(
+            "product_update: at least one of `attributes`, `translations`, "
+            "or `fields` must be a non-empty object"
+        )
+
+    # Validate attributes — whitelist + status enum.
+    for key in attributes:
+        if key not in ATTR_KEYS:
+            return error_response(
+                f"product_update: attribute {key!r} not supported. "
+                f"Allowed: {sorted(ATTR_KEYS)}"
+            )
+    if "status" in attributes and attributes["status"] not in VALID_STATUS:
+        return error_response(
+            f"product_update: status must be one of "
+            f"{sorted(VALID_STATUS)} (got {attributes['status']!r})"
+        )
+
+    # Validate explicit translations.
+    merged_translations: dict = {}
+    for field, langs in translations.items():
+        if field not in TRANSLATABLE_FIELDS:
+            return error_response(
+                f"product_update: translations field {field!r} not supported. "
+                f"Allowed: {sorted(TRANSLATABLE_FIELDS)}"
+            )
+        if not isinstance(langs, dict) or not langs:
+            return error_response(
+                f"product_update: translations[{field!r}] must be a "
+                "non-empty object {lang: value}"
+            )
+        for lang, value in langs.items():
+            if not lang or lang.startswith("-"):
+                return error_response(
+                    f"product_update: empty/malformed lang in "
+                    f"translations[{field!r}]: {lang!r}"
+                )
+            if not value:
+                return error_response(
+                    f"product_update: empty value for translations[{field!r}][{lang!r}]"
+                )
+            merged_translations.setdefault(field, {})[lang] = value
+
+    # Fold legacy `fields` ('name-et', 'slug-en') into translations.
+    for key, value in legacy_fields.items():
         if "-" not in key:
             return error_response(
-                f"product_update: field {key!r} must use 'field-lang' format "
-                f"(e.g. 'name-et', 'slug-en')"
+                f"product_update: legacy field {key!r} must use 'field-lang' "
+                "format (e.g. 'name-et', 'slug-en')"
             )
         field, lang = key.split("-", 1)
         if field not in TRANSLATABLE_FIELDS:
             return error_response(
-                f"product_update: field {field!r} not supported. Allowed: {TRANSLATABLE_FIELDS}"
+                f"product_update: legacy field {field!r} not supported. "
+                f"Allowed: {sorted(TRANSLATABLE_FIELDS)}"
             )
-        # Reject malformed lang segment: empty (e.g. 'name-') or starts with
-        # '-' (e.g. 'name--et' splits to lang='-et'). Voog would reject these
-        # eventually with a generic 422; catching them here gives the caller
-        # a precise error message.
         if not lang or lang.startswith("-"):
-            return error_response(f"product_update: lang segment in {key!r} is empty or malformed")
+            return error_response(
+                f"product_update: lang segment in {key!r} is empty or malformed"
+            )
         if not value:
             return error_response(
-                f"product_update: empty value for {key!r} (Voog rejects empty translations)"
+                f"product_update: empty value for {key!r} "
+                "(Voog rejects empty translations)"
             )
-        translations.setdefault(field, {})[lang] = value
+        merged_translations.setdefault(field, {})[lang] = value
 
-    payload = {"product": {"translations": translations}}
+    product_body: dict = dict(attributes)
+    if merged_translations:
+        product_body["translations"] = merged_translations
+
+    payload = {"product": product_body}
 
     try:
         result = client.put(
@@ -203,11 +297,13 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
             payload,
             base=client.ecommerce_url,
         )
-        # Build a concise summary listing what changed
-        changes = ", ".join(f"{k}-{lang}" for k, langs in translations.items() for lang in langs)
+        changes = sorted(
+            list(attributes.keys())
+            + [f"{k}-{lang}" for k, langs in merged_translations.items() for lang in langs]
+        )
         return success_response(
             result,
-            summary=f"✓ product {product_id} updated: {changes}",
+            summary=f"✓ product {product_id} updated: {', '.join(changes)}",
         )
     except Exception as e:
         return error_response(f"product_update id={product_id} failed: {e}")
