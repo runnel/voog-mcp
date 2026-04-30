@@ -1,10 +1,10 @@
 """Tests for voog.cli.commands.layouts — rename, asset-replace, layout-create.
 
 The rename and create commands also touch the manifest + filesystem;
-tests cover both API-side and disk-side behavior. asset-replace uses a
-DELETE+POST pattern to work around a Voog API bug; tests verify the
-new asset is created and old one is *not* automatically deleted (the
-warning is the only signal users get).
+tests cover both API-side and disk-side behavior. asset-replace POSTs
+a new asset (Voog's PUT-on-filename has a bug) and surfaces a curl
+snippet asking the user to delete the old one manually — no DELETE
+is issued automatically.
 """
 
 from __future__ import annotations
@@ -94,7 +94,12 @@ class TestLayoutRename(unittest.TestCase):
 
 
 class TestAssetReplace(unittest.TestCase):
-    def test_replace_does_delete_post_workflow(self):
+    def test_replace_posts_new_asset_and_renames_local_file(self):
+        # Manifest fixture mirrors what `pull.py` actually writes:
+        # ``type="asset"`` (not "layout_asset"). A previous test masked
+        # a real source bug by fabricating "layout_asset" entries — the
+        # match fell through and the local file/manifest update branch
+        # silently never ran in production.
         client = _make_client()
         client.get.return_value = {
             "asset_type": "stylesheet",
@@ -111,8 +116,8 @@ class TestAssetReplace(unittest.TestCase):
                     {
                         "stylesheets/old.css": {
                             "id": 5,
-                            "type": "layout_asset",
-                            "asset_type": "stylesheet",
+                            "type": "asset",
+                            "kind": "stylesheet",
                         }
                     }
                 ),
@@ -129,12 +134,25 @@ class TestAssetReplace(unittest.TestCase):
                 os.chdir(cwd_before)
 
             self.assertEqual(rc, 0)
-            client.post.assert_called_once()
+            # POST payload must carry filename + asset_type + content;
+            # a swap would silently corrupt the upload (Voog dispatches
+            # by asset_type, the data goes wherever filename says).
+            client.post.assert_called_once_with(
+                "/layout_assets",
+                {
+                    "filename": "new.css",
+                    "asset_type": "stylesheet",
+                    "data": "body { color: red; }",
+                },
+            )
+            # File rename + manifest update branch ran (the bug guard).
             self.assertTrue((tmp_path / "stylesheets" / "new.css").exists())
             self.assertFalse((tmp_path / "stylesheets" / "old.css").exists())
             manifest = json.loads((tmp_path / "manifest.json").read_text())
+            self.assertNotIn("stylesheets/old.css", manifest)
             self.assertIn("stylesheets/new.css", manifest)
             self.assertEqual(manifest["stylesheets/new.css"]["id"], 99)
+            self.assertEqual(manifest["stylesheets/new.css"]["type"], "asset")
 
     def test_replace_with_path_separator_rejected(self):
         client = _make_client()

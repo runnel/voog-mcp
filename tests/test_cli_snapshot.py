@@ -9,6 +9,7 @@ and the non-zero exit code when any page failed.
 
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 import unittest
@@ -33,12 +34,12 @@ class TestSiteSnapshotOutputDir(unittest.TestCase):
             out.mkdir()
             args = MagicMock()
             args.output_dir = out
-            with patch("sys.stderr") as stderr:
+            with patch("sys.stderr", new_callable=io.StringIO) as stderr:
                 rc = snap_cmd.cmd_site_snapshot(args, client)
-                self.assertEqual(rc, 1)
-                # Command exits before any API calls
-                client.get_all.assert_not_called()
-                stderr.write.assert_called()
+            self.assertEqual(rc, 1)
+            # Command exits before any API calls
+            client.get_all.assert_not_called()
+            self.assertIn("already exists", stderr.getvalue())
 
     def test_output_dir_created_when_missing(self):
         client = _make_client()

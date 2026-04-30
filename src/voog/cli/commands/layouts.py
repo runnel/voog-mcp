@@ -121,7 +121,11 @@ def cmd_asset_replace(args, client: VoogClient) -> int:
     old_path = None
     folder = None
     for path, info in manifest.items():
-        if info.get("id") == asset_id and info.get("type") == "layout_asset":
+        # ``pull.py`` writes layout-asset entries with ``type="asset"``.
+        # The previous "layout_asset" string here never matched, so the
+        # rename-on-disk + manifest-update branch silently never ran in
+        # production — POST happened, but the local tree fell out of sync.
+        if info.get("id") == asset_id and info.get("type") == "asset":
             old_path = path
             folder = path.split("/", 1)[0]
             break
@@ -164,7 +168,9 @@ def cmd_asset_replace(args, client: VoogClient) -> int:
         manifest.pop(old_path, None)
         manifest[new_path] = {
             "id": new_id,
-            "type": "layout_asset",
+            # Match pull.py's manifest schema: type="asset" with kind/asset_type
+            # set to the API's content classification ("stylesheet", "javascript", etc).
+            "type": "asset",
             "asset_type": asset_type,
         }
         manifest_path.write_text(
