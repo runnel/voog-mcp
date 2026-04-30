@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from voog.client import VoogClient
+from voog.projections import simplify_pages
 
 
 def add_arguments(subparsers):
@@ -272,26 +273,7 @@ def cmd_pages_pull(args, client: VoogClient) -> int:
     """Save simplified pages.json to current directory."""
     local_dir = Path.cwd()
     pages = client.get_all("/pages")
-    simplified = []
-    for p in pages:
-        lang = p.get("language") or {}
-        layout = p.get("layout") or {}
-        simplified.append(
-            {
-                "id": p.get("id"),
-                "path": p.get("path"),
-                "title": p.get("title"),
-                "hidden": p.get("hidden"),
-                "layout_id": p.get("layout_id") or layout.get("id"),
-                "layout_name": (
-                    p.get("layout_name") or p.get("layout_title") or layout.get("title")
-                ),
-                "content_type": p.get("content_type"),
-                "parent_id": p.get("parent_id"),
-                "language_code": lang.get("code"),
-                "public_url": p.get("public_url"),
-            }
-        )
+    simplified = simplify_pages(pages)
     pages_path = local_dir / "pages.json"
     pages_path.write_text(json.dumps(simplified, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"  pages.json saved ({len(simplified)} pages)")

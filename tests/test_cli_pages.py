@@ -272,6 +272,25 @@ class TestPagesPull(unittest.TestCase):
         self.assertEqual(data[0]["id"], 1)
         self.assertEqual(data[0]["language_code"], "en")
 
+    def test_pages_pull_uses_shared_projection(self):
+        # Lock the contract: cmd_pages_pull MUST delegate to simplify_pages
+        # so future field changes happen in one place.
+        raw = [{"id": 1, "path": "foo", "title": "Foo"}]
+        client = _make_client()
+        client.get_all.return_value = raw
+        with patch("voog.cli.commands.pages.simplify_pages") as mock_proj:
+            mock_proj.return_value = []
+            with tempfile.TemporaryDirectory() as tmp:
+                cwd_before = os.getcwd()
+                try:
+                    os.chdir(tmp)
+                    with patch("sys.stdout", new_callable=io.StringIO):
+                        rc = pages_cmd.cmd_pages_pull(_args(), client)
+                finally:
+                    os.chdir(cwd_before)
+        self.assertEqual(rc, 0)
+        mock_proj.assert_called_once_with(raw)
+
 
 if __name__ == "__main__":
     unittest.main()
