@@ -54,7 +54,7 @@ from voog.config import (
     find_env_file,
     find_repo_site_pointer,
     load_env_file,
-    load_global_config,
+    load_merged_config,
     resolve_site,
     resolve_site_token,
 )
@@ -81,7 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--site",
         default=None,
-        help="Site name from the global config. Overrides voog-site.json and default_site.",
+        help="Site name from the global config. Overrides cwd-level voog.json and default_site.",
     )
     parser.add_argument(
         "--config",
@@ -100,13 +100,15 @@ def _build_client(args: argparse.Namespace) -> VoogClient:
     config_path = args.config or (
         Path(os.environ["VOOG_CONFIG"]) if os.environ.get("VOOG_CONFIG") else None
     )
-    global_cfg = load_global_config(config_path)
-
     cwd = Path.cwd()
 
-    # Handle legacy voog-site.json (host+api_key_env directly)
+    # Deprecation path: voog-site.json. The legacy {host, api_key_env}
+    # form is wired directly to a VoogClient (it was never registered
+    # in the global config). The modern {site} form acts as an
+    # implicit --site override against the merged config.
     pointer = find_repo_site_pointer(cwd)
     if pointer and pointer.legacy_host:
+        global_cfg = load_merged_config(cwd=cwd, home_path=config_path)
         env_path = find_env_file(global_cfg, cwd)
         env = load_env_file(env_path) if env_path else {}
         token = env.get(pointer.legacy_api_key_env) or os.environ.get(pointer.legacy_api_key_env)
@@ -114,7 +116,12 @@ def _build_client(args: argparse.Namespace) -> VoogClient:
             raise ConfigError(f"env var '{pointer.legacy_api_key_env}' is not set")
         return VoogClient(host=pointer.legacy_host, api_token=token)
 
-    site = resolve_site(global_cfg, flag_site=args.site, cwd=cwd)
+    global_cfg = load_merged_config(cwd=cwd, home_path=config_path)
+    flag_site = args.site
+    if flag_site is None and pointer is not None and pointer.site_name is not None:
+        flag_site = pointer.site_name
+
+    site = resolve_site(global_cfg, flag_site=flag_site)
     env_path = find_env_file(global_cfg, cwd)
     env = load_env_file(env_path) if env_path else {}
     try:

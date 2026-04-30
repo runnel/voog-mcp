@@ -1,8 +1,8 @@
 """Multi-site configuration loading and site resolution.
 
-Two files participate:
+The same ``voog.json`` schema is recognized in two locations and merged:
 
-1. Global XDG config (``${XDG_CONFIG_HOME:-~/.config}/voog/voog.json``):
+1. Home / XDG config (``${XDG_CONFIG_HOME:-~/.config}/voog/voog.json``):
    the source-of-truth registry of sites. Format:
 
        {
@@ -20,17 +20,18 @@ Two files participate:
    is the documented "shared/CI escape hatch" so a checked-in config
    can override an inline default with a per-environment secret.
 
-2. Repo-local pointer (``voog-site.json`` in cwd or any parent up to 6
-   levels): selects a site by name from the global registry. Format:
+2. Repo-local override (``voog.json`` in cwd or any parent up to 6
+   levels, distinct from the home location). Same schema. Loaded by
+   ``load_merged_config`` and deep-merged on top of the home config —
+   per-site entries are added or overridden, ``default_site`` takes
+   precedence over the home value. Drop a minimal
+   ``{"default_site": "<name>"}`` to pin a repo to a specific site.
 
-       {"site": "<name>"}
+The legacy ``voog-site.json`` file is still parsed for backward
+compatibility but emits a ``DeprecationWarning`` pointing the user to
+the cwd-level ``voog.json`` form.
 
-   The legacy format ``{"host": "...", "api_key_env": "..."}`` is still
-   read by the CLI (with a deprecation warning) — but cannot be used
-   alone, since it does not name a registered site. Callers handle this
-   case explicitly via ``RepoSitePointer.legacy_*`` fields.
-
-CLI site resolution order: ``--site`` flag → repo pointer → default_site
+CLI site resolution order: ``--site`` flag → merged ``default_site``
 → raise ConfigError. The MCP server does not call ``resolve_site``: it
 takes ``site=`` explicitly on every tool call.
 """
@@ -44,6 +45,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_POINTER_FILENAME = "voog-site.json"
+CWD_CONFIG_FILENAME = "voog.json"
 MAX_PARENT_LEVELS = 6
 
 
@@ -86,8 +88,20 @@ def default_global_config_path() -> Path:
     return Path(base) / "voog" / "voog.json"
 
 
-def load_global_config(path: Path | None = None) -> GlobalConfig:
-    """Read the XDG global config. Missing file returns empty config."""
+def load_global_config(
+    path: Path | None = None,
+    *,
+    partial: bool = False,
+) -> GlobalConfig:
+    """Read a voog.json config file. Missing file returns empty config.
+
+    When ``partial`` is True, the ``default_site`` value is loaded as-is
+    without verifying that it appears in this file's ``sites`` map —
+    used by ``load_merged_config`` for cwd-level overrides that may
+    legitimately reference a site defined only in the home config.
+    Direct callers (the home-config flow) leave ``partial=False`` to
+    keep the strict check.
+    """
     cfg_path = path if path is not None else default_global_config_path()
     if not cfg_path.exists():
         return GlobalConfig()
@@ -114,7 +128,7 @@ def load_global_config(path: Path | None = None) -> GlobalConfig:
         sites[name] = SiteConfig(name=name, host=host, api_key_env=api_key_env, api_key=api_key)
 
     default_site = raw.get("default_site")
-    if default_site is not None and default_site not in sites:
+    if not partial and default_site is not None and default_site not in sites:
         raise ConfigError(f"default_site '{default_site}' is not in sites: {sorted(sites)}")
 
     env_file = raw.get("env_file")
@@ -144,10 +158,72 @@ def resolve_site_token(site: SiteConfig, env: dict[str, str]) -> str:
     raise ConfigError(f"site '{site.name}' has neither 'api_key' nor 'api_key_env' configured")
 
 
+def find_cwd_config(cwd: Path, *, home_path: Path | None = None) -> Path | None:
+    """Walk up from ``cwd`` looking for ``voog.json``. Returns the first
+    match within ``MAX_PARENT_LEVELS`` parent directories. The home
+    config path is excluded so that walking up through the home
+    directory does not double-load it.
+    """
+    home_resolved = home_path.resolve() if home_path else None
+    cur = cwd.resolve()
+    for _ in range(MAX_PARENT_LEVELS + 1):
+        candidate = cur / CWD_CONFIG_FILENAME
+        if candidate.exists():
+            if home_resolved is None or candidate.resolve() != home_resolved:
+                return candidate
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+    return None
+
+
+def load_merged_config(
+    cwd: Path | None = None,
+    home_path: Path | None = None,
+) -> GlobalConfig:
+    """Load the home config and merge any cwd-level ``voog.json`` on top.
+
+    Per-site entries from the cwd config are added to or overwrite the
+    home config's ``sites`` map. ``default_site`` and ``env_file`` from
+    the cwd config replace the home values when set. The home config
+    location itself is excluded from the cwd walk so we do not load it
+    twice when invoking from inside the home directory tree.
+    """
+    home_path = home_path if home_path is not None else default_global_config_path()
+    home_cfg = load_global_config(home_path)
+    cwd_resolved = (cwd if cwd is not None else Path.cwd()).resolve()
+    cwd_path = find_cwd_config(cwd_resolved, home_path=home_path)
+    if cwd_path is None:
+        return home_cfg
+    cwd_cfg = load_global_config(cwd_path, partial=True)
+
+    merged_sites = dict(home_cfg.sites)
+    merged_sites.update(cwd_cfg.sites)
+    merged_default = cwd_cfg.default_site or home_cfg.default_site
+    merged_env_file = cwd_cfg.env_file or home_cfg.env_file
+    if merged_default is not None and merged_default not in merged_sites:
+        raise ConfigError(
+            f"default_site '{merged_default}' (from {cwd_path}) is not in the "
+            f"merged site registry: {sorted(merged_sites) or '(none configured)'}"
+        )
+    return GlobalConfig(
+        sites=merged_sites,
+        default_site=merged_default,
+        env_file=merged_env_file,
+    )
+
+
 def find_repo_site_pointer(cwd: Path) -> RepoSitePointer | None:
-    """Walk up from ``cwd`` looking for ``voog-site.json``. Returns None if
-    not found within MAX_PARENT_LEVELS. Emits a deprecation warning when
-    the legacy format ``{host, api_key_env}`` is encountered."""
+    """Walk up from ``cwd`` looking for ``voog-site.json``. Returns None
+    if not found within MAX_PARENT_LEVELS.
+
+    Deprecated since v1.1.0: ``voog-site.json`` is superseded by a
+    cwd-level ``voog.json`` (see ``find_cwd_config`` /
+    ``load_merged_config``). Both the modern ``{"site": "<name>"}``
+    form and the legacy ``{"host", "api_key_env"}`` form keep working
+    here, but each emits a ``DeprecationWarning`` pointing the user at
+    the replacement.
+    """
     cur = cwd.resolve()
     for _ in range(MAX_PARENT_LEVELS + 1):
         candidate = cur / REPO_POINTER_FILENAME
@@ -157,12 +233,19 @@ def find_repo_site_pointer(cwd: Path) -> RepoSitePointer | None:
             except json.JSONDecodeError as exc:
                 raise ConfigError(f"malformed {candidate}: {exc}") from exc
             if isinstance(raw, dict) and "site" in raw:
+                warnings.warn(
+                    f"{candidate} is deprecated. Replace with a cwd-level "
+                    f"voog.json containing "
+                    f'{{"default_site": "{raw["site"]}"}} for the same effect.',
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
                 return RepoSitePointer(site_name=raw["site"], path=candidate)
             if isinstance(raw, dict) and "host" in raw and "api_key_env" in raw:
                 warnings.warn(
-                    f"{candidate} uses deprecated format. Replace with "
-                    f'{{"site": "<name>"}} and add the site to the global '
-                    f"config at {default_global_config_path()}.",
+                    f"{candidate} uses deprecated format. Replace with a "
+                    f"cwd-level voog.json containing the site definition "
+                    f"and a default_site pointer.",
                     DeprecationWarning,
                     stacklevel=2,
                 )
@@ -184,17 +267,19 @@ def find_repo_site_pointer(cwd: Path) -> RepoSitePointer | None:
 def resolve_site(
     global_cfg: GlobalConfig,
     flag_site: str | None,
-    cwd: Path,
+    cwd: Path | None = None,
 ) -> SiteConfig:
-    """Resolve which site to use, following CLI priority.
+    """Resolve which site to use against an already-merged config.
 
-    Order: ``flag_site`` → repo pointer (modern format only) → default_site.
-    Raises UnknownSiteError if a name is given but not in the registry.
-    Raises ConfigError if no site can be determined.
-
-    Legacy-format repo pointers are *not* used here: callers (the CLI) must
-    detect them via ``find_repo_site_pointer`` and handle migration explicitly.
+    Order: ``flag_site`` → ``global_cfg.default_site`` → ConfigError.
+    Raises ``UnknownSiteError`` if a name is given but not in the
+    registry. ``cwd`` is accepted for API stability but is no longer
+    consulted: callers should pass an already-merged config built via
+    ``load_merged_config(cwd=...)`` if they want cwd-level overrides.
+    The legacy ``voog-site.json`` lookup lives in the CLI's
+    ``_build_client`` (deprecation path).
     """
+    del cwd  # unused; preserved for backward-compatible signature
     if flag_site is not None:
         if flag_site not in global_cfg.sites:
             raise UnknownSiteError(
@@ -202,21 +287,13 @@ def resolve_site(
             )
         return global_cfg.sites[flag_site]
 
-    pointer = find_repo_site_pointer(cwd)
-    if pointer is not None and pointer.site_name is not None:
-        if pointer.site_name not in global_cfg.sites:
-            raise UnknownSiteError(
-                f"voog-site.json points to '{pointer.site_name}' but that site "
-                f"is not in the global config. Available: {sorted(global_cfg.sites)}"
-            )
-        return global_cfg.sites[pointer.site_name]
-
     if global_cfg.default_site is not None:
         return global_cfg.sites[global_cfg.default_site]
 
     raise ConfigError(
-        "no site specified. Pass --site <name>, create voog-site.json in this "
-        "tree, or set default_site in the global config. "
+        "no site specified. Pass --site <name>, drop a voog.json with "
+        '{"default_site": "<name>"} in this tree, or set default_site in '
+        "the home config. "
         f"Available: {sorted(global_cfg.sites) or '(none configured)'}"
     )
 

@@ -79,20 +79,33 @@ Both forms can coexist per-site. When both `api_key` and `api_key_env` are set, 
 
 ### Per-repo site selection
 
-In a repo dedicated to one Voog site, drop a `voog-site.json` to pin the site:
+In a repo dedicated to one Voog site, drop a `voog.json` at the repo root to pin the site:
 
 ```json
-{"site": "mysite"}
+{"default_site": "mysite"}
 ```
 
-Now `voog pull` / `voog push` from that directory always target the right site, even if the global default differs.
+The cwd-level `voog.json` deep-merges over the home config, with cwd winning per-key. You can also redefine entire sites here (handy for client repos that should bring their own host/token without touching the home config):
+
+```json
+{
+  "sites": {
+    "client_x": {"host": "clientx.com", "api_key": "vk_..."}
+  },
+  "default_site": "client_x"
+}
+```
+
+Now `voog pull` / `voog push` from that directory always target the right site, even if the home default differs.
+
+> **Note:** `voog-site.json` from earlier versions still works but emits a `DeprecationWarning`. Replace it with `voog.json` containing `{"default_site": "<name>"}` for the same effect.
 
 ## Use the CLI
 
 ```bash
 voog --help                      # all commands
 voog --site mysite products      # list products on mysite
-voog pull                        # download templates (uses voog-site.json)
+voog pull                        # download templates (uses cwd-level voog.json)
 voog push layouts/Front\ page.tpl
 voog redirects
 voog config check                # verify all configured tokens

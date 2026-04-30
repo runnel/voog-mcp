@@ -11,9 +11,11 @@ from voog.config import (
     GlobalConfig,
     SiteConfig,
     UnknownSiteError,
+    find_cwd_config,
     find_repo_site_pointer,
     load_env_file,
     load_global_config,
+    load_merged_config,
     resolve_site,
     resolve_site_token,
 )
@@ -183,52 +185,30 @@ class TestResolveSite(unittest.TestCase):
 
     def test_explicit_flag_wins(self):
         cfg = self._make_global(default_site="runnel")
-        with TemporaryDirectory() as tmp:
-            (Path(tmp) / "voog-site.json").write_text(json.dumps({"site": "runnel"}))
-            site = resolve_site(cfg, flag_site="stella", cwd=Path(tmp))
-            self.assertEqual(site.name, "stella")
+        site = resolve_site(cfg, flag_site="stella")
+        self.assertEqual(site.name, "stella")
 
-    def test_repo_pointer_used_when_no_flag(self):
-        cfg = self._make_global()
-        with TemporaryDirectory() as tmp:
-            (Path(tmp) / "voog-site.json").write_text(json.dumps({"site": "runnel"}))
-            site = resolve_site(cfg, flag_site=None, cwd=Path(tmp))
-            self.assertEqual(site.name, "runnel")
-
-    def test_repo_pointer_walks_up_parents(self):
-        cfg = self._make_global()
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            (root / "voog-site.json").write_text(json.dumps({"site": "stella"}))
-            deep = root / "a" / "b" / "c"
-            deep.mkdir(parents=True)
-            site = resolve_site(cfg, flag_site=None, cwd=deep)
-            self.assertEqual(site.name, "stella")
-
-    def test_default_site_used_when_no_flag_no_pointer(self):
+    def test_default_site_used_when_no_flag(self):
         cfg = self._make_global(default_site="stella")
-        with TemporaryDirectory() as tmp:
-            site = resolve_site(cfg, flag_site=None, cwd=Path(tmp))
-            self.assertEqual(site.name, "stella")
+        site = resolve_site(cfg, flag_site=None)
+        self.assertEqual(site.name, "stella")
 
     def test_no_resolution_raises(self):
         cfg = self._make_global(default_site=None)
-        with TemporaryDirectory() as tmp:
-            with self.assertRaises(ConfigError):
-                resolve_site(cfg, flag_site=None, cwd=Path(tmp))
+        with self.assertRaises(ConfigError):
+            resolve_site(cfg, flag_site=None)
 
     def test_unknown_flag_site_raises_unknown_site_error(self):
         cfg = self._make_global()
-        with TemporaryDirectory() as tmp:
-            with self.assertRaises(UnknownSiteError) as ctx:
-                resolve_site(cfg, flag_site="nonexistent", cwd=Path(tmp))
-            # Error must list available site names for actionable hint
-            self.assertIn("stella", str(ctx.exception))
-            self.assertIn("runnel", str(ctx.exception))
+        with self.assertRaises(UnknownSiteError) as ctx:
+            resolve_site(cfg, flag_site="nonexistent")
+        # Error must list available site names for actionable hint
+        self.assertIn("stella", str(ctx.exception))
+        self.assertIn("runnel", str(ctx.exception))
 
 
 class TestRepoSitePointerLegacyFormat(unittest.TestCase):
-    """Old format {host, api_key_env} must be parsed with deprecation warning."""
+    """Both forms of voog-site.json must parse + emit a DeprecationWarning."""
 
     def test_legacy_format_returns_synthetic_site(self):
         with TemporaryDirectory() as tmp:
@@ -246,6 +226,166 @@ class TestRepoSitePointerLegacyFormat(unittest.TestCase):
                 self.assertEqual(pointer.legacy_api_key_env, "LEGACY_KEY")
                 self.assertIsNone(pointer.site_name)
                 mock_warn.assert_called_once()
+
+    def test_voog_site_json_modern_form_emits_deprecation_warning(self):
+        """{"site": "X"} works but warns the user to migrate to voog.json."""
+        with TemporaryDirectory() as tmp:
+            (Path(tmp) / "voog-site.json").write_text(json.dumps({"site": "stella"}))
+            with patch("warnings.warn") as mock_warn:
+                pointer = find_repo_site_pointer(Path(tmp))
+                self.assertEqual(pointer.site_name, "stella")
+                mock_warn.assert_called_once()
+                args, kwargs = mock_warn.call_args
+                self.assertIn("voog.json", args[0])
+                self.assertIn("default_site", args[0])
+                self.assertIs(args[1], DeprecationWarning)
+
+
+class TestFindCwdConfig(unittest.TestCase):
+    """Walk up cwd looking for voog.json; skip the home location."""
+
+    def test_finds_voog_json_in_cwd(self):
+        with TemporaryDirectory() as tmp:
+            cwd_cfg = Path(tmp) / "voog.json"
+            cwd_cfg.write_text(json.dumps({"sites": {}}))
+            found = find_cwd_config(Path(tmp), home_path=Path("/nonexistent/home/voog.json"))
+            # find_cwd_config resolves the cwd, so compare resolved paths
+            # (on macOS /var/folders/... → /private/var/folders/...).
+            self.assertEqual(found, cwd_cfg.resolve())
+
+    def test_walks_up_parents(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "voog.json").write_text(json.dumps({"sites": {}}))
+            deep = root / "a" / "b" / "c"
+            deep.mkdir(parents=True)
+            found = find_cwd_config(deep, home_path=Path("/nonexistent/home/voog.json"))
+            self.assertEqual(found, (root / "voog.json").resolve())
+
+    def test_returns_none_when_no_voog_json_above_cwd(self):
+        with TemporaryDirectory() as tmp:
+            found = find_cwd_config(Path(tmp), home_path=Path("/nonexistent/home/voog.json"))
+            self.assertIsNone(found)
+
+    def test_excludes_home_path(self):
+        """When walking up hits the home config dir, that match must be skipped."""
+        with TemporaryDirectory() as tmp:
+            home_cfg = Path(tmp) / "voog.json"
+            home_cfg.write_text(json.dumps({"sites": {}}))
+            # cwd == home dir; with home_path pointing at the same file, skip it
+            found = find_cwd_config(Path(tmp), home_path=home_cfg)
+            self.assertIsNone(found)
+
+
+class TestLoadMergedConfig(unittest.TestCase):
+    """Home + cwd voog.json deep-merge, cwd wins."""
+
+    def _write(self, path: Path, payload: dict):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload))
+
+    def test_load_merged_config_only_home(self):
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home" / "voog.json"
+            self._write(
+                home,
+                {
+                    "sites": {"stella": {"host": "s.com", "api_key_env": "S_KEY"}},
+                    "default_site": "stella",
+                },
+            )
+            cwd = Path(tmp) / "work"
+            cwd.mkdir()
+            cfg = load_merged_config(cwd=cwd, home_path=home)
+            self.assertEqual(cfg.default_site, "stella")
+            self.assertEqual(set(cfg.sites), {"stella"})
+
+    def test_load_merged_config_only_cwd(self):
+        """Edge case: home config absent, cwd config provides everything."""
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home" / "voog.json"  # not created
+            cwd = Path(tmp) / "work"
+            cwd.mkdir()
+            self._write(
+                cwd / "voog.json",
+                {
+                    "sites": {"runnel": {"host": "r.com", "api_key": "vk_inline"}},
+                    "default_site": "runnel",
+                },
+            )
+            cfg = load_merged_config(cwd=cwd, home_path=home)
+            self.assertEqual(cfg.default_site, "runnel")
+            self.assertEqual(cfg.sites["runnel"].api_key, "vk_inline")
+
+    def test_load_merged_config_cwd_overrides_default_site(self):
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home" / "voog.json"
+            self._write(
+                home,
+                {
+                    "sites": {
+                        "stella": {"host": "s.com", "api_key_env": "S_KEY"},
+                        "runnel": {"host": "r.com", "api_key_env": "R_KEY"},
+                    },
+                    "default_site": "stella",
+                },
+            )
+            cwd = Path(tmp) / "work"
+            cwd.mkdir()
+            self._write(cwd / "voog.json", {"default_site": "runnel"})
+            cfg = load_merged_config(cwd=cwd, home_path=home)
+            self.assertEqual(cfg.default_site, "runnel")
+            # Both sites still reachable (sites map merged from home)
+            self.assertEqual(set(cfg.sites), {"stella", "runnel"})
+
+    def test_load_merged_config_cwd_adds_new_site(self):
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home" / "voog.json"
+            self._write(
+                home,
+                {"sites": {"stella": {"host": "s.com", "api_key_env": "S_KEY"}}},
+            )
+            cwd = Path(tmp) / "work"
+            cwd.mkdir()
+            self._write(
+                cwd / "voog.json",
+                {
+                    "sites": {"client_a": {"host": "ca.com", "api_key": "vk_ca"}},
+                    "default_site": "client_a",
+                },
+            )
+            cfg = load_merged_config(cwd=cwd, home_path=home)
+            self.assertEqual(set(cfg.sites), {"stella", "client_a"})
+            self.assertEqual(cfg.default_site, "client_a")
+            self.assertEqual(cfg.sites["client_a"].api_key, "vk_ca")
+
+    def test_load_merged_config_cwd_overrides_site_token(self):
+        """If a site name appears in both, the cwd entry wins entirely."""
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home" / "voog.json"
+            self._write(
+                home,
+                {"sites": {"stella": {"host": "old.com", "api_key_env": "OLD_KEY"}}},
+            )
+            cwd = Path(tmp) / "work"
+            cwd.mkdir()
+            self._write(
+                cwd / "voog.json",
+                {"sites": {"stella": {"host": "new.com", "api_key": "vk_new"}}},
+            )
+            cfg = load_merged_config(cwd=cwd, home_path=home)
+            self.assertEqual(cfg.sites["stella"].host, "new.com")
+            self.assertEqual(cfg.sites["stella"].api_key, "vk_new")
+            self.assertIsNone(cfg.sites["stella"].api_key_env)
+
+    def test_load_merged_config_neither_present(self):
+        with TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home" / "voog.json"  # not created
+            cwd = Path(tmp) / "work"
+            cwd.mkdir()
+            cfg = load_merged_config(cwd=cwd, home_path=home)
+            self.assertEqual(cfg.sites, {})
+            self.assertIsNone(cfg.default_site)
 
 
 class TestClientFactoryTokenResolution(unittest.TestCase):
