@@ -10,10 +10,21 @@ from voog.mcp.tools import pages_mutate as pages_mutate_tools
 
 
 class TestGetTools(unittest.TestCase):
-    def test_get_tools_returns_three(self):
+    def test_get_tools_returns_seven(self):
         tools = pages_mutate_tools.get_tools()
-        names = [t.name for t in tools]
-        self.assertEqual(names, ["page_set_hidden", "page_set_layout", "page_delete"])
+        names = sorted(t.name for t in tools)
+        self.assertEqual(
+            names,
+            sorted([
+                "page_set_hidden",
+                "page_set_layout",
+                "page_delete",
+                "page_create",
+                "page_update",
+                "page_set_data",
+                "page_duplicate",
+            ]),
+        )
 
     def test_page_set_hidden_schema(self):
         tools = {t.name: t for t in pages_mutate_tools.get_tools()}
@@ -341,6 +352,200 @@ class TestAllToolsRequireSite(unittest.TestCase):
                 tool.inputSchema.get("required", []),
                 f"tool {tool.name} must require 'site'",
             )
+
+
+class TestPageCreate(unittest.TestCase):
+    def test_minimal_root_page(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.post.return_value = {"id": 100, "path": "uus-leht"}
+        pm.call_tool(
+            "page_create",
+            {
+                "title": "Uus leht",
+                "slug": "uus-leht",
+                "language_id": 627583,
+            },
+            client,
+        )
+        path, body = client.post.call_args.args
+        self.assertEqual(path, "/pages")
+        # Per skill: root pages omit parent_id (Voog attaches to root node)
+        self.assertNotIn("parent_id", body)
+        self.assertEqual(body["title"], "Uus leht")
+        self.assertEqual(body["language_id"], 627583)
+
+    def test_subpage_with_parent_id(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.post.return_value = {"id": 100}
+        pm.call_tool(
+            "page_create",
+            {
+                "title": "Sub",
+                "slug": "sub",
+                "language_id": 627583,
+                "parent_id": 5,
+                "layout_id": 7,
+                "hidden": True,
+            },
+            client,
+        )
+        body = client.post.call_args.args[1]
+        self.assertEqual(body["parent_id"], 5)
+        self.assertEqual(body["layout_id"], 7)
+        self.assertIs(body["hidden"], True)
+
+    def test_parallel_translation_with_node_id(self):
+        # Per skill memory: second-language page must use node_id of the
+        # first-language page, NOT parent_id, so the two are parallels.
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.post.return_value = {"id": 200}
+        pm.call_tool(
+            "page_create",
+            {
+                "title": "Coloured totes",
+                "slug": "coloured-totes",
+                "language_id": 627582,
+                "node_id": 999,
+                "layout_id": 7,
+            },
+            client,
+        )
+        body = client.post.call_args.args[1]
+        self.assertEqual(body["node_id"], 999)
+        self.assertNotIn("parent_id", body)
+
+    def test_node_id_and_parent_id_mutually_exclusive(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        result = pm.call_tool(
+            "page_create",
+            {
+                "title": "X",
+                "slug": "x",
+                "language_id": 1,
+                "node_id": 5,
+                "parent_id": 9,
+            },
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.post.assert_not_called()
+
+
+class TestPageUpdate(unittest.TestCase):
+    def test_update_title_and_slug(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        pm.call_tool(
+            "page_update",
+            {"page_id": 5, "title": "Uus", "slug": "uus"},
+            client,
+        )
+        path, body = client.put.call_args.args
+        self.assertEqual(path, "/pages/5")
+        self.assertEqual(body["title"], "Uus")
+        self.assertEqual(body["slug"], "uus")
+
+    def test_update_layout_and_image(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        pm.call_tool(
+            "page_update",
+            {"page_id": 5, "layout_id": 7, "image_id": 1234},
+            client,
+        )
+        body = client.put.call_args.args[1]
+        self.assertEqual(body["layout_id"], 7)
+        self.assertEqual(body["image_id"], 1234)
+
+    def test_update_keywords_description(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        pm.call_tool(
+            "page_update",
+            {
+                "page_id": 5,
+                "keywords": "kuju, voog",
+                "description": "Meta description",
+                "content_type": "page",
+            },
+            client,
+        )
+        body = client.put.call_args.args[1]
+        self.assertEqual(body["keywords"], "kuju, voog")
+        self.assertEqual(body["description"], "Meta description")
+        self.assertEqual(body["content_type"], "page")
+
+    def test_update_rejects_empty(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        result = pm.call_tool("page_update", {"page_id": 5}, client)
+        self.assertTrue(result.isError)
+
+
+class TestPageSetData(unittest.TestCase):
+    def test_set_single_data_key(self):
+        # Voog: PUT /pages/{id}/data/{key}, body {"value": "..."}
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.put.return_value = {"key": "foo", "value": "bar"}
+        pm.call_tool(
+            "page_set_data",
+            {"page_id": 5, "key": "foo", "value": "bar"},
+            client,
+        )
+        path, body = client.put.call_args.args
+        self.assertEqual(path, "/pages/5/data/foo")
+        self.assertEqual(body, {"value": "bar"})
+
+    def test_delete_data_key(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        pm.call_tool(
+            "page_set_data",
+            {"page_id": 5, "key": "foo", "value": None},
+            client,
+        )
+        client.delete.assert_called_once_with("/pages/5/data/foo")
+
+    def test_rejects_internal_prefix(self):
+        # Voog protects keys starting with internal_ — surface this with
+        # a clear error rather than letting the API 422.
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        result = pm.call_tool(
+            "page_set_data",
+            {"page_id": 5, "key": "internal_secret", "value": "x"},
+            client,
+        )
+        self.assertTrue(result.isError)
+
+
+class TestPageDuplicate(unittest.TestCase):
+    def test_duplicate(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.post.return_value = {"id": 200, "path": "copy"}
+        pm.call_tool("page_duplicate", {"page_id": 5}, client)
+        client.post.assert_called_once_with("/pages/5/duplicate", {})
 
 
 if __name__ == "__main__":
