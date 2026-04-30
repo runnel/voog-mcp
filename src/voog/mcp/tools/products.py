@@ -11,17 +11,13 @@ Three tools — all use ``client.ecommerce_url`` as base:
                            (name, slug per-language) — reversible by
                            calling again with previous values
 
-Mirrors :mod:`voog_mcp.tools.layouts` pattern: explicit MCP annotation
+Mirrors :mod:`voog.mcp.tools.layouts` pattern: explicit MCP annotation
 triples on every tool, defensive validation, ``success_response``/``error_response``.
 
-The list view's curated projection lives in :mod:`voog_mcp.projections`
-(:func:`simplify_products`) and is shared with :mod:`voog_mcp.resources.products`
+The list view's curated projection lives in :mod:`voog.projections`
+(:func:`simplify_products`) and is shared with :mod:`voog.mcp.resources.products`
 so the ``products_list`` tool and the ``voog://products`` resource produce the
 same shape — consistent UX, and the shape can't drift between the two surfaces.
-
-`product_set_images` is deferred (filesystem-touching: needs absolute paths
-and the 3-step asset upload protocol). The ``voog.py`` CLI shim still works
-for that operation.
 """
 
 from mcp.types import CallToolResult, TextContent, Tool
@@ -96,7 +92,7 @@ def get_tools() -> list[Tool]:
                 "API payload. Reversible (call again with previous values), "
                 "idempotent (same fields twice = same end state). For non-"
                 "translation fields (status, price, sku) use the Voog admin "
-                "UI or the voog.py CLI for now."
+                "UI for now."
             ),
             inputSchema={
                 "type": "object",

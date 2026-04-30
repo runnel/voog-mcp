@@ -76,8 +76,8 @@ class TestParallelMapMultipleItems(unittest.TestCase):
 
 
 class TestParallelMapPreservesOrderUnderJitter(unittest.TestCase):
-    """Spec § Faas 1: items=[3,1,4,1,5,9], fn=lambda x: time.sleep(random)*x —
-    output items järjekord identne sisendiga (mitte completion order)."""
+    """items=[3,1,4,1,5,9], fn=lambda x: time.sleep(random)*x — output
+    order matches input order, not completion order."""
 
     def test_order_stable_when_completion_order_differs(self):
         random.seed(42)
