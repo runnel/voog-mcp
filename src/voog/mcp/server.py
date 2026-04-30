@@ -44,6 +44,7 @@ from voog.mcp.tools import products_images as products_images_tools
 from voog.mcp.tools import raw as raw_tools
 from voog.mcp.tools import redirects as redirects_tools
 from voog.mcp.tools import snapshot as snapshot_tools
+from voog.mcp.tools import texts as texts_tools
 
 logger = logging.getLogger("voog")
 
@@ -58,6 +59,7 @@ TOOL_GROUPS = [
     raw_tools,
     redirects_tools,
     snapshot_tools,
+    texts_tools,
 ]
 
 RESOURCE_GROUPS = [

@@ -706,6 +706,9 @@ class TestServerToolRegistry(unittest.TestCase):
         from voog.mcp.tools import (
             snapshot as snapshot_t,
         )
+        from voog.mcp.tools import (
+            texts as texts_t,
+        )
 
         expected = {
             articles_t,
@@ -718,6 +721,7 @@ class TestServerToolRegistry(unittest.TestCase):
             raw_t,
             redirects_t,
             snapshot_t,
+            texts_t,
         }
         self.assertEqual(set(server.TOOL_GROUPS), expected)
 
