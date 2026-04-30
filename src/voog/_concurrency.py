@@ -37,7 +37,11 @@ def parallel_map(
 
     Empty ``items`` returns ``[]`` without spawning a pool. Single-item
     lists run synchronously, also without a pool — same output shape, no
-    thread-pool startup/teardown overhead.
+    thread-pool startup/teardown overhead. In the synchronous path ``fn``
+    runs on the *calling* thread, not a worker thread; callers inspecting
+    ``threading.current_thread()``, writing thread-locals, or relying on
+    the executor's KeyboardInterrupt handling will observe a behavior
+    delta. None of the in-tree callers do.
     """
     if not items:
         return []
