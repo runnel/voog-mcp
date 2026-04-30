@@ -56,6 +56,7 @@ from voog.config import (
     load_env_file,
     load_global_config,
     resolve_site,
+    resolve_site_token,
 )
 
 COMMANDS = [
@@ -116,12 +117,14 @@ def _build_client(args: argparse.Namespace) -> VoogClient:
     site = resolve_site(global_cfg, flag_site=args.site, cwd=cwd)
     env_path = find_env_file(global_cfg, cwd)
     env = load_env_file(env_path) if env_path else {}
-    token = env.get(site.api_key_env) or os.environ.get(site.api_key_env)
-    if not token:
-        raise ConfigError(
-            f"env var '{site.api_key_env}' (referenced by site '{site.name}') is not set. "
-            f"Hint: add it to {env_path or default_global_config_path().parent / '.env'}"
-        )
+    try:
+        token = resolve_site_token(site, env)
+    except ConfigError as exc:
+        if site.api_key_env and not site.api_key:
+            hint = f"Hint: add {site.api_key_env}=<token> to "
+            hint += str(env_path or default_global_config_path().parent / ".env")
+            raise ConfigError(f"{exc}. {hint}") from exc
+        raise
     return VoogClient(host=site.host, api_token=token)
 
 

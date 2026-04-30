@@ -7,11 +7,18 @@ Two files participate:
 
        {
          "sites": {
-           "<name>": {"host": "<domain>", "api_key_env": "<ENV_VAR_NAME>"}
+           "<name>": {"host": "<domain>", "api_key": "<token>"},
+           "<other>": {"host": "<domain>", "api_key_env": "<ENV_VAR_NAME>"}
          },
          "default_site": "<name|null>",
          "env_file": "<path|null>"
        }
+
+   Each site must have ``host`` and at least one of ``api_key`` (token
+   inline) or ``api_key_env`` (env var name to resolve). When both are
+   set, ``api_key_env`` wins if the env var is actually defined — this
+   is the documented "shared/CI escape hatch" so a checked-in config
+   can override an inline default with a per-environment secret.
 
 2. Repo-local pointer (``voog-site.json`` in cwd or any parent up to 6
    levels): selects a site by name from the global registry. Format:
@@ -52,7 +59,8 @@ class UnknownSiteError(ConfigError):
 class SiteConfig:
     name: str
     host: str
-    api_key_env: str
+    api_key_env: str | None = None
+    api_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -95,9 +103,15 @@ def load_global_config(path: Path | None = None) -> GlobalConfig:
             raise ConfigError(f"site '{name}' must be an object")
         host = entry.get("host")
         api_key_env = entry.get("api_key_env")
-        if not host or not api_key_env:
-            raise ConfigError(f"site '{name}' must have both 'host' and 'api_key_env' fields")
-        sites[name] = SiteConfig(name=name, host=host, api_key_env=api_key_env)
+        api_key = entry.get("api_key")
+        if not host:
+            raise ConfigError(f"site '{name}' must have a 'host' field")
+        if not api_key and not api_key_env:
+            raise ConfigError(
+                f"site '{name}' must have either 'api_key' (inline token) "
+                "or 'api_key_env' (env var name)"
+            )
+        sites[name] = SiteConfig(name=name, host=host, api_key_env=api_key_env, api_key=api_key)
 
     default_site = raw.get("default_site")
     if default_site is not None and default_site not in sites:
@@ -105,6 +119,29 @@ def load_global_config(path: Path | None = None) -> GlobalConfig:
 
     env_file = raw.get("env_file")
     return GlobalConfig(sites=sites, default_site=default_site, env_file=env_file)
+
+
+def resolve_site_token(site: SiteConfig, env: dict[str, str]) -> str:
+    """Resolve the API token for a site.
+
+    Order: ``api_key_env`` (if set AND env var defined in ``env`` or
+    ``os.environ``) → ``api_key`` (inline) → ConfigError. The env-var
+    path wins when both are configured: this is the "shared/CI escape
+    hatch" — a checked-in config can carry an inline default while a
+    deployment overrides via environment.
+    """
+    if site.api_key_env:
+        token = env.get(site.api_key_env) or os.environ.get(site.api_key_env)
+        if token:
+            return token
+    if site.api_key:
+        return site.api_key
+    if site.api_key_env:
+        raise ConfigError(
+            f"env var '{site.api_key_env}' (referenced by site '{site.name}') is not set "
+            "and no inline 'api_key' fallback is configured"
+        )
+    raise ConfigError(f"site '{site.name}' has neither 'api_key' nor 'api_key_env' configured")
 
 
 def find_repo_site_pointer(cwd: Path) -> RepoSitePointer | None:
