@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 import sys
 from pathlib import Path
 
@@ -80,9 +79,9 @@ def init(args) -> int:
                 return 1
             default = choice
 
-    body = json.dumps({"sites": sites, "default_site": default}, indent=2)
-    cfg_path.write_text(f"{body}\n")
-    _harden_permissions(cfg_path)
+    body = json.dumps({"sites": sites, "default_site": default}, indent=2) + "\n"
+    if not _write_secret_file(cfg_path, body):
+        return 1
     print(f"\nWrote {cfg_path}")
     sys.stderr.write(
         "\nNote: this file now contains your API token(s) in plaintext. "
@@ -93,19 +92,44 @@ def init(args) -> int:
     return 0
 
 
-def _harden_permissions(path: Path) -> None:
-    """Set 0600 (owner read/write only) so the file can't be read by other
-    users on the same machine. POSIX-only; no-op on Windows where chmod
-    bits don't map to ACLs the same way."""
-    if os.name != "posix":
-        return
+def _write_secret_file(path: Path, body: str) -> bool:
+    """Atomically create ``path`` with mode 0600, write ``body``, and
+    return True. On POSIX we use ``os.open(O_CREAT|O_EXCL, 0o600)``
+    so the file is never readable to anyone else even briefly. On
+    Windows (where chmod bits do not map to ACLs the same way), fall
+    back to a plain write and surface a one-line caveat. On any
+    OSError, the half-written file is removed and we return False.
+    """
+    if os.name == "posix":
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        try:
+            fd = os.open(str(path), flags, 0o600)
+        except OSError as exc:
+            sys.stderr.write(f"error: could not create {path}: {exc}\n")
+            return False
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(body)
+        except OSError as exc:
+            sys.stderr.write(f"error: could not write {path}: {exc}\n")
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            return False
+        return True
+
+    # Windows fallback
     try:
-        path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        path.write_text(body, encoding="utf-8")
     except OSError as exc:
-        sys.stderr.write(
-            f"warning: could not set 0600 permissions on {path} ({exc}). "
-            "Set them manually to keep your API tokens private.\n"
-        )
+        sys.stderr.write(f"error: could not write {path}: {exc}\n")
+        return False
+    sys.stderr.write(
+        f"warning: file {path} written with default permissions on Windows. "
+        "Restrict access via NTFS ACLs to keep your API tokens private.\n"
+    )
+    return True
 
 
 def _token_source_label(site) -> str:

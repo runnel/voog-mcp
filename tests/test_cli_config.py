@@ -101,6 +101,50 @@ class TestInitSecurityHardening(unittest.TestCase):
             self.assertEqual(data["sites"]["mysite"]["api_key"], "vk_test_token")
             self.assertEqual(data["default_site"], "mysite")
 
+    def test_init_multi_site_default_prompt(self):
+        """When more than one site is configured, init prompts for default."""
+        with TemporaryDirectory() as tmp:
+            cfg_path = Path(tmp) / "voog.json"
+            rc, _, _ = self._run_init(
+                cfg_path,
+                inputs=[
+                    "alpha",
+                    "alpha.com",
+                    "vk_a",
+                    "beta",
+                    "beta.com",
+                    "vk_b",
+                    "",  # stop adding sites
+                    "alpha",  # answer to "Default site (blank for none): "
+                ],
+            )
+            self.assertEqual(rc, 0)
+            data = json.loads(cfg_path.read_text())
+            self.assertEqual(set(data["sites"]), {"alpha", "beta"})
+            self.assertEqual(data["default_site"], "alpha")
+
+    def test_init_multi_site_invalid_default_errors(self):
+        """If user types a default that isn't in sites, init errors out."""
+        with TemporaryDirectory() as tmp:
+            cfg_path = Path(tmp) / "voog.json"
+            rc, _, stderr = self._run_init(
+                cfg_path,
+                inputs=[
+                    "alpha",
+                    "alpha.com",
+                    "vk_a",
+                    "beta",
+                    "beta.com",
+                    "vk_b",
+                    "",
+                    "ghost",  # not a site
+                ],
+            )
+            self.assertEqual(rc, 1)
+            self.assertIn("not in sites", stderr)
+            # Aborted before writing the file
+            self.assertFalse(cfg_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
