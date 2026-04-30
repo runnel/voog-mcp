@@ -168,10 +168,12 @@ def cmd_asset_replace(args, client: VoogClient) -> int:
         manifest.pop(old_path, None)
         manifest[new_path] = {
             "id": new_id,
-            # Match pull.py's manifest schema: type="asset" with kind/asset_type
-            # set to the API's content classification ("stylesheet", "javascript", etc).
+            # Match pull.py's manifest schema exactly. ``pull.py`` writes
+            # ``{"type": "asset", "kind": kind, ...}``; using "kind" here
+            # keeps replaced entries readable by any future code that
+            # filters/groups by manifest["…"]["kind"].
             "type": "asset",
-            "asset_type": asset_type,
+            "kind": asset_type,
         }
         manifest_path.write_text(
             json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"

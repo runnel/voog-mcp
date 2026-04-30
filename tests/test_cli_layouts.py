@@ -153,6 +153,10 @@ class TestAssetReplace(unittest.TestCase):
             self.assertIn("stylesheets/new.css", manifest)
             self.assertEqual(manifest["stylesheets/new.css"]["id"], 99)
             self.assertEqual(manifest["stylesheets/new.css"]["type"], "asset")
+            # Schema parity with pull.py: kind, not asset_type — same key
+            # any future manifest reader is most likely to use.
+            self.assertEqual(manifest["stylesheets/new.css"]["kind"], "stylesheet")
+            self.assertNotIn("asset_type", manifest["stylesheets/new.css"])
 
     def test_replace_with_path_separator_rejected(self):
         client = _make_client()
