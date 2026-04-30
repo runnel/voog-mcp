@@ -1,10 +1,8 @@
 """Voog Admin API + Ecommerce v1 API client."""
 
-# PEP 563 lazy annotations — voog.py is invoked under the system python3 (3.9
-# on macOS) which evaluates ``str | None`` at runtime as a TypeError. The MCP
-# server runs on the project venv (3.11+) where the syntax is native, but
-# ``voog.py`` reuses :class:`VoogClient` directly, so we keep annotations
-# string-only here.
+# PEP 563 lazy annotations — kept for forward compatibility. The package
+# requires Python >=3.10 (where ``str | None`` evaluates fine), so this
+# import is now belt-and-suspenders rather than a hard requirement.
 from __future__ import annotations
 
 import json

@@ -88,9 +88,12 @@ class TestJsonResponse(unittest.TestCase):
         self.assertIn("\n  ", result[0].content)
 
     def test_ensure_ascii_false_preserves_non_ascii(self):
-        # Non-ASCII characters must round-trip without \uXXXX escaping
+        # Non-ASCII characters must round-trip without \uXXXX escaping —
+        # exercise multiple latin-extended ranges (õ, —, ï, ç) so a regression
+        # in just one is caught.
         result = json_response({"title": "Tõnu Soomlais — naïve façade"})
         self.assertIn("Tõnu", result[0].content)
+        self.assertIn("naïve façade", result[0].content)
         self.assertNotIn("\\u", result[0].content)
 
     def test_handles_empty_list(self):

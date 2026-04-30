@@ -11,10 +11,10 @@ Three tools — all use ``client.ecommerce_url`` as base:
                            (name, slug per-language) — reversible by
                            calling again with previous values
 
-Mirrors :mod:`voog_mcp.tools.layouts` pattern: explicit MCP annotation
+Mirrors :mod:`voog.mcp.tools.layouts` pattern: explicit MCP annotation
 triples on every tool, defensive validation, ``success_response``/``error_response``.
 
-The list view's curated projection lives in :mod:`voog_mcp.projections`
+The list view's curated projection lives in :mod:`voog.projections`
 (:func:`simplify_products`) and is shared with :mod:`voog.mcp.resources.products`
 so the ``products_list`` tool and the ``voog://products`` resource produce the
 same shape — consistent UX, and the shape can't drift between the two surfaces.
