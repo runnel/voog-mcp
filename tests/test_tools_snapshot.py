@@ -104,11 +104,20 @@ class TestPagesSnapshot(unittest.TestCase):
             {"id": 2, "title": "B"},
             {"id": 3, "title": "C"},
         ]
-        client.get.side_effect = [
-            [{"id": 11}],
-            urllib.error.HTTPError("u", 404, "Not Found", {}, None),
-            [{"id": 33}],
-        ]
+
+        def dispatch(path):
+            # Path-based dispatch — parallel_map may invoke in any order,
+            # so the exception must be tied to page 2 specifically, not the
+            # second positional call.
+            if path == "/pages/2/contents":
+                raise urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+            if path == "/pages/1/contents":
+                return [{"id": 11}]
+            if path == "/pages/3/contents":
+                return [{"id": 33}]
+            raise AssertionError(f"unexpected path: {path}")
+
+        client.get.side_effect = dispatch
         with tempfile.TemporaryDirectory() as tmpdir:
             out = Path(tmpdir) / "snap"
             result = snapshot_tools.call_tool(
@@ -124,6 +133,28 @@ class TestPagesSnapshot(unittest.TestCase):
         self.assertEqual(breakdown["page_contents_written"], 2)
         self.assertEqual(len(breakdown["per_page_errors"]), 1)
         self.assertEqual(breakdown["per_page_errors"][0]["page_id"], 2)
+
+    def test_pages_snapshot_uses_parallel_map(self):
+        # Lock the contract: per-page contents fan-out goes through
+        # voog._concurrency.parallel_map, not a sequential client.get loop.
+        client = _make_client()
+        client.get_all.return_value = [{"id": 1}, {"id": 2}, {"id": 3}]
+
+        with patch("voog.mcp.tools.snapshot.parallel_map") as mock_pmap:
+            mock_pmap.return_value = []
+            with tempfile.TemporaryDirectory() as tmpdir:
+                out = Path(tmpdir) / "snap"
+                snapshot_tools.call_tool(
+                    "pages_snapshot",
+                    {"output_dir": str(out)},
+                    client,
+                )
+            # The second parallel_map call is the per-page fan-out (the first
+            # would be in site_snapshot, but we're only invoking pages_snapshot
+            # here so this is the only call).
+            mock_pmap.assert_called_once()
+            call_args = mock_pmap.call_args
+            self.assertEqual(list(call_args.args[1]), [1, 2, 3])
 
     def test_creates_parent_dirs(self):
         client = _make_client()

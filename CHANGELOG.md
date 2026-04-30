@@ -11,6 +11,9 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 - Internal: redirect API payload now built via shared `voog._payloads.build_redirect_payload` helper, used by both CLI and MCP. Reduces drift risk if Voog changes the schema. Closes #75.
 - `parallel_map` now executes single-item lists synchronously, skipping the ThreadPoolExecutor overhead (~10-50ms savings per single-item call). Output shape unchanged. Closes #76.
 
+### Performance
+- `voog pages-snapshot` now fetches per-page contents in parallel (max 8 workers), ~5-10x faster on sites with 50+ pages. Per-page error handling preserved. Closes #74.
+
 ## [1.1.0] — 2026-04-30
 
 ### Added
