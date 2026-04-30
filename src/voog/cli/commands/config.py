@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
 from voog.client import VoogClient
 from voog.config import (
+    ConfigError,
     default_global_config_path,
     find_env_file,
     load_env_file,
     load_global_config,
+    resolve_site_token,
 )
 
 
@@ -34,7 +35,12 @@ def add_arguments(subparsers):
 
 
 def init(args) -> int:
-    """Interactive: create XDG voog.json + (optional) .env."""
+    """Interactive: create XDG voog.json with tokens inline.
+
+    Tokens go directly into voog.json by default. For shared or
+    checked-in configs, edit afterwards to use ``api_key_env`` and
+    keep secrets in ``.env`` or the environment.
+    """
     cfg_path = args.config or default_global_config_path()
     cfg_path = Path(cfg_path)
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,8 +55,11 @@ def init(args) -> int:
         if not name:
             break
         host = input(f"  Host for '{name}' (e.g., example.com): ").strip()
-        env_var = input(f"  Env var that holds the API token for '{name}': ").strip()
-        sites[name] = {"host": host, "api_key_env": env_var}
+        token = input(f"  API token for '{name}' (paste from Voog Admin → API): ").strip()
+        if not token:
+            sys.stderr.write(f"error: api_key for '{name}' cannot be empty.\n")
+            return 1
+        sites[name] = {"host": host, "api_key": token}
 
     if not sites:
         sys.stderr.write("error: no sites entered. Aborting.\n")
@@ -67,15 +76,23 @@ def init(args) -> int:
                 return 1
             default = choice
 
-    cfg_path.write_text(json.dumps({"sites": sites, "default_site": default}, indent=2))
+    body = json.dumps({"sites": sites, "default_site": default}, indent=2)
+    cfg_path.write_text(f"{body}\n")
     print(f"\nWrote {cfg_path}")
-
-    env_path = cfg_path.parent / ".env"
-    if not env_path.exists():
-        print(f"\nCreate {env_path} and add your API tokens. Example:")
-        for site_name, entry in sites.items():
-            print(f"  {entry['api_key_env']}=your_token_for_{site_name}")
+    print(
+        "\nNote: each site can also use 'api_key_env' (env var name) "
+        "instead of inline 'api_key' — useful for shared/CI configs."
+    )
     return 0
+
+
+def _token_source_label(site) -> str:
+    """Short label describing where the token comes from."""
+    if site.api_key_env and site.api_key:
+        return f"[{site.api_key_env} or inline]"
+    if site.api_key_env:
+        return f"[{site.api_key_env}]"
+    return "[inline api_key]"
 
 
 def list_sites(args) -> int:
@@ -85,7 +102,7 @@ def list_sites(args) -> int:
         return 0
     for name, site in cfg.sites.items():
         marker = " (default)" if cfg.default_site == name else ""
-        print(f"  {name}: {site.host}  [{site.api_key_env}]{marker}")
+        print(f"  {name}: {site.host}  {_token_source_label(site)}{marker}")
     return 0
 
 
@@ -99,9 +116,10 @@ def check(args) -> int:
     env = load_env_file(env_path) if env_path else {}
     failures = 0
     for name, site in cfg.sites.items():
-        token = env.get(site.api_key_env) or os.environ.get(site.api_key_env)
-        if not token:
-            print(f"  {name}: ✗ token env '{site.api_key_env}' not set")
+        try:
+            token = resolve_site_token(site, env)
+        except ConfigError as exc:
+            print(f"  {name}: ✗ {exc}")
             failures += 1
             continue
         try:

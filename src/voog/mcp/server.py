@@ -26,6 +26,7 @@ from voog.config import (
     find_env_file,
     load_env_file,
     load_global_config,
+    resolve_site_token,
 )
 from voog.errors import error_response
 from voog.mcp.resources import articles as articles_resources
@@ -80,11 +81,7 @@ class ClientFactory:
                 f"unknown site '{site_name}'. Available: {sorted(self._global_cfg.sites)}"
             )
         site = self._global_cfg.sites[site_name]
-        token = self._env.get(site.api_key_env) or os.environ.get(site.api_key_env)
-        if not token:
-            raise ConfigError(
-                f"env var '{site.api_key_env}' (referenced by site '{site_name}') is not set"
-            )
+        token = resolve_site_token(site, self._env)
         client = VoogClient(host=site.host, api_token=token)
         self._cache[site_name] = client
         return client

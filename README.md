@@ -43,30 +43,39 @@ Run `voog config init` to interactively create the global config:
 voog config init
 ```
 
-This creates:
-- `~/.config/voog/voog.json` — site registry
-- `~/.config/voog/.env` (template) — where to put API tokens
-
-Example `voog.json`:
+This creates `~/.config/voog/voog.json` with your tokens inline:
 
 ```json
 {
   "sites": {
-    "mysite":   {"host": "mysite.com",   "api_key_env": "MYSITE_API_KEY"},
-    "client_a": {"host": "clienta.com",  "api_key_env": "CLIENT_A_KEY"}
+    "mysite":   {"host": "mysite.com",   "api_key": "vk_..."},
+    "client_a": {"host": "clienta.com",  "api_key": "vk_..."}
   },
   "default_site": "mysite"
 }
 ```
 
-Example `.env`:
-
-```
-MYSITE_API_KEY=...your token here...
-CLIENT_A_KEY=...another token...
-```
-
 Get a token from your Voog admin: **Admin → API**.
+
+### Shared / CI configs
+
+If `voog.json` is checked into version control or shared across machines, keep the token out of the file by referencing an env var instead:
+
+```json
+{
+  "sites": {
+    "client_a": {"host": "clienta.com", "api_key_env": "CLIENT_A_KEY"}
+  }
+}
+```
+
+Then put the token in `~/.config/voog/.env`:
+
+```
+CLIENT_A_KEY=vk_...
+```
+
+Both forms can coexist per-site. When both `api_key` and `api_key_env` are set, the env-var wins if it's defined — so an inline value acts as a default that the deployment overrides.
 
 ### Per-repo site selection
 

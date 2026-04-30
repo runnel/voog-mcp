@@ -15,6 +15,7 @@ from voog.config import (
     load_env_file,
     load_global_config,
     resolve_site,
+    resolve_site_token,
 )
 
 
@@ -58,12 +59,115 @@ class TestLoadGlobalConfig(unittest.TestCase):
             cfg_path.write_text(
                 json.dumps(
                     {
-                        "sites": {"x": {"host": "x.com"}},  # api_key_env missing
+                        "sites": {"x": {"host": "x.com"}},  # neither api_key nor api_key_env
                     }
                 )
             )
             with self.assertRaises(ConfigError):
                 load_global_config(cfg_path)
+
+    def test_site_config_accepts_api_key_inline(self):
+        """New format: token sits directly in voog.json under api_key."""
+        with TemporaryDirectory() as tmp:
+            cfg_path = Path(tmp) / "voog.json"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "sites": {
+                            "x": {"host": "x.com", "api_key": "vk_inline_token"},
+                        }
+                    }
+                )
+            )
+            cfg = load_global_config(cfg_path)
+            self.assertEqual(cfg.sites["x"].api_key, "vk_inline_token")
+            self.assertIsNone(cfg.sites["x"].api_key_env)
+
+    def test_site_config_accepts_api_key_env(self):
+        """Old format: env-var-name reference still works."""
+        with TemporaryDirectory() as tmp:
+            cfg_path = Path(tmp) / "voog.json"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "sites": {
+                            "x": {"host": "x.com", "api_key_env": "X_KEY"},
+                        }
+                    }
+                )
+            )
+            cfg = load_global_config(cfg_path)
+            self.assertEqual(cfg.sites["x"].api_key_env, "X_KEY")
+            self.assertIsNone(cfg.sites["x"].api_key)
+
+    def test_site_config_accepts_both(self):
+        """Both fields populated is valid — env-var path wins at resolve time."""
+        with TemporaryDirectory() as tmp:
+            cfg_path = Path(tmp) / "voog.json"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "sites": {
+                            "x": {
+                                "host": "x.com",
+                                "api_key": "vk_inline",
+                                "api_key_env": "X_KEY",
+                            }
+                        }
+                    }
+                )
+            )
+            cfg = load_global_config(cfg_path)
+            self.assertEqual(cfg.sites["x"].api_key, "vk_inline")
+            self.assertEqual(cfg.sites["x"].api_key_env, "X_KEY")
+
+    def test_site_config_rejects_neither_set(self):
+        """Both api_key and api_key_env missing must raise a clear error."""
+        with TemporaryDirectory() as tmp:
+            cfg_path = Path(tmp) / "voog.json"
+            cfg_path.write_text(json.dumps({"sites": {"x": {"host": "x.com"}}}))
+            with self.assertRaises(ConfigError) as ctx:
+                load_global_config(cfg_path)
+            msg = str(ctx.exception)
+            self.assertIn("api_key", msg)
+            self.assertIn("api_key_env", msg)
+
+
+class TestResolveSiteToken(unittest.TestCase):
+    def test_inline_api_key_used_when_only_one_set(self):
+        site = SiteConfig(name="x", host="x.com", api_key="vk_inline")
+        self.assertEqual(resolve_site_token(site, env={}), "vk_inline")
+
+    def test_env_var_used_when_only_one_set(self):
+        site = SiteConfig(name="x", host="x.com", api_key_env="X_KEY")
+        self.assertEqual(resolve_site_token(site, env={"X_KEY": "from_env"}), "from_env")
+
+    def test_env_var_wins_when_both_set(self):
+        """Documented behavior: env-var beats inline so a checked-in
+        config can carry a default and the environment can override."""
+        site = SiteConfig(name="x", host="x.com", api_key="vk_inline", api_key_env="X_KEY")
+        token = resolve_site_token(site, env={"X_KEY": "from_env"})
+        self.assertEqual(token, "from_env")
+
+    def test_falls_back_to_inline_when_env_var_unset(self):
+        """If api_key_env is named but not actually set, use inline as fallback."""
+        site = SiteConfig(name="x", host="x.com", api_key="vk_inline", api_key_env="X_KEY")
+        with patch.dict("os.environ", {}, clear=True):
+            token = resolve_site_token(site, env={})
+            self.assertEqual(token, "vk_inline")
+
+    def test_raises_when_env_var_unset_and_no_inline(self):
+        site = SiteConfig(name="x", host="x.com", api_key_env="X_KEY")
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(ConfigError) as ctx:
+                resolve_site_token(site, env={})
+            self.assertIn("X_KEY", str(ctx.exception))
+
+    def test_reads_from_os_environ_if_not_in_env_dict(self):
+        site = SiteConfig(name="x", host="x.com", api_key_env="X_KEY")
+        with patch.dict("os.environ", {"X_KEY": "from_os"}):
+            token = resolve_site_token(site, env={})
+            self.assertEqual(token, "from_os")
 
 
 class TestResolveSite(unittest.TestCase):
@@ -142,6 +246,53 @@ class TestRepoSitePointerLegacyFormat(unittest.TestCase):
                 self.assertEqual(pointer.legacy_api_key_env, "LEGACY_KEY")
                 self.assertIsNone(pointer.site_name)
                 mock_warn.assert_called_once()
+
+
+class TestClientFactoryTokenResolution(unittest.TestCase):
+    """Black-box: server's ClientFactory must accept inline-keyed sites."""
+
+    def test_client_factory_resolves_inline_api_key(self):
+        from voog.mcp.server import ClientFactory
+
+        cfg = GlobalConfig(
+            sites={
+                "x": SiteConfig(name="x", host="x.example.com", api_key="vk_inline"),
+            }
+        )
+        factory = ClientFactory(cfg, env={})
+        client = factory.for_site("x")
+        # VoogClient stores host/token; we verify the inline token reached it.
+        self.assertEqual(client.host, "x.example.com")
+        self.assertEqual(client.api_token, "vk_inline")
+
+    def test_client_factory_resolves_env_var(self):
+        from voog.mcp.server import ClientFactory
+
+        cfg = GlobalConfig(
+            sites={
+                "x": SiteConfig(name="x", host="x.example.com", api_key_env="X_KEY"),
+            }
+        )
+        factory = ClientFactory(cfg, env={"X_KEY": "from_env"})
+        client = factory.for_site("x")
+        self.assertEqual(client.api_token, "from_env")
+
+    def test_client_factory_env_var_wins_over_inline(self):
+        from voog.mcp.server import ClientFactory
+
+        cfg = GlobalConfig(
+            sites={
+                "x": SiteConfig(
+                    name="x",
+                    host="x.example.com",
+                    api_key="vk_inline",
+                    api_key_env="X_KEY",
+                ),
+            }
+        )
+        factory = ClientFactory(cfg, env={"X_KEY": "from_env"})
+        client = factory.for_site("x")
+        self.assertEqual(client.api_token, "from_env")
 
 
 class TestLoadEnvFile(unittest.TestCase):
