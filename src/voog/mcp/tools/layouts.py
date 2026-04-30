@@ -127,6 +127,133 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": False,
             },
         ),
+        Tool(
+            name="layout_update",
+            description=(
+                "Update a layout — body (Liquid template source), title, "
+                "or both. At least one must be supplied. Reversible by "
+                "calling again with the previous values; idempotent."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "layout_id": {"type": "integer"},
+                    "title": {"type": "string"},
+                    "body": {
+                        "type": "string",
+                        "description": "Liquid template source",
+                    },
+                },
+                "required": ["site", "layout_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
+        Tool(
+            name="layout_delete",
+            description=(
+                "Delete a layout. IRREVERSIBLE — Voog does not retain "
+                "deleted layouts. Refuses without force=true. Pages "
+                "currently using the layout will 500 on render until "
+                "reassigned via page_set_layout — back up with "
+                "site_snapshot first."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "layout_id": {"type": "integer"},
+                    "force": {"type": "boolean", "default": False},
+                },
+                "required": ["site", "layout_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": False,
+            },
+        ),
+        Tool(
+            name="layout_asset_create",
+            description=(
+                "Create a layout_asset (CSS/JS/image). filename + asset_type "
+                "+ data required. asset_type ∈ {stylesheet, javascript, "
+                "image, plain_text, video, pdf, ...}. For image uploads, "
+                "use POST /assets + 3-step protocol via product_set_images "
+                "instead — this tool is for text assets (CSS/JS/HTML "
+                "fragments)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "filename": {"type": "string"},
+                    "asset_type": {"type": "string"},
+                    "data": {
+                        "type": "string",
+                        "description": "Asset content (text)",
+                    },
+                },
+                "required": ["site", "filename", "asset_type", "data"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": False,
+            },
+        ),
+        Tool(
+            name="layout_asset_update",
+            description=(
+                "Update a layout_asset's content (PUT /layout_assets/{id} "
+                "{data}). filename is read-only — Voog returns 500 if "
+                "filename is sent on PUT. Use asset_replace to rename."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "asset_id": {"type": "integer"},
+                    "data": {"type": "string"},
+                    "filename": {
+                        "type": "string",
+                        "description": "REJECTED — use asset_replace to rename",
+                    },
+                },
+                "required": ["site", "asset_id", "data"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
+        Tool(
+            name="layout_asset_delete",
+            description=(
+                "Delete a layout_asset. IRREVERSIBLE. Refuses without "
+                "force=true. Templates referencing the deleted file will "
+                "render with empty content."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "asset_id": {"type": "integer"},
+                    "force": {"type": "boolean", "default": False},
+                },
+                "required": ["site", "asset_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": False,
+            },
+        ),
     ]
 
 
@@ -143,6 +270,21 @@ def call_tool(
 
     if name == "asset_replace":
         return _asset_replace(arguments, client)
+
+    if name == "layout_update":
+        return _layout_update(arguments, client)
+
+    if name == "layout_delete":
+        return _layout_delete(arguments, client)
+
+    if name == "layout_asset_create":
+        return _layout_asset_create(arguments, client)
+
+    if name == "layout_asset_update":
+        return _layout_asset_update(arguments, client)
+
+    if name == "layout_asset_delete":
+        return _layout_asset_delete(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 
@@ -272,3 +414,107 @@ def _asset_replace(arguments: dict, client: VoogClient) -> list[TextContent] | C
         },
         summary=f"✨ asset {asset_id} ({old_filename!r}) → {new_id} ({new_filename!r}) (old asset NOT deleted)",
     )
+
+
+def _layout_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    layout_id = arguments.get("layout_id")
+    body: dict = {}
+    if arguments.get("title") is not None:
+        title = arguments["title"]
+        err = _validate_voog_name(title, "title")
+        if err:
+            return error_response(f"layout_update: {err}")
+        body["title"] = title
+    if arguments.get("body") is not None:
+        body["body"] = arguments["body"]
+    if not body:
+        return error_response("layout_update: at least one of title/body required")
+    try:
+        result = client.put(f"/layouts/{layout_id}", body)
+        return success_response(
+            result,
+            summary=f"✏️  layout {layout_id} updated ({sorted(body.keys())})",
+        )
+    except Exception as e:
+        return error_response(f"layout_update id={layout_id} failed: {e}")
+
+
+def _layout_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    layout_id = arguments.get("layout_id")
+    if not arguments.get("force"):
+        return error_response(
+            f"layout_delete: refusing to delete layout {layout_id} without force=true. "
+            "Pages using this layout will fail to render — reassign via "
+            "page_set_layout first, and back up with site_snapshot."
+        )
+    try:
+        client.delete(f"/layouts/{layout_id}")
+        return success_response(
+            {"deleted": layout_id},
+            summary=f"🗑️  layout {layout_id} deleted",
+        )
+    except Exception as e:
+        return error_response(f"layout_delete id={layout_id} failed: {e}")
+
+
+def _layout_asset_create(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    filename = arguments.get("filename") or ""
+    asset_type = arguments.get("asset_type") or ""
+    data = arguments.get("data")
+    err = _validate_voog_name(filename, "filename")
+    if err:
+        return error_response(f"layout_asset_create: {err}")
+    if not asset_type:
+        return error_response("layout_asset_create: asset_type is required")
+    if data is None:
+        return error_response("layout_asset_create: data is required")
+    try:
+        result = client.post(
+            "/layout_assets",
+            {"filename": filename, "asset_type": asset_type, "data": data},
+        )
+        return success_response(
+            result,
+            summary=f"📁 layout_asset {result.get('id')} created: {filename}",
+        )
+    except Exception as e:
+        return error_response(f"layout_asset_create failed: {e}")
+
+
+def _layout_asset_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    asset_id = arguments.get("asset_id")
+    if "filename" in arguments and arguments["filename"]:
+        return error_response(
+            "layout_asset_update: filename is read-only on PUT (Voog "
+            "returns 500). Use asset_replace to rename via DELETE+POST."
+        )
+    if arguments.get("data") is None:
+        return error_response("layout_asset_update: data is required")
+    try:
+        result = client.put(
+            f"/layout_assets/{asset_id}",
+            {"data": arguments["data"]},
+        )
+        return success_response(
+            result,
+            summary=f"📁 layout_asset {asset_id} content updated",
+        )
+    except Exception as e:
+        return error_response(f"layout_asset_update id={asset_id} failed: {e}")
+
+
+def _layout_asset_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    asset_id = arguments.get("asset_id")
+    if not arguments.get("force"):
+        return error_response(
+            f"layout_asset_delete: refusing to delete asset {asset_id} "
+            "without force=true. Templates referencing it will break."
+        )
+    try:
+        client.delete(f"/layout_assets/{asset_id}")
+        return success_response(
+            {"deleted": asset_id},
+            summary=f"🗑️  layout_asset {asset_id} deleted",
+        )
+    except Exception as e:
+        return error_response(f"layout_asset_delete id={asset_id} failed: {e}")
