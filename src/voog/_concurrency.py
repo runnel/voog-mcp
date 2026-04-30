@@ -35,10 +35,18 @@ def parallel_map(
     is ``(item, None, None)``, which is success, not a failure with a missing
     exception. Caller decides what to do with errors — this helper never raises.
 
-    Empty ``items`` returns ``[]`` without spawning a pool.
+    Empty ``items`` returns ``[]`` without spawning a pool. Single-item
+    lists run synchronously, also without a pool — same output shape, no
+    thread-pool startup/teardown overhead.
     """
     if not items:
         return []
+    if len(items) == 1:
+        item = items[0]
+        try:
+            return [(item, fn(item), None)]
+        except Exception as e:
+            return [(item, None, e)]
     results: list[tuple[T, R | None, Exception | None]] = [None] * len(items)  # type: ignore[list-item]
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(fn, item): idx for idx, item in enumerate(items)}
