@@ -24,6 +24,8 @@ Path validation rejects three obvious foot-guns:
     them is cheap defence-in-depth).
 """
 
+import urllib.parse
+
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
@@ -114,6 +116,7 @@ def get_tools() -> list[Tool]:
                     "method": {
                         "type": "string",
                         "enum": list(ALLOWED_METHODS),
+                        "description": "HTTP method",
                     },
                     "path": {
                         "type": "string",
@@ -124,9 +127,19 @@ def get_tools() -> list[Tool]:
                     },
                     "body": {
                         "type": ["object", "array", "null"],
+                        "description": (
+                            "Optional JSON body for POST/PUT/PATCH. "
+                            "Voog uses different envelope conventions per "
+                            "endpoint — see docs/voog-mcp-endpoint-coverage.md."
+                        ),
                     },
                     "params": {
                         "type": ["object", "null"],
+                        "description": (
+                            "Optional query parameters as a flat string-keyed "
+                            "object, e.g. {'include': 'translations', "
+                            "'q.page.hidden.$eq': 'true'}."
+                        ),
                     },
                 },
                 "required": ["site", "method", "path"],
@@ -182,15 +195,13 @@ def _passthrough(
         if method == "GET":
             data = client.get(path, base=base, params=params)
         elif method == "DELETE":
-            data = client.delete(path, base=base)
+            data = client.delete(path, base=base, params=params)
         elif method == "POST":
             data = client.post(path, body, base=base)
         elif method == "PUT":
             data = client.put(path, body, base=base)
-        else:
-            # PATCH — re-use the private _request; behaves like PUT but with
-            # the merge semantics Voog applies on the server side.
-            data = client._request("PATCH", path, base=base, data=body)
+        elif method == "PATCH":
+            data = client.patch(path, body, base=base)
     except Exception as e:
         return error_response(
             f"voog_{label}_api_call {method} {path} failed: {e}"
@@ -209,6 +220,7 @@ def _validate_path(path: str) -> str | None:
         return f"path must not be an absolute URL (got {path!r})"
     if not path.startswith("/"):
         return f"path must start with '/' (got {path!r})"
-    if ".." in path.split("/"):
+    decoded = urllib.parse.unquote(path)
+    if ".." in decoded.split("/"):
         return f"path must not contain '..' segments (got {path!r})"
     return None

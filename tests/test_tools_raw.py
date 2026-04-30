@@ -113,7 +113,36 @@ class TestAdminApiCall(unittest.TestCase):
         client.delete.assert_called_once_with(
             "/redirect_rules/9",
             base="https://example.com/admin/api",
+            params=None,
         )
+
+    def test_patch_with_body(self):
+        client = MagicMock()
+        client.base_url = "https://example.com/admin/api"
+        client.patch.return_value = {"id": 5, "title": "X"}
+        raw_tools.call_tool(
+            "voog_admin_api_call",
+            {
+                "method": "PATCH",
+                "path": "/site",
+                "body": {"title": "X"},
+            },
+            client,
+        )
+        client.patch.assert_called_once_with(
+            "/site",
+            {"title": "X"},
+            base="https://example.com/admin/api",
+        )
+
+    def test_rejects_percent_encoded_path_traversal(self):
+        client = MagicMock()
+        result = raw_tools.call_tool(
+            "voog_admin_api_call",
+            {"method": "GET", "path": "/%2e%2e/%2e%2e/etc/passwd"},
+            client,
+        )
+        self.assertTrue(result.isError)
 
     def test_rejects_unknown_method(self):
         client = MagicMock()
