@@ -161,16 +161,17 @@ def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | 
     except Exception as e:
         return error_response(f"pages_snapshot failed: {e}")
 
+    page_ids = [p.get("id") for p in pages if p.get("id")]
+    page_content_results = parallel_map(
+        lambda pid: client.get(f"/pages/{pid}/contents"),
+        page_ids,
+        max_workers=8,
+    )
     page_contents_written = 0
     per_page_errors: list = []
-    for p in pages:
-        pid = p.get("id")
-        if not pid:
-            continue
-        try:
-            contents = client.get(f"/pages/{pid}/contents")
-        except Exception as e:
-            per_page_errors.append({"page_id": pid, "error": str(e)})
+    for pid, contents, exc in page_content_results:
+        if exc is not None:
+            per_page_errors.append({"page_id": pid, "error": str(exc)})
             continue
         write_json(out / f"page_{pid}_contents.json", contents)
         page_contents_written += 1

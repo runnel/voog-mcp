@@ -164,6 +164,25 @@ class TestPagesSnapshot(unittest.TestCase):
             self.assertTrue((out / "page_2_contents.json").exists())
             self.assertFalse((out / "page_1_contents.json").exists())
 
+    def test_pages_snapshot_uses_parallel_map(self):
+        # Lock the contract: per-page contents fan-out goes through
+        # voog._concurrency.parallel_map, not a sequential client.get loop.
+        client = _make_client()
+        client.get_all.return_value = [{"id": 1}, {"id": 2}, {"id": 3}]
+
+        with patch("voog.cli.commands.snapshot.parallel_map") as mock_pmap:
+            mock_pmap.return_value = []
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "snap"
+                args = MagicMock()
+                args.output_dir = out
+                with patch("sys.stdout"):
+                    snap_cmd.cmd_pages_snapshot(args, client)
+            mock_pmap.assert_called_once()
+            # First positional arg is the fetch fn, second is the page id list.
+            call_args = mock_pmap.call_args
+            self.assertEqual(list(call_args.args[1]), [1, 2, 3])
+
 
 if __name__ == "__main__":
     unittest.main()

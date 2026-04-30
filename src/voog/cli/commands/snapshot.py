@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from voog._concurrency import parallel_map
 from voog.client import VoogClient
 
 
@@ -185,15 +186,16 @@ def cmd_pages_snapshot(args, client: VoogClient) -> int:
     _write_json(out / "pages.json", pages)
     print(f"  pages.json: {len(pages)} pages")
 
+    page_ids = [p.get("id") for p in pages if p.get("id")]
+    results = parallel_map(
+        lambda pid: client.get(f"/pages/{pid}/contents"),
+        page_ids,
+        max_workers=8,
+    )
     errors = 0
-    for p in pages:
-        pid = p.get("id")
-        if not pid:
-            continue
-        try:
-            contents = client.get(f"/pages/{pid}/contents")
-        except Exception as e:
-            print(f"  warning: page {pid} contents failed: {e}")
+    for pid, contents, exc in results:
+        if exc is not None:
+            print(f"  warning: page {pid} contents failed: {exc}")
             errors += 1
             continue
         _write_json(out / f"page_{pid}_contents.json", contents)
