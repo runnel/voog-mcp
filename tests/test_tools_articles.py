@@ -204,6 +204,72 @@ class TestArticlePublish(unittest.TestCase):
         self.assertTrue(result.isError)
         client.put.assert_not_called()
 
+    def test_no_autosaved_falls_back_to_get_then_put(self):
+        # Regression: when caller does NOT provide autosaved_* args, we still
+        # GET the article, extract autosaved_* values, and PUT them back
+        # together with publishing:true. This is the existing behaviour;
+        # the GET+PUT branch has a documented race window.
+        client = MagicMock()
+        client.get.return_value = {
+            "id": 99,
+            "autosaved_title": "T",
+            "autosaved_body": "B",
+            "autosaved_excerpt": "E",
+        }
+        client.put.return_value = {"id": 99}
+        articles_tools.call_tool("article_publish", {"article_id": 99}, client)
+        client.get.assert_called_once_with("/articles/99")
+        body = client.put.call_args.args[1]
+        self.assertEqual(body["autosaved_title"], "T")
+        self.assertEqual(body["autosaved_body"], "B")
+        self.assertEqual(body["autosaved_excerpt"], "E")
+        self.assertIs(body["publishing"], True)
+
+    def test_explicit_autosaved_skips_get(self):
+        # When the caller passes ALL THREE autosaved_* args, the tool skips
+        # the GET entirely and PUTs directly. This collapses GET+PUT into a
+        # single round trip with no race window — the caller is the source
+        # of truth for the content being published.
+        client = MagicMock()
+        client.put.return_value = {"id": 99}
+        articles_tools.call_tool(
+            "article_publish",
+            {
+                "article_id": 99,
+                "autosaved_title": "Caller Title",
+                "autosaved_body": "<p>caller body</p>",
+                "autosaved_excerpt": "caller ex",
+            },
+            client,
+        )
+        client.get.assert_not_called()
+        client.put.assert_called_once()
+        path, body = client.put.call_args.args
+        self.assertEqual(path, "/articles/99")
+        self.assertEqual(body["autosaved_title"], "Caller Title")
+        self.assertEqual(body["autosaved_body"], "<p>caller body</p>")
+        self.assertEqual(body["autosaved_excerpt"], "caller ex")
+        self.assertIs(body["publishing"], True)
+        # Body should contain ONLY the four expected keys — no leakage.
+        self.assertEqual(
+            set(body.keys()),
+            {"autosaved_title", "autosaved_body", "autosaved_excerpt", "publishing"},
+        )
+
+    def test_partial_autosaved_rejected(self):
+        # Mixed (some autosaved_* args provided, some missing) is ambiguous:
+        # the caller may have forgotten or intended partial. Force them to
+        # be explicit — either pass all three (fast path) or none (GET+PUT).
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_publish",
+            {"article_id": 99, "autosaved_title": "Only Title"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
+        client.put.assert_not_called()
+
 
 class TestArticleDelete(unittest.TestCase):
     def test_requires_force(self):

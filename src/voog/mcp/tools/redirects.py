@@ -78,7 +78,11 @@ def get_tools() -> list[Tool]:
                 "Update an existing redirect rule. At least one of source, "
                 "destination, redirect_type, active must be supplied. "
                 "redirect_type ∈ {301, 302, 307, 410}. Reversible by "
-                "calling again with previous values."
+                "calling again with previous values.\n\n"
+                "Voog's PUT /redirect_rules/{id} is full-replace — missing "
+                "fields are coerced to defaults (e.g. active flips to True). "
+                "The tool GETs the current rule, merges your updates, then "
+                "PUTs the full envelope, so unspecified fields are preserved."
             ),
             inputSchema={
                 "type": "object",
@@ -160,15 +164,32 @@ def call_tool(
             return error_response(
                 f"redirect_update: invalid redirect_type {rtype!r}; allowed: {VALID_REDIRECT_TYPES}"
             )
-        rule_body: dict = {}
+        updates: dict = {}
         for key in ("source", "destination", "redirect_type", "active"):
             if key in arguments:
-                rule_body[key] = arguments[key]
-        if not rule_body:
+                updates[key] = arguments[key]
+        if not updates:
             return error_response(
                 "redirect_update: at least one of source/destination/"
                 "redirect_type/active must be supplied"
             )
+
+        # Voog's PUT is full-replace; GET first, merge, then PUT the
+        # complete envelope so unspecified fields don't get coerced to
+        # defaults (e.g. active=False silently flipping to True).
+        try:
+            current = client.get(f"/redirect_rules/{redirect_id}")
+        except Exception as e:
+            return error_response(f"redirect_update id={redirect_id} GET failed: {e}")
+
+        rule_body = {
+            "source": current.get("source"),
+            "destination": current.get("destination"),
+            "redirect_type": current.get("redirect_type"),
+            "active": current.get("active"),
+        }
+        rule_body.update(updates)
+
         try:
             result = client.put(
                 f"/redirect_rules/{redirect_id}",
@@ -176,7 +197,7 @@ def call_tool(
             )
             return success_response(
                 result,
-                summary=f"↪️  redirect {redirect_id} updated: {sorted(rule_body.keys())}",
+                summary=f"↪️  redirect {redirect_id} updated: {sorted(updates.keys())}",
             )
         except Exception as e:
             return error_response(f"redirect_update id={redirect_id} failed: {e}")

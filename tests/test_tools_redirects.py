@@ -149,19 +149,31 @@ class TestRedirectUpdate(unittest.TestCase):
     def test_update_destination(self):
         from voog.mcp.tools import redirects as redirects_tools
 
+        # Voog's PUT /redirect_rules/{id} is full-replace (Rails-style):
+        # missing fields get coerced to defaults. The tool now does
+        # GET-then-merge-then-PUT so unspecified fields are preserved.
         client = MagicMock()
+        client.get.return_value = {
+            "id": 9,
+            "source": "/old",
+            "destination": "/old-dest",
+            "redirect_type": 301,
+            "active": True,
+        }
         client.put.return_value = {"id": 9}
         redirects_tools.call_tool(
             "redirect_update",
             {"redirect_id": 9, "destination": "/uus"},
             client,
         )
+        client.get.assert_called_once_with("/redirect_rules/9")
         path, body = client.put.call_args.args
         self.assertEqual(path, "/redirect_rules/9")
-        # Voog accepts flat or wrapped — flat is what existing add code uses
-        # via build_redirect_payload. Use the same envelope shape on PUT for
-        # consistency.
         self.assertEqual(body["redirect_rule"]["destination"], "/uus")
+        # Other fields preserved from GET.
+        self.assertEqual(body["redirect_rule"]["source"], "/old")
+        self.assertEqual(body["redirect_rule"]["redirect_type"], 301)
+        self.assertIs(body["redirect_rule"]["active"], True)
 
     def test_update_redirect_type_validated(self):
         from voog.mcp.tools import redirects as redirects_tools
@@ -173,12 +185,20 @@ class TestRedirectUpdate(unittest.TestCase):
             client,
         )
         self.assertTrue(result.isError)
+        client.get.assert_not_called()
         client.put.assert_not_called()
 
     def test_update_active_flag(self):
         from voog.mcp.tools import redirects as redirects_tools
 
         client = MagicMock()
+        client.get.return_value = {
+            "id": 9,
+            "source": "/a",
+            "destination": "/b",
+            "redirect_type": 301,
+            "active": True,
+        }
         client.put.return_value = {"id": 9}
         redirects_tools.call_tool(
             "redirect_update",
@@ -187,6 +207,37 @@ class TestRedirectUpdate(unittest.TestCase):
         )
         body = client.put.call_args.args[1]
         self.assertIs(body["redirect_rule"]["active"], False)
+        # Other fields preserved.
+        self.assertEqual(body["redirect_rule"]["source"], "/a")
+        self.assertEqual(body["redirect_rule"]["destination"], "/b")
+        self.assertEqual(body["redirect_rule"]["redirect_type"], 301)
+
+    def test_preserves_active_when_only_destination_changes(self):
+        # Regression for the silent active=False → True coercion bug.
+        # Voog's PUT is full-replace; previously the tool sent only the
+        # provided fields, so missing `active` flipped to its default (True).
+        from voog.mcp.tools import redirects as redirects_tools
+
+        client = MagicMock()
+        client.get.return_value = {
+            "id": 9,
+            "source": "/old",
+            "destination": "/old-dest",
+            "redirect_type": 302,
+            "active": False,
+        }
+        client.put.return_value = {"id": 9}
+        redirects_tools.call_tool(
+            "redirect_update",
+            {"redirect_id": 9, "destination": "/new-dest"},
+            client,
+        )
+        body = client.put.call_args.args[1]
+        rr = body["redirect_rule"]
+        self.assertIs(rr["active"], False)
+        self.assertEqual(rr["source"], "/old")
+        self.assertEqual(rr["destination"], "/new-dest")
+        self.assertEqual(rr["redirect_type"], 302)
 
 
 class TestRedirectDelete(unittest.TestCase):
