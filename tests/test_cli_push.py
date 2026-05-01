@@ -309,6 +309,207 @@ class TestPushSilentNoOpDetection(unittest.TestCase):
         self.assertEqual(client.put.call_count, 2)
 
 
+class TestPushResponseSizeVerification(unittest.TestCase):
+    """Voog's PUT /layout_assets response is slim — it omits `data`, but
+    DOES include `size`. Empirical follow-up to #96: post-merge
+    verification showed the original detector never trips because the
+    `data` field is never echoed back. The `size` field is the reliable
+    signal: if stored size != local body size, content was not persisted.
+    """
+
+    def test_asset_size_mismatch_fails_loudly(self):
+        client = _make_client()
+        # Server says it stored 999 bytes; we sent 19. Hard fail.
+        client.put.return_value = {"id": 5, "size": 999}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "stylesheets/main.css": {"id": 5, "type": "asset", "updated_at": ""},
+                },
+                files={"stylesheets/main.css": "body { margin: 0; }"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                with (
+                    patch("sys.stderr", new_callable=io.StringIO) as stderr,
+                    patch("sys.stdout", new_callable=io.StringIO) as stdout,
+                ):
+                    args = MagicMock()
+                    args.files = ["stylesheets/main.css"]
+                    rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertNotEqual(rc, 0)
+        self.assertIn("size", stderr.getvalue())
+        self.assertIn("NOT updated", stderr.getvalue())
+        self.assertNotIn("✓ stylesheets/main.css", stdout.getvalue())
+
+    def test_asset_size_match_succeeds(self):
+        client = _make_client()
+        # Healthy slim response: id + matching size.
+        client.put.return_value = {"id": 5, "size": 19}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "stylesheets/main.css": {"id": 5, "type": "asset", "updated_at": ""},
+                },
+                files={"stylesheets/main.css": "body { margin: 0; }"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                args = MagicMock()
+                args.files = ["stylesheets/main.css"]
+                rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertEqual(rc, 0)
+
+    def test_asset_size_field_omitted_is_tolerated(self):
+        # Some responses might omit `size` (older endpoints, errors, etc.).
+        # Don't false-positive — fall through to the existing slim path.
+        client = _make_client()
+        client.put.return_value = {"id": 5}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "stylesheets/main.css": {"id": 5, "type": "asset", "updated_at": ""},
+                },
+                files={"stylesheets/main.css": "body { margin: 0; }"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                args = MagicMock()
+                args.files = ["stylesheets/main.css"]
+                rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertEqual(rc, 0)
+
+    def test_asset_size_uses_byte_count_not_char_count(self):
+        # Multi-byte UTF-8 (ä, õ, …) — Voog reports byte count, not char.
+        client = _make_client()
+        body = "/* käömnõ */"  # 12 chars, but ö/õ are 2 bytes each
+        expected_bytes = len(body.encode("utf-8"))
+        self.assertNotEqual(len(body), expected_bytes, "test premise: utf-8 expansion")
+        client.put.return_value = {"id": 5, "size": expected_bytes}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "stylesheets/utf.css": {"id": 5, "type": "asset", "updated_at": ""},
+                },
+                files={"stylesheets/utf.css": body},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                args = MagicMock()
+                args.files = ["stylesheets/utf.css"]
+                rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertEqual(rc, 0)
+
+
+class TestPushLayoutUpdatedAtVerification(unittest.TestCase):
+    """Voog's PUT /layouts response also omits the body but includes
+    `updated_at`. If the response's updated_at didn't advance from the
+    manifest's stored value, the layout content didn't change."""
+
+    def test_layout_updated_at_unchanged_fails_loudly(self):
+        client = _make_client()
+        # Response timestamp == manifest's stored timestamp → no advance.
+        client.put.return_value = {"id": 1, "updated_at": "2026-04-30T10:00:00.000Z"}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "layouts/Front.tpl": {
+                        "id": 1,
+                        "type": "layout",
+                        "updated_at": "2026-04-30T10:00:00.000Z",
+                    },
+                },
+                files={"layouts/Front.tpl": "{% layout %}"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                with (
+                    patch("sys.stderr", new_callable=io.StringIO) as stderr,
+                    patch("sys.stdout", new_callable=io.StringIO) as stdout,
+                ):
+                    args = MagicMock()
+                    args.files = ["layouts/Front.tpl"]
+                    rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertNotEqual(rc, 0)
+        self.assertIn("updated_at", stderr.getvalue())
+        self.assertNotIn("✓ layouts/Front.tpl", stdout.getvalue())
+
+    def test_layout_updated_at_advanced_succeeds(self):
+        client = _make_client()
+        client.put.return_value = {"id": 1, "updated_at": "2026-05-01T10:00:00.000Z"}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "layouts/Front.tpl": {
+                        "id": 1,
+                        "type": "layout",
+                        "updated_at": "2026-04-30T10:00:00.000Z",
+                    },
+                },
+                files={"layouts/Front.tpl": "{% layout %}"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                args = MagicMock()
+                args.files = ["layouts/Front.tpl"]
+                rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertEqual(rc, 0)
+
+    def test_layout_no_manifest_updated_at_skips_check(self):
+        # Hand-crafted manifests / older pulls may have empty updated_at.
+        # Skip the timestamp check rather than false-positive.
+        client = _make_client()
+        client.put.return_value = {"id": 1, "updated_at": "2026-05-01T10:00:00.000Z"}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "layouts/Front.tpl": {"id": 1, "type": "layout", "updated_at": ""},
+                },
+                files={"layouts/Front.tpl": "{% layout %}"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                args = MagicMock()
+                args.files = ["layouts/Front.tpl"]
+                rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertEqual(rc, 0)
+
+
 class TestPushAllConfirmation(unittest.TestCase):
     def test_no_files_arg_prompts_for_confirmation(self):
         client = _make_client()

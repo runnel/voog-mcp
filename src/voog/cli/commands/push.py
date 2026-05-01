@@ -57,20 +57,53 @@ def run(args, client: VoogClient) -> int:
             failed += 1
             continue
         result = client.put(path, {content_field: body})
-        # Silent-no-op detector for issue #96's symptom: 200 with the
-        # resource echoed back but the content field cleared. Narrow on
-        # purpose — slim responses that omit the field stay accepted.
-        if (
-            body
-            and isinstance(result, dict)
-            and content_field in result
-            and not result[content_field]
-        ):
-            sys.stderr.write(
-                f"  ✗ {rel_path}: PUT returned 200 but stored "
-                f"{content_field!r} is empty — content NOT updated on Voog\n"
-            )
+        err = _verify_persisted(kind, body, entry, result)
+        if err:
+            sys.stderr.write(f"  ✗ {rel_path}: {err}\n")
             failed += 1
             continue
         print(f"  ✓ {rel_path}")
     return 2 if failed else 0
+
+
+def _verify_persisted(kind: str, body: str, entry: dict, result) -> str | None:
+    """Return an error message if the PUT response contradicts a successful
+    persist, else None. Voog's PUT responses are slim — the content field
+    is omitted, so we rely on indirect signals: `size` for assets and
+    `updated_at` for layouts. Each check is opt-in: if the signal is
+    missing from the response (or, for layouts, from the manifest), we
+    fall through rather than false-positive.
+
+    Issue #96 follow-up: post-merge probing showed the original detector
+    that watched for an echoed-empty content field never trips against
+    real Voog responses, because the field is never echoed back at all.
+    """
+    if not isinstance(result, dict):
+        return None
+    # Belt-and-suspenders: the original #96 report described the response
+    # echoing the content field as empty string. Real Voog responses are
+    # slim and don't echo it at all (verified post-merge), so this check
+    # is dead today — kept anyway, since it costs nothing and matches the
+    # user-observed symptom.
+    field = "data" if kind == "asset" else "body" if kind == "layout" else None
+    if body and field and field in result and not result[field]:
+        return f"PUT returned 200 but stored {field!r} is empty — content NOT updated on Voog"
+    if kind == "asset":
+        # Voog includes byte size in the slim response — the rock-solid
+        # signal that the new content was actually stored.
+        sent_bytes = len(body.encode("utf-8"))
+        stored_size = result.get("size")
+        if stored_size is not None and stored_size != sent_bytes:
+            return (
+                f"stored size {stored_size} does not match local "
+                f"{sent_bytes} bytes — content NOT updated on Voog"
+            )
+    elif kind == "layout":
+        # Layouts response includes `updated_at` (no body). Compare
+        # against manifest's stored timestamp; if it didn't advance, the
+        # layout content didn't change.
+        prev = entry.get("updated_at") or None
+        new = result.get("updated_at") or None
+        if prev and new and new <= prev:
+            return f"updated_at did not advance ({new}) — content NOT updated on Voog"
+    return None
