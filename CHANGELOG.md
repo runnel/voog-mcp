@@ -24,13 +24,11 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 - `product_update` now accepts `attributes` (status, price, sale_price, sku, stock, description, category_ids, image_id, asset_ids, physical_properties, uses_variants, variant_types, variants) and `translations` (nested {field: {lang: value}}) in addition to the legacy `fields` shape. Validates `status` enum {`draft`, `live`}. Backwards-compatible.
 - `simplify_languages` and `simplify_nodes` projection helpers added in `voog.projections`.
 - VoogClient User-Agent bumped to `voog-mcp/1.2.0`.
-- `parallel_map` now executes single-item lists synchronously, skipping the ThreadPoolExecutor overhead (~10-50ms savings per single-item call). Output shape unchanged. Closes #76.
 - `parallel_map` docstring documents the single-item synchronous path's behavior delta (runs `fn` on the calling thread, not a worker thread). Closes #85.
 - `test_pages_snapshot_uses_parallel_map` (CLI + MCP) now also asserts `max_workers=8` and that the captured fetch fn targets `/pages/{pid}/contents`. Closes #85.
 
 ### Performance
 - `voog site-snapshot` now fetches per-page contents, per-article details, and per-product details in parallel (max 8 workers each), matching the MCP `_site_snapshot` pattern. The CLI was the last sequential outlier. Closes #85.
-- `voog pages-snapshot` now fetches per-page contents in parallel (max 8 workers), ~5-10x faster on sites with 50+ pages. Per-page error handling preserved. Closes #74.
 
 ### Migration
 - Existing `product_update` calls with `fields` keep working — the legacy shape is auto-routed into `translations`.

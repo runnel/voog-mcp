@@ -1,9 +1,10 @@
 """MCP tools for the Voog admin /site singleton.
 
-Three tools:
-  - ``site_get``       — GET /site
-  - ``site_update``    — PUT /site (flat body, no envelope)
-  - ``site_set_data``  — PUT/DELETE /site/data/{key}
+Four tools:
+  - ``site_get``         — GET /site
+  - ``site_update``      — PUT /site (flat body, no envelope)
+  - ``site_set_data``    — PUT /site/data/{key}  (PUT-only, non-destructive)
+  - ``site_delete_data`` — DELETE /site/data/{key} (requires force=True)
 
 Skill-memory rules captured:
   - site.code is immutable once set (and once site has paid plan).
@@ -15,7 +16,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import _validate_data_key, strip_site
 
 IMMUTABLE_SITE_FIELDS = frozenset(["code"])
 
@@ -60,8 +61,9 @@ def get_tools() -> list[Tool]:
         Tool(
             name="site_set_data",
             description=(
-                "Set or delete site.data.<key>. value=null deletes the "
-                "key. 'internal_*' keys are server-protected and refused "
+                "Set site.data.<key> to a value (PUT /site/data/{key}). "
+                "To delete a key use site_delete_data. "
+                "'internal_*' keys are server-protected and refused "
                 "client-side."
             ),
             inputSchema={
@@ -70,15 +72,42 @@ def get_tools() -> list[Tool]:
                     "site": {"type": "string"},
                     "key": {"type": "string"},
                     "value": {
-                        "type": ["string", "number", "boolean", "object", "array", "null"],
+                        "type": ["string", "number", "boolean", "object", "array"],
+                    },
+                },
+                "required": ["site", "key", "value"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
+        Tool(
+            name="site_delete_data",
+            description=(
+                "Delete site.data.<key> (DELETE /site/data/{key}). "
+                "IRREVERSIBLE — the key is removed from site.data permanently. "
+                "Requires force=true; without it the call is rejected. "
+                "'internal_*' keys are server-protected and refused client-side."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "key": {"type": "string"},
+                    "force": {
+                        "type": "boolean",
+                        "description": "Must be true to actually perform the delete. Defaults to false (defensive opt-in).",
+                        "default": False,
                     },
                 },
                 "required": ["site", "key"],
             },
             annotations={
                 "readOnlyHint": False,
-                "destructiveHint": False,
-                "idempotentHint": True,
+                "destructiveHint": True,
+                "idempotentHint": False,
             },
         ),
     ]
@@ -115,24 +144,35 @@ def call_tool(
     if name == "site_set_data":
         key = arguments.get("key") or ""
         value = arguments.get("value")
-        if not key.strip():
-            return error_response("site_set_data: key must be non-empty")
-        if key.startswith("internal_"):
-            return error_response(
-                f"site_set_data: 'internal_' keys are server-protected (got {key!r})"
-            )
+        err = _validate_data_key(key, tool_name="site_set_data")
+        if err:
+            return error_response(err)
         try:
-            if value is None:
-                client.delete(f"/site/data/{key}")
-                return success_response(
-                    {"deleted": {"key": key}},
-                    summary=f"site.data.{key} deleted",
-                )
             return success_response(
                 client.put(f"/site/data/{key}", {"value": value}),
                 summary=f"site.data.{key} set",
             )
         except Exception as e:
             return error_response(f"site_set_data key={key!r} failed: {e}")
+
+    if name == "site_delete_data":
+        key = arguments.get("key") or ""
+        force = bool(arguments.get("force"))
+        err = _validate_data_key(key, tool_name="site_delete_data")
+        if err:
+            return error_response(err)
+        if not force:
+            return error_response(
+                f"site_delete_data: refusing to delete site.data.{key!r} without force=true. "
+                "Set force=true after confirming the deletion is intentional."
+            )
+        try:
+            client.delete(f"/site/data/{key}")
+            return success_response(
+                {"deleted": {"key": key}},
+                summary=f"site.data.{key} deleted",
+            )
+        except Exception as e:
+            return error_response(f"site_delete_data key={key!r} failed: {e}")
 
     return error_response(f"Unknown tool: {name}")

@@ -11,9 +11,15 @@ Three small primitives used by both ``snapshot.py`` and ``layouts_sync.py``:
                                     Centralizes the indent/ensure_ascii kwargs
                                     so disk artefacts stay byte-identical
                                     across tools (snapshot diffs, manifests).
+  - :func:`_validate_data_key`   — shared validation for user-supplied data
+                                    keys interpolated into URL paths. Rejects
+                                    empty/whitespace, ``internal_`` prefix, and
+                                    characters / sequences that could alter the
+                                    URL structure (``/``, ``?``, ``#``, ``..``).
 """
 
 import json
+import urllib.parse
 from pathlib import Path
 
 
@@ -39,3 +45,32 @@ def write_json(path: Path, data) -> None:
 def strip_site(arguments: dict) -> dict:
     """Return a copy of arguments without the 'site' key."""
     return {k: v for k, v in arguments.items() if k != "site"}
+
+
+def _validate_data_key(key: str, *, tool_name: str) -> str | None:
+    """Validate a user-supplied data key that will be interpolated into a URL path.
+
+    Returns an error message string when the key is invalid, or ``None`` when
+    it is acceptable.
+
+    Rejected:
+    - empty or whitespace-only
+    - keys starting with ``internal_`` (server-protected on Voog)
+    - keys containing ``/``, ``?``, or ``#`` — these would alter URL structure
+    - keys that contain ``..`` after percent-decoding (defence-in-depth, same
+      hygiene as ``raw.py``'s path validator)
+    """
+    if not key or not key.strip():
+        return f"{tool_name}: key must be non-empty"
+    if key.startswith("internal_"):
+        return f"{tool_name}: 'internal_' keys are server-protected (got {key!r})"
+    for forbidden_char in ("/", "?", "#"):
+        if forbidden_char in key:
+            return (
+                f"{tool_name}: key must not contain {forbidden_char!r} "
+                f"(got {key!r})"
+            )
+    decoded = urllib.parse.unquote(key)
+    if ".." in decoded.split("/"):
+        return f"{tool_name}: key must not contain '..' segments (got {key!r})"
+    return None

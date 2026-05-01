@@ -10,7 +10,7 @@ from voog.mcp.tools import pages_mutate as pages_mutate_tools
 
 
 class TestGetTools(unittest.TestCase):
-    def test_get_tools_returns_seven(self):
+    def test_get_tools_returns_eight(self):
         tools = pages_mutate_tools.get_tools()
         names = sorted(t.name for t in tools)
         self.assertEqual(
@@ -22,6 +22,7 @@ class TestGetTools(unittest.TestCase):
                 "page_create",
                 "page_update",
                 "page_set_data",
+                "page_delete_data",
                 "page_duplicate",
             ]),
         )
@@ -56,6 +57,12 @@ class TestGetTools(unittest.TestCase):
         tools = {t.name: t for t in pages_mutate_tools.get_tools()}
         ann = tools["page_delete"].annotations
         self.assertTrue(_ann_get(ann, "destructiveHint", "destructive_hint"))
+
+    def test_page_delete_data_has_destructive_hint(self):
+        tools = {t.name: t for t in pages_mutate_tools.get_tools()}
+        ann = tools["page_delete_data"].annotations
+        self.assertIs(_ann_get(ann, "destructiveHint", "destructive_hint"), True)
+        self.assertIs(_ann_get(ann, "idempotentHint", "idempotent_hint"), False)
 
     def test_setters_have_explicit_non_destructive_annotations(self):
         # set_hidden / set_layout are reversible mutations. MCP spec defaults
@@ -513,17 +520,6 @@ class TestPageSetData(unittest.TestCase):
         self.assertEqual(path, "/pages/5/data/foo")
         self.assertEqual(body, {"value": "bar"})
 
-    def test_delete_data_key(self):
-        from voog.mcp.tools import pages_mutate as pm
-
-        client = MagicMock()
-        pm.call_tool(
-            "page_set_data",
-            {"page_id": 5, "key": "foo", "value": None},
-            client,
-        )
-        client.delete.assert_called_once_with("/pages/5/data/foo")
-
     def test_rejects_internal_prefix(self):
         # Voog protects keys starting with internal_ — surface this with
         # a clear error rather than letting the API 422.
@@ -536,6 +532,68 @@ class TestPageSetData(unittest.TestCase):
             client,
         )
         self.assertTrue(result.isError)
+
+    def test_set_data_rejects_slash_in_key(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        result = pm.call_tool(
+            "page_set_data",
+            {"page_id": 5, "key": "foo/bar", "value": "x"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_set_data_rejects_question_mark_in_key(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        result = pm.call_tool(
+            "page_set_data",
+            {"page_id": 5, "key": "foo?x=1", "value": "x"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_set_data_rejects_percent_encoded_traversal(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        result = pm.call_tool(
+            "page_set_data",
+            {"page_id": 5, "key": "%2e%2e", "value": "x"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+
+class TestPageDeleteData(unittest.TestCase):
+    def test_requires_force(self):
+        # Without force=True the call must be rejected and DELETE not called.
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        result = pm.call_tool(
+            "page_delete_data",
+            {"page_id": 5, "key": "foo"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
+
+    def test_force_true_deletes(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        pm.call_tool(
+            "page_delete_data",
+            {"page_id": 5, "key": "foo", "force": True},
+            client,
+        )
+        client.delete.assert_called_once_with("/pages/5/data/foo")
 
 
 class TestPageDuplicate(unittest.TestCase):

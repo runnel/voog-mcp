@@ -7,9 +7,12 @@ from voog.mcp.tools import site as site_tools
 
 
 class TestGetTools(unittest.TestCase):
-    def test_three_tools(self):
+    def test_four_tools(self):
         names = sorted(t.name for t in site_tools.get_tools())
-        self.assertEqual(names, ["site_get", "site_set_data", "site_update"])
+        self.assertEqual(
+            names,
+            ["site_delete_data", "site_get", "site_set_data", "site_update"],
+        )
 
 
 class TestSiteGet(unittest.TestCase):
@@ -58,13 +61,6 @@ class TestSiteSetData(unittest.TestCase):
         self.assertEqual(path, "/site/data/buy_together")
         self.assertEqual(body, {"value": {"products": []}})
 
-    def test_delete_data(self):
-        client = MagicMock()
-        site_tools.call_tool(
-            "site_set_data", {"key": "buy_together", "value": None}, client
-        )
-        client.delete.assert_called_once_with("/site/data/buy_together")
-
     def test_rejects_internal_prefix(self):
         client = MagicMock()
         result = site_tools.call_tool(
@@ -73,3 +69,76 @@ class TestSiteSetData(unittest.TestCase):
             client,
         )
         self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_set_data_rejects_slash_in_key(self):
+        client = MagicMock()
+        result = site_tools.call_tool(
+            "site_set_data",
+            {"key": "foo/bar", "value": "x"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_set_data_rejects_question_mark_in_key(self):
+        client = MagicMock()
+        result = site_tools.call_tool(
+            "site_set_data",
+            {"key": "foo?x=1", "value": "x"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_set_data_rejects_percent_encoded_traversal(self):
+        client = MagicMock()
+        result = site_tools.call_tool(
+            "site_set_data",
+            {"key": "%2e%2e", "value": "x"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+
+class TestSiteDeleteData(unittest.TestCase):
+    def test_requires_force(self):
+        # Without force=True, the call must be rejected and DELETE not called.
+        client = MagicMock()
+        result = site_tools.call_tool(
+            "site_delete_data",
+            {"key": "buy_together"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
+
+    def test_force_false_rejected(self):
+        client = MagicMock()
+        result = site_tools.call_tool(
+            "site_delete_data",
+            {"key": "buy_together", "force": False},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
+
+    def test_force_true_deletes(self):
+        client = MagicMock()
+        site_tools.call_tool(
+            "site_delete_data",
+            {"key": "buy_together", "force": True},
+            client,
+        )
+        client.delete.assert_called_once_with("/site/data/buy_together")
+
+    def test_rejects_internal_prefix(self):
+        client = MagicMock()
+        result = site_tools.call_tool(
+            "site_delete_data",
+            {"key": "internal_x", "force": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()

@@ -186,6 +186,24 @@ class TestAdminApiCall(unittest.TestCase):
         )
         self.assertTrue(result.isError)
 
+    def test_non_ascii_path_passthrough(self):
+        # Estonian sites have ä/õ/š in slugs — verify the URL builder
+        # forwards non-ASCII paths to the client unchanged. The client
+        # handles encoding via urllib.
+        client = MagicMock()
+        client.base_url = "https://example.com/admin/api"
+        client.get.return_value = {"id": 1, "slug": "töö"}
+        raw_tools.call_tool(
+            "voog_admin_api_call",
+            {"method": "GET", "path": "/pages/töö-leht"},
+            client,
+        )
+        client.get.assert_called_once_with(
+            "/pages/töö-leht",
+            base="https://example.com/admin/api",
+            params=None,
+        )
+
     def test_api_error_propagates(self):
         client = MagicMock()
         client.base_url = "https://example.com/admin/api"
