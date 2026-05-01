@@ -186,6 +186,45 @@ class TestAdminApiCall(unittest.TestCase):
         )
         self.assertTrue(result.isError)
 
+    def test_rejects_double_encoded_path_traversal(self):
+        # /%252e%252e/etc/passwd decodes once to /%2e%2e/etc/passwd —
+        # no literal '..' in either form. If any intermediate proxy
+        # decodes a second time before routing, the request becomes
+        # /../etc/passwd. Loop unquote until stable to catch this.
+        client = MagicMock()
+        result = raw_tools.call_tool(
+            "voog_admin_api_call",
+            {"method": "GET", "path": "/%252e%252e/etc/passwd"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("..", payload["error"])
+
+    def test_rejects_path_with_query_when_params_set(self):
+        # path containing '?' AND params= would produce a malformed URL
+        # like /x?a=1?b=2 in client._request. Reject at the tool boundary
+        # with a clear error.
+        client = MagicMock()
+        client.base_url = "https://example.com/admin/api"
+        result = raw_tools.call_tool(
+            "voog_admin_api_call",
+            {
+                "method": "GET",
+                "path": "/forms?a=1",
+                "params": {"b": "2"},
+            },
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        # Error should mention either 'params' or '?' to point the
+        # caller at the conflict.
+        msg = payload["error"].lower()
+        self.assertTrue("params" in msg or "?" in msg or "query" in msg)
+        # Client must NOT have been called.
+        client.get.assert_not_called()
+
     def test_non_ascii_path_passthrough(self):
         # Estonian sites have ä/õ/š in slugs — verify the URL builder
         # forwards non-ASCII paths to the client unchanged. The client

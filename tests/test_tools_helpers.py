@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from voog.mcp.tools._helpers import validate_output_dir, write_json
+from voog.mcp.tools._helpers import _validate_data_key, validate_output_dir, write_json
 
 
 class TestValidateOutputDir(unittest.TestCase):
@@ -43,6 +43,92 @@ class TestWriteJson(unittest.TestCase):
             self.assertIn("\n  ", text)
             # Round-trip parses to identical structure
             self.assertEqual(json.loads(text), {"key": "väärtus", "list": [1, 2]})
+
+
+class TestValidateDataKey(unittest.TestCase):
+    """Defence-in-depth checks on user-supplied data keys interpolated into URL paths.
+
+    The key/path validators are the only line of defence between
+    Claude-generated arguments and the Voog Admin API. Percent-encoded
+    bypasses (``%2F``, ``%23``, ``%3F``) and case variants of reserved
+    prefixes have to be caught client-side — Apache and many other backends
+    normalise ``%2F → /`` before routing, so a key that looks safe on the
+    Python side can still alter URL structure server-side.
+    """
+
+    def test_accepts_plain_key(self):
+        self.assertIsNone(_validate_data_key("my_setting", tool_name="t"))
+
+    def test_rejects_empty(self):
+        err = _validate_data_key("", tool_name="t")
+        self.assertIsNotNone(err)
+        self.assertIn("non-empty", err)
+
+    def test_rejects_whitespace_only(self):
+        err = _validate_data_key("   ", tool_name="t")
+        self.assertIsNotNone(err)
+        self.assertIn("non-empty", err)
+
+    def test_rejects_internal_prefix(self):
+        err = _validate_data_key("internal_secret", tool_name="t")
+        self.assertIsNotNone(err)
+        self.assertIn("internal_", err)
+
+    def test_rejects_uppercase_internal_prefix(self):
+        # Case-insensitive — Voog server treats keys case-insensitively for
+        # the protected ``internal_`` namespace; mixed-case variants must
+        # not slip past the client check.
+        for variant in ("INTERNAL_x", "Internal_foo", "InTeRnAl_y"):
+            with self.subTest(variant=variant):
+                err = _validate_data_key(variant, tool_name="t")
+                self.assertIsNotNone(err, f"{variant!r} should be rejected")
+                self.assertIn("internal_", err)
+
+    def test_rejects_slash(self):
+        err = _validate_data_key("foo/bar", tool_name="t")
+        self.assertIsNotNone(err)
+        self.assertIn("/", err)
+
+    def test_rejects_question_mark(self):
+        err = _validate_data_key("foo?bar", tool_name="t")
+        self.assertIsNotNone(err)
+
+    def test_rejects_hash(self):
+        err = _validate_data_key("foo#bar", tool_name="t")
+        self.assertIsNotNone(err)
+
+    def test_rejects_dotdot_segment(self):
+        err = _validate_data_key("..", tool_name="t")
+        self.assertIsNotNone(err)
+        self.assertIn("..", err)
+
+    def test_rejects_percent_encoded_slash(self):
+        # %2F (and lowercase %2f) decode to '/'. Apache and many backends
+        # normalise this server-side, so the key must be rejected even
+        # though the raw string contains no literal '/'.
+        for variant in ("foo%2Fbar", "foo%2fbar"):
+            with self.subTest(variant=variant):
+                err = _validate_data_key(variant, tool_name="t")
+                self.assertIsNotNone(err, f"{variant!r} should be rejected")
+
+    def test_rejects_percent_encoded_question_mark(self):
+        # %3F decodes to '?' — would split the path/query boundary.
+        err = _validate_data_key("foo%3Fbar", tool_name="t")
+        self.assertIsNotNone(err)
+
+    def test_rejects_percent_encoded_hash(self):
+        # %23 decodes to '#' — fragment marker.
+        err = _validate_data_key("foo%23bar", tool_name="t")
+        self.assertIsNotNone(err)
+
+    def test_rejects_double_encoded_traversal(self):
+        # Same double-decode threat as raw.py: the key is interpolated
+        # into a URL path (``/site/data/{key}``), so an intermediate
+        # proxy that decodes a second time before routing turns
+        # ``%252e%252e`` into literal ``..``.
+        err = _validate_data_key("%252e%252e", tool_name="t")
+        self.assertIsNotNone(err)
+        self.assertIn("..", err)
 
 
 if __name__ == "__main__":

@@ -24,13 +24,11 @@ Path validation rejects three obvious foot-guns:
     them is cheap defence-in-depth).
 """
 
-import urllib.parse
-
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import _decode_until_stable, strip_site
 
 ALLOWED_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 
@@ -186,6 +184,17 @@ def _passthrough(
     if params is not None and not isinstance(params, dict):
         return error_response(f"voog_{label}_api_call: params must be an object or null")
 
+    # client._request appends ``?<urlencode(params)>`` blindly; if path also
+    # contains a literal '?', the resulting URL is /x?a=1?b=2 (two query
+    # markers, malformed). Reject at the tool boundary with a clear hint
+    # — caller should use either path-with-query OR params=, not both.
+    if params and "?" in path:
+        return error_response(
+            f"voog_{label}_api_call: path must not contain '?' when params is also set "
+            f"(got path={path!r}, params={params!r}); pass query parameters via params= "
+            f"OR embed them in path, not both"
+        )
+
     try:
         if method == "GET":
             data = client.get(path, base=base, params=params)
@@ -213,7 +222,9 @@ def _validate_path(path: str) -> str | None:
         return f"path must not be an absolute URL (got {path!r})"
     if not path.startswith("/"):
         return f"path must start with '/' (got {path!r})"
-    decoded = urllib.parse.unquote(path)
+    # Decode-until-stable so a proxy-normalised double-encoded ``..`` (e.g.
+    # ``%252e%252e`` → ``%2e%2e`` → ``..``) can't slip past the literal check.
+    decoded = _decode_until_stable(path)
     if ".." in decoded.split("/"):
         return f"path must not contain '..' segments (got {path!r})"
     return None
