@@ -271,7 +271,7 @@ class TestSuccessPath(unittest.TestCase):
             product_put_payload = body
             return {
                 "id": 42,
-                "asset_ids": list((body or {}).get("asset_ids", [])),
+                "asset_ids": [a["id"] for a in (body or {}).get("assets", [])],
                 "image_id": (body or {}).get("image_id"),
             }
 
@@ -312,18 +312,23 @@ class TestSuccessPath(unittest.TestCase):
             sorted(["/assets/201/confirm", "/assets/202/confirm", "/products/42"]),
         )
 
-        # Final product PUT — flat payload {image_id, asset_ids} on
+        # Final product PUT — flat payload {image_id, assets:[{id:n}]} on
         # ecommerce_url (NOT wrapped in {product: {...}} — different from
-        # product_update, voog.py CLI confirms this shape). uploaded order
-        # mirrors input order (parallel_map preserves it), so main.jpg is
-        # always first → asset_id 201 is the image_id.
+        # product_update). The field is `assets:[{id}]`, NOT `asset_ids` —
+        # PUT-vs-POST gotcha: asset_ids on PUT silently keeps only the
+        # hero image. uploaded order mirrors input order (parallel_map
+        # preserves it), so main.jpg is always first → asset_id 201 is
+        # the image_id.
         product_put_call = next(
             c for c in client.put.call_args_list if c.args and c.args[0] == "/products/42"
         )
+        body = product_put_call.args[1]
         self.assertEqual(
-            product_put_call.args[1],
-            {"image_id": 201, "asset_ids": [201, 202]},
+            body,
+            {"image_id": 201, "assets": [{"id": 201}, {"id": 202}]},
         )
+        # Regression guard: asset_ids must NOT survive into the PUT body.
+        self.assertNotIn("asset_ids", body)
         self.assertEqual(
             product_put_call.kwargs["base"],
             "https://test.example.com/admin/api/ecommerce/v1",

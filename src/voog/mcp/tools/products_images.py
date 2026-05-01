@@ -2,8 +2,8 @@
 upload protocol.
 
 One tool: ``product_set_images``. Reads local image files from disk, uploads
-each via Voog's 3-step protocol, then PUTs the resulting ``asset_ids`` to the
-product.
+each via Voog's 3-step protocol, then PUTs the resulting asset references to
+the product.
 
 The 3-step protocol per file (matches ``voog.py``'s ``upload_asset``):
 
@@ -13,10 +13,13 @@ The 3-step protocol per file (matches ``voog.py``'s ``upload_asset``):
   3. PUT ``/assets/{id}/confirm`` (admin/api) → asset becomes usable
 
 Then a final PUT ``/products/{id}`` (ecommerce_url) with flat
-``{image_id, asset_ids}`` payload — note: NOT wrapped in ``{product: {...}}``
-unlike :func:`voog.mcp.tools.products._product_update`. Voog's wrapper
-convention varies per operation, not per resource; ``voog.py`` empirically
-confirms this endpoint accepts the flat shape.
+``{image_id, assets:[{id:n}]}`` payload — note: NOT wrapped in
+``{product: {...}}`` unlike :func:`voog.mcp.tools.products._product_update`.
+Voog's wrapper convention varies per operation, not per resource. **Critical
+PUT-vs-POST gotcha** (see ``feedback_voog_assets_vs_asset_ids`` memory):
+the field is ``assets:[{id:n}]`` on PUT, not ``asset_ids`` (which is
+POST-only). Sending ``asset_ids`` on PUT silently keeps only the first/hero
+image — the gallery images vanish without an error.
 
 **Partial failure semantics (collect-then-decide):** uploads run in parallel
 (:func:`voog._concurrency.parallel_map`, ``max_workers=3`` per spec § 4.3 —
@@ -64,7 +67,7 @@ def get_tools() -> list[Tool]:
                 "First file becomes the main image (image_id); rest are "
                 "gallery images. Runs Voog's 3-step asset upload protocol "
                 "per file (POST /assets → PUT upload_url → PUT confirm), "
-                "then PUTs {image_id, asset_ids} to /products/{id}. "
+                "then PUTs {image_id, assets:[{id:n}]} to /products/{id}. "
                 "Refuses to replace existing images unless force=true. "
                 "If any single upload fails, the product is NOT updated — "
                 "successful uploads are surfaced in `uploaded` for manual "
@@ -219,10 +222,17 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
 
     new_asset_ids = [u["asset_id"] for u in uploaded]
 
+    # Voog gotcha: PUT envelope is `assets:[{id:n}]`, not `asset_ids`
+    # (that's POST-only). Sending `asset_ids` on PUT silently keeps only
+    # the first/hero image — gallery images vanish without an error.
+    # See feedback_voog_assets_vs_asset_ids memory.
     try:
         client.put(
             f"/products/{product_id}",
-            {"image_id": new_asset_ids[0], "asset_ids": new_asset_ids},
+            {
+                "image_id": new_asset_ids[0],
+                "assets": [{"id": aid} for aid in new_asset_ids],
+            },
             base=client.ecommerce_url,
         )
     except Exception as e:
