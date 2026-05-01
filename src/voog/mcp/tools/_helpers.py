@@ -72,9 +72,8 @@ def validate_translations_shape(field: str, langs, *, tool_name: str) -> str | N
 
     Returns an error message string when invalid, ``None`` when acceptable.
 
-    Mirrors the per-lang loop already used inline in ``products.py``'s
-    ``product_update``; both check the same shape (kept aligned by hand
-    until ``products.py`` migrates to this helper).
+    Used by both ``product_update`` and ``ecommerce_settings_update`` so the
+    two tools share one shape contract.
     """
     if not isinstance(langs, dict) or not langs:
         return f"{tool_name}: translations[{field!r}] must be a non-empty object {{lang: value}}"

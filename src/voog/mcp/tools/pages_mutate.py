@@ -382,15 +382,17 @@ PAGE_UPDATE_FIELDS = (
 # (per docs/voog-mcp-endpoint-coverage.md and the page_create docstring) —
 # typo'd values 422 at the API level. Validate locally so the LLM gets a
 # clear, actionable error listing the known-good set.
-VALID_PAGE_CONTENT_TYPES = (
-    "page",
-    "link",
-    "blog",
-    "product",
-    "category",
-    "gallery",
-    "form",
-    "news",
+VALID_PAGE_CONTENT_TYPES = frozenset(
+    {
+        "page",
+        "link",
+        "blog",
+        "product",
+        "category",
+        "gallery",
+        "form",
+        "news",
+    }
 )
 
 
