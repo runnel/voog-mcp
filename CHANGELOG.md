@@ -6,8 +6,13 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed
-- `voog push` no longer silently no-ops on `layout_assets` (CSS/JS/images). The CLI was wrapping the PUT body in `{"layout_asset": {"data": …}}`, which Voog answers with 200 but does not persist; the documented flat `{"data": …}` form (already used by the MCP `layout_asset_update` tool) is required. Layouts switched to flat as well to match the documented convention. Push now surfaces a hard error when Voog echoes the resource back with the content field cleared, instead of printing ✓. Closes #96.
+### Changed
+- `voog push` payload form aligned with `docs/voog-mcp-endpoint-coverage.md` and the MCP tool path: both `/layouts` and `/layout_assets` now send flat `{"body": …}` / `{"data": …}` instead of the wrapped `{"layout": …}` / `{"layout_asset": …}` form. This is consistency-only — wrapped form is also accepted by Voog (verified empirically post-merge), so this is not a behaviour fix.
+- `voog push` now verifies the PUT response before printing ✓. For assets it checks the response's `size` field against the local body's UTF-8 byte count; for layouts it parses both `updated_at` values (manifest's anchor and response) as ISO 8601 timestamps and confirms the response's value advanced. Mismatches print `✗ <path>: …` to stderr and the command exits non-zero. Both checks tolerate slim responses (signal missing → fall through) so they don't false-positive against older endpoints / older manifests.
+- `voog push` writes the response's `updated_at` back into the manifest entry on success, so a second push without an intervening pull still has a fresh anchor for the layout verification check.
+
+### Issue tracking
+- #96 was opened describing `voog push` silently no-op-ing on `layout_assets` despite printing ✓. Post-merge probing of the originally-suspected wrapped-payload theory could not reproduce the symptom — both wrapped and flat forms persisted correctly against a freshly-created test asset. The actual root cause remains unidentified. The verification above means that if the same shape recurs in production, push will surface it with a clear error rather than silently lie.
 
 ## [1.2.0] — 2026-05-01
 

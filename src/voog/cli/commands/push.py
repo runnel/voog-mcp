@@ -4,9 +4,18 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from voog.client import VoogClient
+
+# Endpoint dispatch by manifest entry type.  Both endpoints take a flat
+# payload — wrapping {"layout_asset": …} is silently 200-ed without
+# persisting (issue #96).
+_ENDPOINT = {
+    "layout": ("/layouts", "body"),
+    "asset": ("/layout_assets", "data"),
+}
 
 
 def add_arguments(subparsers):
@@ -42,35 +51,74 @@ def run(args, client: VoogClient) -> int:
         targets = list(manifest)
 
     failed = 0
+    manifest_dirty = False
     for rel_path in targets:
         entry = manifest[rel_path]
         body = (local_dir / rel_path).read_text(encoding="utf-8")
         kind = entry["type"]
-        # Both endpoints take a flat payload — wrapping {"layout_asset": …}
-        # is silently 200-ed without persisting (issue #96).
-        if kind == "layout":
-            path, content_field = f"/layouts/{entry['id']}", "body"
-        elif kind == "asset":
-            path, content_field = f"/layout_assets/{entry['id']}", "data"
-        else:
+        endpoint = _ENDPOINT.get(kind)
+        if endpoint is None:
             sys.stderr.write(f"  ✗ {rel_path}: unknown manifest type {kind!r}\n")
             failed += 1
             continue
-        result = client.put(path, {content_field: body})
-        # Silent-no-op detector for issue #96's symptom: 200 with the
-        # resource echoed back but the content field cleared. Narrow on
-        # purpose — slim responses that omit the field stay accepted.
-        if (
-            body
-            and isinstance(result, dict)
-            and content_field in result
-            and not result[content_field]
-        ):
-            sys.stderr.write(
-                f"  ✗ {rel_path}: PUT returned 200 but stored "
-                f"{content_field!r} is empty — content NOT updated on Voog\n"
-            )
+        path_prefix, content_field = endpoint
+        result = client.put(f"{path_prefix}/{entry['id']}", {content_field: body})
+        err = _verify_persisted(kind, body, entry, result)
+        if err:
+            sys.stderr.write(f"  ✗ {rel_path}: {err}\n")
             failed += 1
             continue
+        # Refresh the manifest's updated_at so a second push without an
+        # intervening pull still has a fresh anchor for the next layout
+        # verification.
+        if isinstance(result, dict) and result.get("updated_at"):
+            entry["updated_at"] = result["updated_at"]
+            manifest_dirty = True
         print(f"  ✓ {rel_path}")
+    if manifest_dirty:
+        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     return 2 if failed else 0
+
+
+def _verify_persisted(kind: str, body: str, entry: dict, result) -> str | None:
+    """Return an error message if the PUT response contradicts a successful
+    persist, else None. Voog's PUT responses are slim — the content field
+    is omitted, so we rely on indirect signals: `size` for assets and
+    `updated_at` for layouts. Each check falls through when the signal is
+    missing from the response (or, for layouts, from the manifest), so we
+    don't false-positive against older endpoints / hand-crafted manifests.
+    """
+    if not isinstance(result, dict):
+        return None
+    if kind == "asset":
+        sent_bytes = len(body.encode("utf-8"))
+        stored_size = result.get("size")
+        if stored_size is not None and stored_size != sent_bytes:
+            return (
+                f"stored size {stored_size} does not match local "
+                f"{sent_bytes} bytes — content NOT updated on Voog"
+            )
+    elif kind == "layout":
+        prev = _parse_iso8601(entry.get("updated_at"))
+        new = _parse_iso8601(result.get("updated_at"))
+        if prev and new and new <= prev:
+            return (
+                f"updated_at did not advance ({result.get('updated_at')}) — "
+                "content NOT updated on Voog"
+            )
+    return None
+
+
+def _parse_iso8601(value) -> datetime | None:
+    """Best-effort ISO 8601 parse. Voog returns timestamps like
+    ``2026-05-01T10:01:17.806Z``. Returns None on anything we can't parse —
+    callers must treat None as "no signal" and fall through rather than
+    flagging a no-op. Avoids string comparison foot-guns when the server
+    and the manifest disagree on fractional-second precision.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
