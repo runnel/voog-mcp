@@ -6,6 +6,11 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.2] — 2026-05-01
+
+### Fixed
+- `voog push` no longer false-positives `✗ stored size N does not match local M bytes` on assets containing non-ASCII content (em-dashes, ä/õ/ü, etc.). Voog's PUT response `size` field counts UTF-8 characters, not bytes — empirically verified post-1.2.1 release. The 1.2.1 verification compared `size` against `len(body.encode("utf-8"))`, which silently passed ASCII-only files (where chars == bytes) but blocked any push containing multi-byte UTF-8 characters. Now compares against `len(body)` (char count). The 1.2.1 fix to retroactively-corrected CHANGELOG language about "byte count" should also be read as "character count".
+
 ## [1.2.1] — 2026-05-01
 
 ### Fixed
@@ -15,7 +20,7 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - `voog push` payload form aligned with `docs/voog-mcp-endpoint-coverage.md` and the MCP tool path: both `/layouts` and `/layout_assets` now send flat `{"body": …}` / `{"data": …}` instead of the wrapped `{"layout": …}` / `{"layout_asset": …}` form. Consistency-only — wrapped form is also accepted by Voog (verified empirically), so this is not the behaviour fix.
-- `voog push` now verifies the PUT response before printing ✓. For assets it checks the response's `size` field against the local body's UTF-8 byte count; for layouts it parses both `updated_at` values (manifest's anchor and response) as ISO 8601 timestamps and confirms the response's value advanced. Mismatches print `✗ <path>: …` to stderr and the command exits non-zero. Both checks tolerate slim responses (signal missing → fall through) so they don't false-positive against older endpoints / older manifests.
+- `voog push` now verifies the PUT response before printing ✓. For assets it checks the response's `size` field against the local body's UTF-8 byte count (corrected to character count in 1.2.2 — see below); for layouts it parses both `updated_at` values (manifest's anchor and response) as ISO 8601 timestamps and confirms the response's value advanced. Mismatches print `✗ <path>: …` to stderr and the command exits non-zero. Both checks tolerate slim responses (signal missing → fall through) so they don't false-positive against older endpoints / older manifests.
 - `voog push` writes the response's `updated_at` back into the manifest entry on success, so a second push without an intervening pull still has a fresh anchor for the layout verification check.
 
 ## [1.2.0] — 2026-05-01
@@ -125,6 +130,7 @@ Initial public release. Refactored from internal personal tooling.
 - `voog.py` legacy script (replaced by `voog` CLI binary)
 - `voog_mcp/` package layout (replaced by `src/voog/mcp/`)
 
+[1.2.2]: https://github.com/runnel/voog-mcp/releases/tag/v1.2.2
 [1.2.1]: https://github.com/runnel/voog-mcp/releases/tag/v1.2.1
 [1.2.0]: https://github.com/runnel/voog-mcp/releases/tag/v1.2.0
 [1.1.1]: https://github.com/runnel/voog-mcp/releases/tag/v1.1.1

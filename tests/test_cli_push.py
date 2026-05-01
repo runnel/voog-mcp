@@ -454,13 +454,19 @@ class TestPushResponseSizeVerification(unittest.TestCase):
                 os.chdir(cwd_before)
         self.assertEqual(rc, 0)
 
-    def test_asset_size_uses_byte_count_not_char_count(self):
-        # Multi-byte UTF-8 (ä, õ, …) — Voog reports byte count, not char.
+    def test_asset_size_uses_char_count_not_byte_count(self):
+        # 1.2.1 regression: an empirical post-release probe against the
+        # live Voog API showed the `size` field counts UTF-8 *characters*
+        # not bytes. The 1.2.1 verification compared `size` against
+        # `len(body.encode("utf-8"))` which produced false-positive ✗
+        # for any push containing non-ASCII (em-dash, ä, õ, …).
         client = _make_client()
-        body = "/* käömnõ */"  # 12 chars, but ö/õ are 2 bytes each
-        expected_bytes = len(body.encode("utf-8"))
-        self.assertNotEqual(len(body), expected_bytes, "test premise: utf-8 expansion")
-        client.put.return_value = {"id": 5, "size": expected_bytes}
+        body = "/* käömnõ */"  # 12 chars, multi-byte UTF-8 → encoded longer
+        expected_chars = len(body)
+        encoded_bytes = len(body.encode("utf-8"))
+        self.assertNotEqual(expected_chars, encoded_bytes, "test premise: utf-8 expansion")
+        # Voog responds with the char count — must match str length.
+        client.put.return_value = {"id": 5, "size": expected_chars}
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             _setup_pulled_tree(
@@ -475,6 +481,34 @@ class TestPushResponseSizeVerification(unittest.TestCase):
                 os.chdir(tmp_path)
                 args = MagicMock()
                 args.files = ["stylesheets/utf.css"]
+                rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertEqual(rc, 0)
+
+    def test_utf8_push_does_not_false_positive_on_byte_vs_char_diff(self):
+        # Regression guard: a push of UTF-8-containing body where Voog
+        # echoes back `size` = char count must NOT trigger ✗ just
+        # because str byte-len > char-len. This is the exact pattern
+        # that bit 1.2.1 in the wild.
+        client = _make_client()
+        body = "em-dash — here\n"  # 15 chars, em-dash adds 2 bytes → 17 bytes
+        client.put.return_value = {"id": 5, "size": len(body)}  # char count
+        self.assertNotEqual(len(body), len(body.encode("utf-8")))
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "stylesheets/em.css": {"id": 5, "type": "asset", "updated_at": ""},
+                },
+                files={"stylesheets/em.css": body},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                args = MagicMock()
+                args.files = ["stylesheets/em.css"]
                 rc = push_cmd.run(args, client)
             finally:
                 os.chdir(cwd_before)
