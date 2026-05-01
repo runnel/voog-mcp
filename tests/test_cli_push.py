@@ -142,6 +142,76 @@ class TestPushSpecificFiles(unittest.TestCase):
         client.put.assert_not_called()
 
 
+class TestPushLegacyLayoutAssetType(unittest.TestCase):
+    """Manifests created by the pre-rename `voog.py` script wrote
+    ``"type": "layout_asset"`` for CSS/JS entries; current `voog pull`
+    writes ``"type": "asset"``. Push must accept both — issue #96 was
+    actually a silent no-op against legacy manifests, where neither
+    branch of the old if/elif matched and the PUT was never sent. The
+    fixed code in #98 + #101 converted the silent no-op into a hard
+    `unknown manifest type` error, which is correct but breaks legacy
+    manifests in place. Treat the legacy spelling as an alias instead.
+    """
+
+    def test_legacy_layout_asset_type_routes_to_layout_assets_endpoint(self):
+        client = _make_client()
+        client.put.return_value = {"id": 5, "size": 19}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "stylesheets/cart.css": {
+                        "id": 5,
+                        "type": "layout_asset",  # legacy voog.py spelling
+                        "updated_at": "",
+                    },
+                },
+                files={"stylesheets/cart.css": "body { margin: 0; }"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                args = MagicMock()
+                args.files = ["stylesheets/cart.css"]
+                rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertEqual(rc, 0)
+        client.put.assert_called_once_with("/layout_assets/5", {"data": "body { margin: 0; }"})
+
+    def test_legacy_layout_asset_type_runs_size_verification(self):
+        # Legacy spelling must get the same silent-no-op detection that
+        # modern "asset" entries get — otherwise this PR re-opens the
+        # bug it's trying to fix.
+        client = _make_client()
+        client.put.return_value = {"id": 5, "size": 999}  # mismatch
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "stylesheets/cart.css": {
+                        "id": 5,
+                        "type": "layout_asset",
+                        "updated_at": "",
+                    },
+                },
+                files={"stylesheets/cart.css": "body { margin: 0; }"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                    args = MagicMock()
+                    args.files = ["stylesheets/cart.css"]
+                    rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertNotEqual(rc, 0)
+        self.assertIn("size", stderr.getvalue())
+
+
 class TestPushPartialFailure(unittest.TestCase):
     """A failing PUT in the middle of a multi-file push must not block
     subsequent files. Final exit code reflects whether anything failed."""

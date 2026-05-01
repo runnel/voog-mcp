@@ -11,11 +11,16 @@ from voog.client import VoogClient
 
 # Endpoint dispatch by manifest entry type.  Both endpoints take a flat
 # payload — wrapping {"layout_asset": …} is silently 200-ed without
-# persisting (issue #96).
+# persisting (issue #96).  ``layout_asset`` is the legacy spelling
+# written by pre-rename ``voog.py`` manifests; current ``voog pull``
+# emits ``asset``.  Routing both to the same target keeps long-lived
+# checkouts working without a forced re-pull.
 _ENDPOINT = {
     "layout": ("/layouts", "body"),
     "asset": ("/layout_assets", "data"),
+    "layout_asset": ("/layout_assets", "data"),
 }
+_ASSET_KINDS = {"asset", "layout_asset"}
 
 
 def add_arguments(subparsers):
@@ -90,7 +95,7 @@ def _verify_persisted(kind: str, body: str, entry: dict, result) -> str | None:
     """
     if not isinstance(result, dict):
         return None
-    if kind == "asset":
+    if kind in _ASSET_KINDS:
         sent_bytes = len(body.encode("utf-8"))
         stored_size = result.get("size")
         if stored_size is not None and stored_size != sent_bytes:
