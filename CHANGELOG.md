@@ -31,7 +31,25 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 - `voog site-snapshot` now fetches per-page contents, per-article details, and per-product details in parallel (max 8 workers each), matching the MCP `_site_snapshot` pattern. The CLI was the last sequential outlier. Closes #85.
 
 ### Migration
-- Existing `product_update` calls with `fields` keep working — the legacy shape is auto-routed into `translations`.
+- Existing `product_update` calls with `fields` keep working — the legacy shape is auto-routed into `translations`. Worked example:
+
+  ```jsonc
+  // Before (v1.1.x — still accepted, auto-translated):
+  {
+    "product_id": 42,
+    "fields": { "name-et": "Punane kott", "description-et": "..." }
+  }
+
+  // After (v1.2.0 native shape — emit this directly when writing new code):
+  {
+    "product_id": 42,
+    "translations": {
+      "name":        { "et": "Punane kott" },
+      "description": { "et": "..." }
+    }
+  }
+  ```
+
 - New tools are additive; no breaking changes to any v1.1.x tool.
 
 ## [1.1.1] — 2026-04-30

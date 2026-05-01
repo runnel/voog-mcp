@@ -607,6 +607,21 @@ class TestPageDuplicate(unittest.TestCase):
         pm.call_tool("page_duplicate", {"page_id": 5}, client)
         client.post.assert_called_once_with("/pages/5/duplicate", {})
 
+    def test_page_duplicate_summary_includes_hidden_flag(self):
+        # Voog returns the duplicated page with hidden=True by default. The
+        # success summary should surface that so the LLM caller knows it
+        # needs page_set_hidden(false) before the page is publicly visible.
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.post.return_value = {"id": 200, "path": "copy", "hidden": True}
+        result = pm.call_tool("page_duplicate", {"page_id": 5}, client)
+        # success_response returns a list of TextContent when summary is set;
+        # the first entry is the summary string.
+        summary_text = result[0].text
+        self.assertIn("hidden", summary_text)
+        self.assertIn("page_set_hidden", summary_text)
+
 
 if __name__ == "__main__":
     unittest.main()
