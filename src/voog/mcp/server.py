@@ -35,6 +35,7 @@ from voog.mcp.resources import pages as pages_resources
 from voog.mcp.resources import products as products_resources
 from voog.mcp.resources import redirects as redirects_resources
 from voog.mcp.tools import articles as articles_tools
+from voog.mcp.tools import ecommerce_settings as ecommerce_settings_tools
 from voog.mcp.tools import layouts as layouts_tools
 from voog.mcp.tools import layouts_sync as layouts_sync_tools
 from voog.mcp.tools import multilingual as multilingual_tools
@@ -44,6 +45,7 @@ from voog.mcp.tools import products as products_tools
 from voog.mcp.tools import products_images as products_images_tools
 from voog.mcp.tools import raw as raw_tools
 from voog.mcp.tools import redirects as redirects_tools
+from voog.mcp.tools import site as site_tools
 from voog.mcp.tools import snapshot as snapshot_tools
 from voog.mcp.tools import texts as texts_tools
 
@@ -51,6 +53,7 @@ logger = logging.getLogger("voog")
 
 TOOL_GROUPS = [
     articles_tools,
+    ecommerce_settings_tools,
     layouts_tools,
     layouts_sync_tools,
     multilingual_tools,
@@ -60,6 +63,7 @@ TOOL_GROUPS = [
     products_images_tools,
     raw_tools,
     redirects_tools,
+    site_tools,
     snapshot_tools,
     texts_tools,
 ]
