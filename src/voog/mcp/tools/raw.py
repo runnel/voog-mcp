@@ -24,13 +24,11 @@ Path validation rejects three obvious foot-guns:
     them is cheap defence-in-depth).
 """
 
-import urllib.parse
-
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import _decode_until_stable, strip_site
 
 ALLOWED_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 
@@ -224,17 +222,9 @@ def _validate_path(path: str) -> str | None:
         return f"path must not be an absolute URL (got {path!r})"
     if not path.startswith("/"):
         return f"path must start with '/' (got {path!r})"
-    # Loop unquote until stable. Single-pass urllib.parse.unquote on
-    # ``/%252e%252e/etc/passwd`` decodes to ``/%2e%2e/etc/passwd`` (no
-    # literal '..'). If any intermediate proxy decodes a second time
-    # before routing, the request becomes ``/../etc/passwd``. Iterating
-    # until the string stops changing catches arbitrary nesting depth.
-    decoded = path
-    for _ in range(8):  # bounded; pathological input shouldn't loop forever
-        next_decoded = urllib.parse.unquote(decoded)
-        if next_decoded == decoded:
-            break
-        decoded = next_decoded
+    # Decode-until-stable so a proxy-normalised double-encoded ``..`` (e.g.
+    # ``%252e%252e`` → ``%2e%2e`` → ``..``) can't slip past the literal check.
+    decoded = _decode_until_stable(path)
     if ".." in decoded.split("/"):
         return f"path must not contain '..' segments (got {path!r})"
     return None

@@ -23,6 +23,29 @@ import urllib.parse
 from pathlib import Path
 
 
+def _decode_until_stable(s: str, *, max_iter: int = 8) -> str:
+    """Iteratively percent-decode ``s`` until it stops changing (or we hit
+    ``max_iter``).
+
+    Security invariant: the iteration bound (``max_iter=8``) is intentional —
+    bounded iteration prevents pathological inputs from causing DoS, while
+    decoding-until-stable defeats double/triple-encoded traversal attempts
+    (e.g. ``%252e%252e`` → ``%2e%2e`` → ``..``) that single-pass
+    :func:`urllib.parse.unquote` would miss when an upstream proxy normalises
+    the percent-escapes a second time before routing.
+
+    Used by both :func:`_validate_data_key` and ``raw.py``'s ``_validate_path``;
+    keeping the bound in one place ensures the two validators stay aligned.
+    """
+    prev = s
+    for _ in range(max_iter):
+        decoded = urllib.parse.unquote(prev)
+        if decoded == prev:
+            break
+        prev = decoded
+    return prev
+
+
 def validate_output_dir(value: str, *, tool_name: str, param_name: str) -> str | None:
     """Validate that ``value`` is a non-empty absolute path.
 
@@ -68,17 +91,10 @@ def _validate_data_key(key: str, *, tool_name: str) -> str | None:
     """
     if not key or not key.strip():
         return f"{tool_name}: key must be non-empty"
-    # Decode at the top so every structural check below sees the
-    # post-normalisation form. Asymmetric checks (raw vs decoded) were
-    # the bypass class. Loop until stable: the key is interpolated into
-    # a URL path (``/site/data/{key}``) so the same double-decode threat
-    # model as ``raw.py``'s path validator applies.
-    decoded = key
-    for _ in range(8):
-        next_decoded = urllib.parse.unquote(decoded)
-        if next_decoded == decoded:
-            break
-        decoded = next_decoded
+    # Decode-until-stable so structural checks below see the post-normalisation
+    # form — the key is interpolated into a URL path (``/site/data/{key}``),
+    # so asymmetric raw-vs-decoded checks were the bypass class.
+    decoded = _decode_until_stable(key)
     if decoded.lower().startswith("internal_"):
         return f"{tool_name}: 'internal_' keys are server-protected (got {key!r})"
     for forbidden_char in ("/", "?", "#"):
