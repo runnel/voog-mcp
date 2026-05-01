@@ -41,12 +41,36 @@ def run(args, client: VoogClient) -> int:
             return 0
         targets = list(manifest)
 
+    failed = 0
     for rel_path in targets:
         entry = manifest[rel_path]
         body = (local_dir / rel_path).read_text(encoding="utf-8")
-        if entry["type"] == "layout":
-            client.put(f"/layouts/{entry['id']}", {"layout": {"body": body}})
-        elif entry["type"] == "asset":
-            client.put(f"/layout_assets/{entry['id']}", {"layout_asset": {"data": body}})
+        kind = entry["type"]
+        # Both endpoints take a flat payload — wrapping {"layout_asset": …}
+        # is silently 200-ed without persisting (issue #96).
+        if kind == "layout":
+            path, content_field = f"/layouts/{entry['id']}", "body"
+        elif kind == "asset":
+            path, content_field = f"/layout_assets/{entry['id']}", "data"
+        else:
+            sys.stderr.write(f"  ✗ {rel_path}: unknown manifest type {kind!r}\n")
+            failed += 1
+            continue
+        result = client.put(path, {content_field: body})
+        # Silent-no-op detector for issue #96's symptom: 200 with the
+        # resource echoed back but the content field cleared. Narrow on
+        # purpose — slim responses that omit the field stay accepted.
+        if (
+            body
+            and isinstance(result, dict)
+            and content_field in result
+            and not result[content_field]
+        ):
+            sys.stderr.write(
+                f"  ✗ {rel_path}: PUT returned 200 but stored "
+                f"{content_field!r} is empty — content NOT updated on Voog\n"
+            )
+            failed += 1
+            continue
         print(f"  ✓ {rel_path}")
-    return 0
+    return 2 if failed else 0
