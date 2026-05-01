@@ -112,6 +112,52 @@ class TestArticleCreate(unittest.TestCase):
         self.assertTrue(result.isError)
         client.post.assert_not_called()
 
+    def test_article_create_preserves_empty_string_body(self):
+        # Empty string is a legitimate "set this field to empty" input and
+        # must NOT be silently dropped (matches article_update semantics).
+        client = MagicMock()
+        client.post.return_value = {"id": 99}
+        articles_tools.call_tool(
+            "article_create",
+            {
+                "page_id": 5,
+                "title": "T",
+                "body": "",
+                "excerpt": "",
+                "description": "",
+                "path": "",
+                "tag_names": [],
+            },
+            client,
+        )
+        body = client.post.call_args.args[1]
+        self.assertEqual(body["autosaved_body"], "")
+        self.assertEqual(body["autosaved_excerpt"], "")
+        self.assertEqual(body["description"], "")
+        self.assertEqual(body["path"], "")
+        self.assertEqual(body["tag_names"], [])
+
+    def test_article_create_omits_truly_absent_fields(self):
+        # When optional fields are not in arguments at all, they must not
+        # appear in the POST body (regression — don't send None or
+        # placeholder values).
+        client = MagicMock()
+        client.post.return_value = {"id": 99}
+        articles_tools.call_tool(
+            "article_create",
+            {"page_id": 5, "title": "T"},
+            client,
+        )
+        body = client.post.call_args.args[1]
+        self.assertNotIn("autosaved_body", body)
+        self.assertNotIn("autosaved_excerpt", body)
+        self.assertNotIn("description", body)
+        self.assertNotIn("path", body)
+        self.assertNotIn("image_id", body)
+        self.assertNotIn("tag_names", body)
+        self.assertNotIn("data", body)
+        self.assertNotIn("publishing", body)
+
 
 class TestArticleUpdate(unittest.TestCase):
     def test_update_uses_autosaved_fields(self):

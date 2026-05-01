@@ -509,9 +509,12 @@ def _page_duplicate(arguments: dict, client: VoogClient) -> list[TextContent] | 
     page_id = arguments.get("page_id")
     try:
         result = client.post(f"/pages/{page_id}/duplicate", {})
-        return success_response(
-            result,
-            summary=f"📑 page {page_id} duplicated → {result.get('id')}",
-        )
+        new_id = result.get("id")
+        # Voog returns duplicated pages as hidden by default; surface that
+        # so the LLM caller knows to call page_set_hidden(false) before the
+        # duplicate is publicly visible.
+        suffix = " (hidden, use page_set_hidden(false) to publish)" if result.get("hidden") else ""
+        summary = f"📑 page {page_id} duplicated → {new_id}{suffix}"
+        return success_response(result, summary=summary)
     except Exception as e:
         return error_response(f"page_duplicate id={page_id} failed: {e}")

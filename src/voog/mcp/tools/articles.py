@@ -288,19 +288,21 @@ def _article_create(arguments: dict, client: VoogClient):
         "page_id": page_id,
         "autosaved_title": title,
     }
-    if arguments.get("body"):
+    # Use `is not None` (matches article_update) so empty strings/lists are
+    # preserved as legitimate "set this field to empty" inputs.
+    if arguments.get("body") is not None:
         body["autosaved_body"] = arguments["body"]
-    if arguments.get("excerpt"):
+    if arguments.get("excerpt") is not None:
         body["autosaved_excerpt"] = arguments["excerpt"]
-    if arguments.get("description"):
+    if arguments.get("description") is not None:
         body["description"] = arguments["description"]
-    if arguments.get("path"):
+    if arguments.get("path") is not None:
         body["path"] = arguments["path"]
     if arguments.get("image_id") is not None:
         body["image_id"] = arguments["image_id"]
-    if arguments.get("tag_names"):
+    if arguments.get("tag_names") is not None:
         body["tag_names"] = arguments["tag_names"]
-    if arguments.get("data"):
+    if arguments.get("data") is not None:
         body["data"] = arguments["data"]
     if arguments.get("publish"):
         body["publishing"] = True
