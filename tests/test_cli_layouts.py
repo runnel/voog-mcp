@@ -158,6 +158,52 @@ class TestAssetReplace(unittest.TestCase):
             self.assertEqual(manifest["stylesheets/new.css"]["kind"], "stylesheet")
             self.assertNotIn("asset_type", manifest["stylesheets/new.css"])
 
+    def test_replace_finds_legacy_layout_asset_type_entry(self):
+        # Legacy `voog.py` manifests use "layout_asset" instead of "asset".
+        # Without the alias, asset_replace's manifest lookup falls through
+        # silently and the rename-on-disk + manifest-update branch never
+        # runs — same bug class as #96 in `voog push`.
+        client = _make_client()
+        client.get.return_value = {
+            "asset_type": "stylesheet",
+            "filename": "old.css",
+            "data": "body { color: red; }",
+        }
+        client.post.return_value = {"id": 99}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "stylesheets").mkdir()
+            (tmp_path / "stylesheets" / "old.css").write_text("x", encoding="utf-8")
+            (tmp_path / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "stylesheets/old.css": {
+                            "id": 5,
+                            "type": "layout_asset",  # legacy spelling
+                            "kind": "stylesheet",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                with patch("sys.stdout", new_callable=io.StringIO):
+                    rc = layouts_cmd.cmd_asset_replace(
+                        _args(asset_id=5, new_filename="new.css"), client
+                    )
+            finally:
+                os.chdir(cwd_before)
+            manifest = json.loads((tmp_path / "manifest.json").read_text())
+            self.assertEqual(rc, 0)
+            # The crucial assertion: rename + manifest update branch DID run
+            # (the silent-no-op branch would leave old.css present and the
+            # old manifest key intact).
+            self.assertTrue((tmp_path / "stylesheets" / "new.css").exists())
+            self.assertNotIn("stylesheets/old.css", manifest)
+            self.assertIn("stylesheets/new.css", manifest)
+
     def test_replace_with_path_separator_rejected(self):
         client = _make_client()
         with patch("sys.stderr", new_callable=io.StringIO):

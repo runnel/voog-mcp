@@ -75,9 +75,14 @@ def run(args, client: VoogClient) -> int:
             continue
         # Refresh the manifest's updated_at so a second push without an
         # intervening pull still has a fresh anchor for the next layout
-        # verification.
+        # verification. Also normalize the legacy "layout_asset" type
+        # here — successive pushes self-heal the manifest without
+        # requiring a forced re-pull.
         if isinstance(result, dict) and result.get("updated_at"):
             entry["updated_at"] = result["updated_at"]
+            manifest_dirty = True
+        if kind == "layout_asset":
+            entry["type"] = "asset"
             manifest_dirty = True
         print(f"  ✓ {rel_path}")
     if manifest_dirty:

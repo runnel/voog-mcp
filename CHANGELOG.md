@@ -9,7 +9,9 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 ## [1.2.1] — 2026-05-01
 
 ### Fixed
-- **`voog push` silently no-op'd on layout_assets in legacy manifests** — root cause of #96. Manifests written by the pre-rename `voog.py` script used `"type": "layout_asset"` for CSS/JS entries; current `voog pull` writes `"type": "asset"`. The 1.2.0 push dispatch only matched `"layout"` and `"asset"`, so legacy entries fell through both branches and the PUT was never sent — but `✓` was printed unconditionally. Fixed in two passes: 1.2.1 (this release) accepts `"layout_asset"` as an alias for `"asset"` so existing checkouts work without a forced re-pull; the fail-loud verification landed in 1.2.0 below catches any future variant of the same pattern. Closes #96.
+- **`voog push` silently no-op'd on layout_assets in legacy manifests** — root cause of #96. Manifests written by the pre-rename `voog.py` script used `"type": "layout_asset"` for CSS/JS entries; current `voog pull` writes `"type": "asset"`. The 1.2.0 push dispatch only matched `"layout"` and `"asset"`, so legacy entries fell through both branches and the PUT was never sent — but `✓` was printed unconditionally. Now `"layout_asset"` is accepted as an alias for `"asset"`, so existing checkouts work without a forced re-pull. Closes #96.
+- **`voog asset-replace` had the same bug pattern** — its manifest lookup `info.get("type") == "asset"` also fell through for legacy entries, leaving the local file/manifest update branch silently un-run after a successful API POST. Now matches both spellings.
+- **Manifest self-heal:** on a successful push of a legacy `"layout_asset"` entry, the manifest writeback also normalizes the type field to `"asset"`, so checkouts gradually migrate without a forced re-pull.
 
 ### Changed
 - `voog push` payload form aligned with `docs/voog-mcp-endpoint-coverage.md` and the MCP tool path: both `/layouts` and `/layout_assets` now send flat `{"body": …}` / `{"data": …}` instead of the wrapped `{"layout": …}` / `{"layout_asset": …}` form. Consistency-only — wrapped form is also accepted by Voog (verified empirically), so this is not the behaviour fix.

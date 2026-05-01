@@ -212,6 +212,123 @@ class TestPushLegacyLayoutAssetType(unittest.TestCase):
         self.assertIn("size", stderr.getvalue())
 
 
+class TestPushManifestSelfHeal(unittest.TestCase):
+    """Successful push of a legacy `"layout_asset"` entry should normalize
+    the manifest's `type` field to `"asset"` so the manifest gradually
+    self-heals instead of staying legacy forever."""
+
+    def test_legacy_type_normalized_to_asset_on_successful_push(self):
+        client = _make_client()
+        client.put.return_value = {"id": 5, "size": 19, "updated_at": "2026-05-01T11:00:00.000Z"}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "stylesheets/cart.css": {
+                        "id": 5,
+                        "type": "layout_asset",
+                        "updated_at": "",
+                    },
+                },
+                files={"stylesheets/cart.css": "body { margin: 0; }"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                args = MagicMock()
+                args.files = ["stylesheets/cart.css"]
+                rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+            updated = json.loads((tmp_path / "manifest.json").read_text())
+        self.assertEqual(rc, 0)
+        self.assertEqual(updated["stylesheets/cart.css"]["type"], "asset")
+
+    def test_legacy_type_not_normalized_on_failed_push(self):
+        # If the verification fails, the manifest writeback is skipped
+        # entirely (existing semantic from #101) — type stays legacy.
+        client = _make_client()
+        client.put.return_value = {"id": 5, "size": 999}  # mismatch
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            initial = {
+                "stylesheets/cart.css": {
+                    "id": 5,
+                    "type": "layout_asset",
+                    "updated_at": "",
+                }
+            }
+            _setup_pulled_tree(
+                tmp_path,
+                manifest=initial,
+                files={"stylesheets/cart.css": "body { margin: 0; }"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                with patch("sys.stderr", new_callable=io.StringIO):
+                    args = MagicMock()
+                    args.files = ["stylesheets/cart.css"]
+                    rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+            after = json.loads((tmp_path / "manifest.json").read_text())
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(after, initial)
+
+
+class TestPushMixedManifestTypes(unittest.TestCase):
+    """A real-world checkout may have both legacy `"layout_asset"` and
+    modern `"asset"` entries side by side mid-migration. Push must
+    handle both in the same multi-file invocation without ordering or
+    state-leak issues."""
+
+    def test_modern_and_legacy_assets_in_same_push_both_succeed(self):
+        client = _make_client()
+        client.put.side_effect = [
+            {"id": 5, "size": 19, "updated_at": "2026-05-01T11:00:00.000Z"},  # legacy
+            {"id": 7, "size": 19, "updated_at": "2026-05-01T11:00:01.000Z"},  # modern
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "stylesheets/cart.css": {
+                        "id": 5,
+                        "type": "layout_asset",  # legacy
+                        "updated_at": "",
+                    },
+                    "stylesheets/main.css": {
+                        "id": 7,
+                        "type": "asset",  # modern
+                        "updated_at": "",
+                    },
+                },
+                files={
+                    "stylesheets/cart.css": "body { margin: 0; }",
+                    "stylesheets/main.css": "body { margin: 0; }",
+                },
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                args = MagicMock()
+                args.files = ["stylesheets/cart.css", "stylesheets/main.css"]
+                rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+            updated = json.loads((tmp_path / "manifest.json").read_text())
+        self.assertEqual(rc, 0)
+        self.assertEqual(client.put.call_count, 2)
+        # Both routed to /layout_assets, both legacy normalized.
+        client.put.assert_any_call("/layout_assets/5", {"data": "body { margin: 0; }"})
+        client.put.assert_any_call("/layout_assets/7", {"data": "body { margin: 0; }"})
+        self.assertEqual(updated["stylesheets/cart.css"]["type"], "asset")
+        self.assertEqual(updated["stylesheets/main.css"]["type"], "asset")
+
+
 class TestPushPartialFailure(unittest.TestCase):
     """A failing PUT in the middle of a multi-file push must not block
     subsequent files. Final exit code reflects whether anything failed."""
