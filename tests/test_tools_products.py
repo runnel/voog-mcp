@@ -690,6 +690,54 @@ class TestProductUpdateDestructiveDefaults(unittest.TestCase):
         self.assertIn("description", payload["error"])
         client.put.assert_not_called()
 
+    def test_product_update_rejects_attributes_legacy_fields_overlap(self):
+        # The legacy `fields` shape is folded into merged_translations
+        # before the overlap check. attributes.description + legacy
+        # fields["description-et"] is the same dual-surface problem.
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = products_tools.call_tool(
+            "product_update",
+            {
+                "product_id": 42,
+                "attributes": {"description": "X"},
+                "fields": {"description-et": "Y"},
+            },
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("description", payload["error"])
+        client.put.assert_not_called()
+
+    # --- asset_ids type validation (post-rereview nit) ---
+
+    def test_product_update_rejects_non_list_asset_ids(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "attributes": {"asset_ids": "abc"}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("asset_ids", payload["error"])
+        client.put.assert_not_called()
+
+    def test_product_update_rejects_non_int_asset_ids_items(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "attributes": {"asset_ids": ["a", "b"]}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("asset_ids", payload["error"])
+        client.put.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -186,6 +186,7 @@ def get_tools() -> list[Tool]:
                             "`variant_attributes` — Voog wipes all "
                             "variants in that case. Default false."
                         ),
+                        "default": False,
                     },
                 },
                 "required": ["site", "product_id"],
@@ -267,18 +268,6 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
             f"{sorted(VALID_STATUS)} (got {attributes['status']!r})"
         )
 
-    # Reject attributes ∩ translations field overlap. Sending the same
-    # field via both surfaces in one envelope produces undefined
-    # behaviour — per-language values can be silently clobbered. Today
-    # `description` is the only field present in both whitelists.
-    overlap = sorted(set(attributes) & TRANSLATABLE_FIELDS & set(translations))
-    if overlap:
-        return error_response(
-            f"product_update: field(s) {overlap} given in both `attributes` "
-            "and `translations` — Voog's envelope is undefined when both are "
-            "sent together. Pick one surface per field."
-        )
-
     # Voog gotcha: PUT /products/{id} with `variants` but no
     # `variant_attributes` wipes ALL variants — even ones with `id`.
     # Require both, or an explicit force=true to acknowledge.
@@ -335,6 +324,21 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
             )
         merged_translations.setdefault(field, {})[lang] = value
 
+    # Reject `attributes` ∩ translations field overlap (covers BOTH the
+    # explicit `translations` arg AND the legacy `fields` shape, which
+    # was folded into merged_translations above). Sending the same field
+    # via two surfaces in one envelope produces undefined behaviour —
+    # per-language values can be silently clobbered. Today `description`
+    # is the only field present in both whitelists.
+    overlap = sorted(set(attributes) & TRANSLATABLE_FIELDS & set(merged_translations))
+    if overlap:
+        return error_response(
+            f"product_update: field(s) {overlap} given in both `attributes` "
+            "and translations (`translations` or legacy `fields`) — Voog's "
+            "envelope is undefined when both are sent together. Pick one "
+            "surface per field."
+        )
+
     product_body: dict = dict(attributes)
 
     # Voog gotcha: PUT envelope is `assets:[{id:n}]`, not `asset_ids`
@@ -343,7 +347,15 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
     # using the friendlier `asset_ids` shape.
     if "asset_ids" in product_body:
         asset_ids = product_body.pop("asset_ids")
-        product_body["assets"] = [{"id": int(n)} for n in asset_ids]
+        if not isinstance(asset_ids, list):
+            return error_response(
+                f"product_update: asset_ids must be a list of integers "
+                f"(got {type(asset_ids).__name__})"
+            )
+        try:
+            product_body["assets"] = [{"id": int(n)} for n in asset_ids]
+        except (TypeError, ValueError) as e:
+            return error_response(f"product_update: asset_ids items must be integers ({e})")
 
     if merged_translations:
         product_body["translations"] = merged_translations
