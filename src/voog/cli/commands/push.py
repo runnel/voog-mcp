@@ -8,16 +8,6 @@ from pathlib import Path
 
 from voog.client import VoogClient
 
-# Voog uses **flat** payloads for both /layouts and /layout_assets PUT
-# (see docs/voog-mcp-endpoint-coverage.md). Wrapping in {"layout": …}
-# happens to be tolerated for layouts, but {"layout_asset": …} is silently
-# 200-ed by Voog and the asset content is NOT persisted (issue #96).
-# Send flat for both to stay aligned with the docs and the MCP tool path.
-_PAYLOAD = {
-    "layout": ("/layouts", "body"),
-    "asset": ("/layout_assets", "data"),
-}
-
 
 def add_arguments(subparsers):
     p = subparsers.add_parser(
@@ -56,20 +46,20 @@ def run(args, client: VoogClient) -> int:
         entry = manifest[rel_path]
         body = (local_dir / rel_path).read_text(encoding="utf-8")
         kind = entry["type"]
-        endpoint_info = _PAYLOAD.get(kind)
-        if endpoint_info is None:
+        # Both endpoints take a flat payload — wrapping {"layout_asset": …}
+        # is silently 200-ed without persisting (issue #96).
+        if kind == "layout":
+            path, content_field = f"/layouts/{entry['id']}", "body"
+        elif kind == "asset":
+            path, content_field = f"/layout_assets/{entry['id']}", "data"
+        else:
             sys.stderr.write(f"  ✗ {rel_path}: unknown manifest type {kind!r}\n")
             failed += 1
             continue
-        path_prefix, content_field = endpoint_info
-        result = client.put(f"{path_prefix}/{entry['id']}", {content_field: body})
-        # Silent-no-op detector (issue #96): Voog's wrapped-payload bug
-        # returned 200 with the resource echoed back but with the content
-        # field cleared. Surface that pattern as a hard failure rather
-        # than printing ✓.  The check is deliberately narrow — we only
-        # flag the case where the server explicitly echoed the field as
-        # empty; a slim response that omits the field altogether is left
-        # alone (some endpoints/versions may not echo).
+        result = client.put(path, {content_field: body})
+        # Silent-no-op detector for issue #96's symptom: 200 with the
+        # resource echoed back but the content field cleared. Narrow on
+        # purpose — slim responses that omit the field stay accepted.
         if (
             body
             and isinstance(result, dict)
