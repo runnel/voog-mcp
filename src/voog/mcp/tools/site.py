@@ -18,7 +18,13 @@ from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import _validate_data_key, strip_site
 
-IMMUTABLE_SITE_FIELDS = frozenset(["code"])
+# Fields that must never be PUT back to /site:
+#   - `code` is immutable per Voog (and project memory).
+#   - `id`, `created_at`, `updated_at` are server-managed — round-tripping
+#     a GET response into a PUT would either silently no-op or 422.
+# (Not added: `plan`, `currently_paid_until`, `languages` — those need
+# more thought; out of scope here.)
+IMMUTABLE_SITE_FIELDS = frozenset(["code", "id", "created_at", "updated_at"])
 
 
 def get_tools() -> list[Tool]:

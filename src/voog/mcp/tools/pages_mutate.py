@@ -378,6 +378,21 @@ PAGE_UPDATE_FIELDS = (
     "data",
 )
 
+# Whitelist for `page.content_type` on POST /pages. Voog accepts a fixed set
+# (per docs/voog-mcp-endpoint-coverage.md and the page_create docstring) —
+# typo'd values 422 at the API level. Validate locally so the LLM gets a
+# clear, actionable error listing the known-good set.
+VALID_PAGE_CONTENT_TYPES = (
+    "page",
+    "link",
+    "blog",
+    "product",
+    "category",
+    "gallery",
+    "form",
+    "news",
+)
+
 
 def _page_create(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     if arguments.get("node_id") is not None and arguments.get("parent_id") is not None:
@@ -385,6 +400,12 @@ def _page_create(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
             "page_create: node_id and parent_id are mutually exclusive — "
             "use node_id for parallel translations, parent_id for subpages, "
             "or omit both for root pages."
+        )
+    content_type = arguments.get("content_type")
+    if content_type is not None and content_type not in VALID_PAGE_CONTENT_TYPES:
+        return error_response(
+            f"page_create: content_type {content_type!r} not in known-good set. "
+            f"Allowed: {sorted(VALID_PAGE_CONTENT_TYPES)}"
         )
     body: dict = {
         "title": arguments.get("title"),
@@ -417,6 +438,14 @@ def _page_create(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
 
 def _page_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     page_id = arguments.get("page_id")
+    # Self-parent cycle guard: parent_id == page_id would create a self-
+    # referential parent. Mirrors the mutex pattern in _page_create.
+    parent_id = arguments.get("parent_id")
+    if parent_id is not None and parent_id == page_id:
+        return error_response(
+            f"page_update: parent_id ({parent_id}) must not equal page_id "
+            f"({page_id}) — would create a self-parent cycle."
+        )
     body: dict = {}
     for key in PAGE_UPDATE_FIELDS:
         if arguments.get(key) is not None:

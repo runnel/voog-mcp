@@ -447,6 +447,63 @@ class TestPageCreate(unittest.TestCase):
         self.assertTrue(result.isError)
         client.post.assert_not_called()
 
+    def test_page_create_rejects_invalid_content_type(self):
+        # A typo'd content_type should fail loudly client-side with the
+        # known-good set listed in the error, rather than let Voog return
+        # a generic 422.
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        result = pm.call_tool(
+            "page_create",
+            {
+                "title": "X",
+                "slug": "x",
+                "language_id": 1,
+                "content_type": "bloog",
+            },
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.post.assert_not_called()
+        payload = json.loads(result.content[0].text)
+        self.assertIn("error", payload)
+        self.assertIn("content_type", payload["error"])
+        # Error must list the known-good values so the LLM can self-correct
+        self.assertIn("page", payload["error"])
+
+    def test_page_create_accepts_each_valid_content_type(self):
+        # Regression: looping the whitelist must succeed for every value.
+        from voog.mcp.tools import pages_mutate as pm
+        from voog.mcp.tools.pages_mutate import VALID_PAGE_CONTENT_TYPES
+
+        # Sanity: the whitelist exists, is non-empty, and includes the
+        # documented core values.
+        self.assertGreater(len(VALID_PAGE_CONTENT_TYPES), 0)
+        for required in ("page", "link", "blog", "product"):
+            self.assertIn(required, VALID_PAGE_CONTENT_TYPES)
+
+        for ct in VALID_PAGE_CONTENT_TYPES:
+            client = MagicMock()
+            client.post.return_value = {"id": 1}
+            result = pm.call_tool(
+                "page_create",
+                {
+                    "title": "X",
+                    "slug": "x",
+                    "language_id": 1,
+                    "content_type": ct,
+                },
+                client,
+            )
+            # Not an error — and the POST was actually issued
+            self.assertNotEqual(
+                getattr(result, "isError", False),
+                True,
+                f"content_type={ct!r} should be accepted but was rejected",
+            )
+            client.post.assert_called_once()
+
 
 class TestPageUpdate(unittest.TestCase):
     def test_update_title_and_slug(self):
@@ -504,6 +561,25 @@ class TestPageUpdate(unittest.TestCase):
         client = MagicMock()
         result = pm.call_tool("page_update", {"page_id": 5}, client)
         self.assertTrue(result.isError)
+
+    def test_page_update_rejects_self_parent_cycle(self):
+        # parent_id == page_id would create a self-referential parent and
+        # cycle through Voog's tree walker. Match the mutex pattern in
+        # _page_create — surface a clear local error rather than letting
+        # Voog return a generic 422.
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        result = pm.call_tool(
+            "page_update",
+            {"page_id": 5, "parent_id": 5},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+        payload = json.loads(result.content[0].text)
+        self.assertIn("error", payload)
+        self.assertIn("parent_id", payload["error"])
 
 
 class TestPageSetData(unittest.TestCase):

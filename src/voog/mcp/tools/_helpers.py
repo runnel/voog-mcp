@@ -1,21 +1,33 @@
 """Shared helpers for filesystem-touching tool modules.
 
-Three small primitives used by both ``snapshot.py`` and ``layouts_sync.py``:
+Four small primitives:
 
-  - :func:`validate_output_dir`  — non-empty + absolute path check; returns an
-                                    error string or ``None``. Both tool groups
-                                    use the same param name in their schema
-                                    (``output_dir`` / ``target_dir``); the
-                                    label is passed in.
-  - :func:`write_json`           — write a value as pretty-printed UTF-8 JSON.
-                                    Centralizes the indent/ensure_ascii kwargs
-                                    so disk artefacts stay byte-identical
-                                    across tools (snapshot diffs, manifests).
-  - :func:`_validate_data_key`   — shared validation for user-supplied data
-                                    keys interpolated into URL paths. Rejects
-                                    empty/whitespace, ``internal_`` prefix, and
-                                    characters / sequences that could alter the
-                                    URL structure (``/``, ``?``, ``#``, ``..``).
+  - :func:`validate_output_dir`        — non-empty + absolute path check;
+                                          returns an error string or ``None``.
+                                          Both tool groups use the same param
+                                          name in their schema (``output_dir``
+                                          / ``target_dir``); the label is
+                                          passed in.
+  - :func:`write_json`                 — write a value as pretty-printed UTF-8
+                                          JSON. Centralizes the
+                                          indent/ensure_ascii kwargs so disk
+                                          artefacts stay byte-identical
+                                          across tools (snapshot diffs,
+                                          manifests).
+  - :func:`_validate_data_key`         — shared validation for user-supplied
+                                          data keys interpolated into URL
+                                          paths. Rejects empty/whitespace,
+                                          ``internal_`` prefix, and characters
+                                          / sequences that could alter the URL
+                                          structure (``/``, ``?``, ``#``,
+                                          ``..``).
+  - :func:`validate_translations_shape`— shared shape check for the
+                                          ``translations[field]`` payload that
+                                          ``product_update`` and
+                                          ``ecommerce_settings_update`` both
+                                          consume: must be a non-empty
+                                          ``dict[str, str]`` with non-empty
+                                          values.
 """
 
 import json
@@ -45,6 +57,33 @@ def write_json(path: Path, data) -> None:
 def strip_site(arguments: dict) -> dict:
     """Return a copy of arguments without the 'site' key."""
     return {k: v for k, v in arguments.items() if k != "site"}
+
+
+def validate_translations_shape(field: str, langs, *, tool_name: str) -> str | None:
+    """Validate the inner shape of ``translations[field]``.
+
+    Voog expects ``translations[field]`` to be a non-empty mapping of
+    ``{lang: value}`` with non-empty string values. The two common LLM
+    mistakes this guards against:
+      - passing the value as a string directly: ``{"slug": "foo"}``
+        (instead of ``{"slug": {"en": "foo"}}``)
+      - passing an empty inner dict: ``{"slug": {}}``
+      - passing an empty value per lang: ``{"slug": {"et": ""}}``
+
+    Returns an error message string when invalid, ``None`` when acceptable.
+
+    Mirrors the per-lang loop already used inline in ``products.py``'s
+    ``product_update``; both check the same shape (kept aligned by hand
+    until ``products.py`` migrates to this helper).
+    """
+    if not isinstance(langs, dict) or not langs:
+        return f"{tool_name}: translations[{field!r}] must be a non-empty object {{lang: value}}"
+    for lang, value in langs.items():
+        if not lang or lang.startswith("-"):
+            return f"{tool_name}: empty/malformed lang in translations[{field!r}]: {lang!r}"
+        if not value:
+            return f"{tool_name}: empty value for translations[{field!r}][{lang!r}]"
+    return None
 
 
 def _validate_data_key(key: str, *, tool_name: str) -> str | None:
