@@ -101,12 +101,17 @@ def _verify_persisted(kind: str, body: str, entry: dict, result) -> str | None:
     if not isinstance(result, dict):
         return None
     if kind in _ASSET_KINDS:
-        sent_bytes = len(body.encode("utf-8"))
+        # Voog's `size` field counts UTF-8 *characters*, not bytes —
+        # empirically verified post-1.2.1 release (any file with a
+        # non-ASCII char like an em-dash or Estonian õ otherwise produced
+        # a false-positive ✗).  Compare against str length, not the
+        # encoded byte count.
+        sent_chars = len(body)
         stored_size = result.get("size")
-        if stored_size is not None and stored_size != sent_bytes:
+        if stored_size is not None and stored_size != sent_chars:
             return (
                 f"stored size {stored_size} does not match local "
-                f"{sent_bytes} bytes — content NOT updated on Voog"
+                f"{sent_chars} characters — content NOT updated on Voog"
             )
     elif kind == "layout":
         prev = _parse_iso8601(entry.get("updated_at"))
