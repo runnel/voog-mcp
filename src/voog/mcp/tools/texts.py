@@ -183,9 +183,11 @@ def call_tool(
 
         # Default: pre-check that no area with the same name already exists.
         # Calling twice with the same name was silently creating duplicates.
+        # Use get_all so a same-name area on a paginated later page can't
+        # slip past — Voog's /contents endpoint paginates.
         if not force:
             try:
-                existing = client.get(f"/pages/{page_id}/contents")
+                existing = client.get_all(f"/pages/{page_id}/contents")
             except Exception as e:
                 return error_response(f"page_add_content page={page_id} pre-check failed: {e}")
             existing_list = existing if isinstance(existing, list) else []

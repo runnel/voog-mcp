@@ -51,7 +51,7 @@ class TestPageAddContent(unittest.TestCase):
         # Per skill: fresh page returns [] from /contents until edit-mode
         # opens it. POST /pages/{id}/contents materialises the area.
         client = MagicMock()
-        client.get.return_value = []
+        client.get_all.return_value = []
         client.post.return_value = {
             "id": 9999,
             "name": "body",
@@ -70,7 +70,7 @@ class TestPageAddContent(unittest.TestCase):
 
     def test_named_gallery_area(self):
         client = MagicMock()
-        client.get.return_value = []
+        client.get_all.return_value = []
         client.post.return_value = {
             "id": 9999,
             "name": "gallery_1",
@@ -94,7 +94,7 @@ class TestPageAddContent(unittest.TestCase):
         # Default behaviour is: GET /contents pre-check, then POST if no
         # area with the same name already exists.
         client = MagicMock()
-        client.get.return_value = []
+        client.get_all.return_value = []
         client.post.return_value = {
             "id": 9999,
             "name": "body",
@@ -105,7 +105,7 @@ class TestPageAddContent(unittest.TestCase):
             {"page_id": 5},
             client,
         )
-        client.get.assert_called_once_with("/pages/5/contents")
+        client.get_all.assert_called_once_with("/pages/5/contents")
         client.post.assert_called_once()
         path, body = client.post.call_args.args
         self.assertEqual(path, "/pages/5/contents")
@@ -117,7 +117,7 @@ class TestPageAddContent(unittest.TestCase):
         # content with the same name already exists, return an error_response
         # pointing the caller to text_update / force=true.
         client = MagicMock()
-        client.get.return_value = [
+        client.get_all.return_value = [
             {"id": 9999, "name": "body", "content_type": "text"},
         ]
         result = texts_tools.call_tool(
@@ -125,7 +125,7 @@ class TestPageAddContent(unittest.TestCase):
             {"page_id": 5, "name": "body"},
             client,
         )
-        client.get.assert_called_once_with("/pages/5/contents")
+        client.get_all.assert_called_once_with("/pages/5/contents")
         client.post.assert_not_called()
         self.assertTrue(result.isError)
         # Error message should hint at the right next step.
@@ -148,5 +148,5 @@ class TestPageAddContent(unittest.TestCase):
             {"page_id": 5, "name": "body", "force": True},
             client,
         )
-        client.get.assert_not_called()
+        client.get_all.assert_not_called()
         client.post.assert_called_once()
