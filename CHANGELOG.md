@@ -6,8 +6,43 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.1] — 2026-05-01
+
+Post-1.2.0 hardening sweep — seven follow-up PRs addressing destructive PUT defaults, percent-encoding bypasses, atomicity gaps, and a long-standing `voog push` silent-no-op. No breaking changes for typed-tool callers; one CLI behaviour change documented under Changed.
+
+### Security
+- `_validate_data_key` and `_validate_path` (raw passthrough) now decode percent-encoding before all structural checks. Previously the `/?#` forbidden-char check ran on the raw key, but the `..` traversal check ran on the decoded form — `key="foo%2Fbar"` slipped past, and Apache normalises `%2F` to `/` server-side. `_validate_path` additionally loops `urllib.parse.unquote` until stable to defeat double-encoded `%252e%252e` traversal. Bounded at 8 iterations. (#92)
+- `internal_*` prefix check on `*_set_data` / `*_delete_data` keys is now case-insensitive (was bypassable via `INTERNAL_x`). (#92)
+- `voog_admin_api_call` / `voog_ecommerce_api_call` reject `path` containing `?` when `params=` is also non-empty (was producing malformed `/x?a=1?b=2` URLs). (#92)
+
 ### Fixed
-- `voog push` no longer silently no-ops on `layout_assets` (CSS/JS/images). The CLI was wrapping the PUT body in `{"layout_asset": {"data": …}}`, which Voog answers with 200 but does not persist; the documented flat `{"data": …}` form (already used by the MCP `layout_asset_update` tool) is required. Layouts switched to flat as well to match the documented convention. Push now surfaces a hard error when Voog echoes the resource back with the content field cleared, instead of printing ✓. Closes #96.
+- `product_update` PUT envelope now translates `asset_ids` → `assets:[{id:n}]` (POST-only field; on PUT, Voog silently kept only the first/hero image). `variants` without `variant_attributes` is rejected (or `force=true`) — Voog otherwise wipes ALL variants, even ones with `id`. `attributes` ∩ translation-source field overlap (across both explicit `translations` and the legacy `fields` shape) is detected and rejected — was producing undefined-behaviour envelopes. (#91)
+- `product_set_images` had the same `asset_ids`-on-PUT silent-drop bug — fixed by mirroring the #91 envelope translation. Regression guard added. (#97)
+- `page_update` rejects `parent_id == page_id` (self-parent cycle). (#93)
+- `page_create` validates `content_type` against a known set instead of pass-through (was waiting for Voog 422 on typos). (#93)
+- `site_update` extends `IMMUTABLE_SITE_FIELDS` with `id`, `created_at`, `updated_at` — round-tripping a GET back into a PUT no longer silently writes server-managed fields. (#93)
+- `ecommerce_settings_update` validates `translations` inner shape per-language (dict + non-empty values), matching the `product_update` pattern — `translations={"products_url_slug": "products"}` (string instead of `{lang: value}`) now fails locally with a clear message instead of via a generic Voog 422. (#93)
+- `article_publish` accepts optional `autosaved_title/body/excerpt` args. When all three are provided, the tool skips the GET and PUTs directly — single round-trip, no race window. The no-args branch keeps the GET+PUT fallback with the race window now documented honestly. (#95)
+- `page_add_content` GETs `/contents` first by default and refuses if a content area with the same name already exists — was silently creating duplicates on repeat calls. `force=true` skips the pre-check for legitimate repeated-name templates. Pre-check uses `client.get_all` so paginated content lists are fully covered. (#95)
+- `redirect_update` does GET-then-merge-then-PUT instead of partial body — Voog's PUT is full-replace and silently coerced unspecified fields like `active=False` back to defaults. (#95)
+- `voog push` no longer silently no-ops on `layout_assets` (CSS/JS/images). The CLI was wrapping the PUT body in `{"layout_asset": {"data": …}}`, which Voog answers with 200 but does not persist; the documented flat `{"data": …}` form (already used by the MCP `layout_asset_update` tool) is required. Layouts switched to flat as well to match the documented convention. Push now surfaces a hard error when Voog echoes the resource back with the content field cleared, instead of printing ✓. Closes #96. (#98)
+- `article_create` argument-presence checks use `is not None` instead of truthiness, matching `article_update`. Empty strings/lists are now legitimate "set this field empty" inputs in both directions. (#94)
+
+### Changed
+- `voog push` exit code is now `2` when at least one file fails the silent-no-op detector (was: always `0`). Other files in the same invocation still attempt their PUT. Shell scripts that depend on the always-`0` exit will need updating. (#98)
+- `page_duplicate` summary now surfaces Voog's default `hidden=True` outcome — caller sees `"📑 page X duplicated → Y (hidden, use page_set_hidden(false) to publish)"`. (#94)
+- `product_update` `force` schema property now declares `"default": False` for parity with `redirect_delete`. asset_ids inputs are validated up-front (list shape + integer-coercibility) with structured `error_response`. (#91)
+- `VALID_PAGE_CONTENT_TYPES` now `frozenset` for parity with `VALID_STATUS`. (#93)
+- VoogClient User-Agent bumped to `voog-mcp/1.2.1`.
+
+### Refactored
+- Extracted `_decode_until_stable(s, *, max_iter=8)` shared helper used by both `_validate_data_key` and `_validate_path`. The security-relevant 8-iteration bound now lives in one place. (#92)
+- Extracted `validate_translations_shape(field, langs, *, tool_name)` shared helper now used by both `product_update` and `ecommerce_settings_update`. (#93)
+- Extracted `REDIRECT_FIELDS` tuple at `redirects.py` module top, used by `_redirect_update`'s loop, error message, and merge envelope construction. A future Voog-side redirect field addition only needs touching one line. (#95)
+
+### Docs
+- `docs/voog-mcp-endpoint-coverage.md`: completed the matrix — added rows for `voog_list_sites`, `pages_snapshot`, `site_snapshot`, `layouts_pull`, `layouts_push`. Moved `text_get` from Write tools to Read tools (was miscategorised). All 51 tools now appear in the matrix exactly once. (#94)
+- CHANGELOG migration example for `product_update` legacy `fields` → `translations` shape. (#94)
 
 ## [1.2.0] — 2026-05-01
 
