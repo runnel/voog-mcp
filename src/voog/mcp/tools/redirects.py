@@ -8,6 +8,7 @@ from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
 
 VALID_REDIRECT_TYPES = [301, 302, 307, 410]
+REDIRECT_FIELDS = ("source", "destination", "redirect_type", "active")
 
 
 def get_tools() -> list[Tool]:
@@ -164,14 +165,10 @@ def call_tool(
             return error_response(
                 f"redirect_update: invalid redirect_type {rtype!r}; allowed: {VALID_REDIRECT_TYPES}"
             )
-        updates: dict = {}
-        for key in ("source", "destination", "redirect_type", "active"):
-            if key in arguments:
-                updates[key] = arguments[key]
+        updates: dict = {key: arguments[key] for key in REDIRECT_FIELDS if key in arguments}
         if not updates:
             return error_response(
-                "redirect_update: at least one of source/destination/"
-                "redirect_type/active must be supplied"
+                f"redirect_update: at least one of {'/'.join(REDIRECT_FIELDS)} must be supplied"
             )
 
         # Voog's PUT is full-replace; GET first, merge, then PUT the
@@ -182,12 +179,7 @@ def call_tool(
         except Exception as e:
             return error_response(f"redirect_update id={redirect_id} GET failed: {e}")
 
-        rule_body = {
-            "source": current.get("source"),
-            "destination": current.get("destination"),
-            "redirect_type": current.get("redirect_type"),
-            "active": current.get("active"),
-        }
+        rule_body = {f: current.get(f) for f in REDIRECT_FIELDS}
         rule_body.update(updates)
 
         try:
