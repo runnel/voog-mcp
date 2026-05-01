@@ -161,9 +161,7 @@ def call_tool(
     if name == "voog_admin_api_call":
         return _passthrough(arguments, client, base=client.base_url, label="admin")
     if name == "voog_ecommerce_api_call":
-        return _passthrough(
-            arguments, client, base=client.ecommerce_url, label="ecommerce"
-        )
+        return _passthrough(arguments, client, base=client.ecommerce_url, label="ecommerce")
 
     return error_response(f"Unknown tool: {name}")
 
@@ -178,8 +176,7 @@ def _passthrough(
 
     if method not in ALLOWED_METHODS:
         return error_response(
-            f"voog_{label}_api_call: method must be one of "
-            f"{ALLOWED_METHODS} (got {method!r})"
+            f"voog_{label}_api_call: method must be one of {ALLOWED_METHODS} (got {method!r})"
         )
 
     err = _validate_path(path)
@@ -187,9 +184,7 @@ def _passthrough(
         return error_response(f"voog_{label}_api_call: {err}")
 
     if params is not None and not isinstance(params, dict):
-        return error_response(
-            f"voog_{label}_api_call: params must be an object or null"
-        )
+        return error_response(f"voog_{label}_api_call: params must be an object or null")
 
     try:
         if method == "GET":
@@ -203,9 +198,7 @@ def _passthrough(
         elif method == "PATCH":
             data = client.patch(path, body, base=base)
     except Exception as e:
-        return error_response(
-            f"voog_{label}_api_call {method} {path} failed: {e}"
-        )
+        return error_response(f"voog_{label}_api_call {method} {path} failed: {e}")
 
     return success_response(
         data,

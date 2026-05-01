@@ -486,9 +486,7 @@ class TestLayoutUpdate(unittest.TestCase):
         from voog.mcp.tools import layouts as layouts_tools
 
         client = MagicMock()
-        result = layouts_tools.call_tool(
-            "layout_update", {"layout_id": 5}, client
-        )
+        result = layouts_tools.call_tool("layout_update", {"layout_id": 5}, client)
         self.assertTrue(result.isError)
 
 
@@ -497,9 +495,7 @@ class TestLayoutDelete(unittest.TestCase):
         from voog.mcp.tools import layouts as layouts_tools
 
         client = MagicMock()
-        result = layouts_tools.call_tool(
-            "layout_delete", {"layout_id": 5}, client
-        )
+        result = layouts_tools.call_tool("layout_delete", {"layout_id": 5}, client)
         self.assertTrue(result.isError)
         client.delete.assert_not_called()
 
@@ -588,9 +584,7 @@ class TestLayoutAssetDelete(unittest.TestCase):
         from voog.mcp.tools import layouts as layouts_tools
 
         client = MagicMock()
-        result = layouts_tools.call_tool(
-            "layout_asset_delete", {"asset_id": 99}, client
-        )
+        result = layouts_tools.call_tool("layout_asset_delete", {"asset_id": 99}, client)
         self.assertTrue(result.isError)
         client.delete.assert_not_called()
 

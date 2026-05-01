@@ -105,7 +105,7 @@ def get_tools() -> list[Tool]:
                         "type": "string",
                         "description": (
                             "Content area name (default 'body'; named areas "
-                            "match {% content name=\"...\" %})"
+                            'match {% content name="..." %})'
                         ),
                         "default": "body",
                     },
@@ -175,8 +175,6 @@ def call_tool(
                 ),
             )
         except Exception as e:
-            return error_response(
-                f"page_add_content page={page_id} failed: {e}"
-            )
+            return error_response(f"page_add_content page={page_id} failed: {e}")
 
     return error_response(f"Unknown tool: {name}")

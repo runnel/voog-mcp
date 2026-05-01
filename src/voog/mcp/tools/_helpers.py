@@ -66,10 +66,7 @@ def _validate_data_key(key: str, *, tool_name: str) -> str | None:
         return f"{tool_name}: 'internal_' keys are server-protected (got {key!r})"
     for forbidden_char in ("/", "?", "#"):
         if forbidden_char in key:
-            return (
-                f"{tool_name}: key must not contain {forbidden_char!r} "
-                f"(got {key!r})"
-            )
+            return f"{tool_name}: key must not contain {forbidden_char!r} (got {key!r})"
     decoded = urllib.parse.unquote(key)
     if ".." in decoded.split("/"):
         return f"{tool_name}: key must not contain '..' segments (got {key!r})"

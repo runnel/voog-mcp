@@ -130,9 +130,7 @@ def call_tool(
             return error_response("site_update: attributes must be non-empty")
         forbidden = set(attributes) & IMMUTABLE_SITE_FIELDS
         if forbidden:
-            return error_response(
-                f"site_update: fields {sorted(forbidden)} are immutable"
-            )
+            return error_response(f"site_update: fields {sorted(forbidden)} are immutable")
         try:
             return success_response(
                 client.put("/site", attributes),

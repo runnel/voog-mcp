@@ -245,13 +245,7 @@ class TestEcommerceApiCall(unittest.TestCase):
             {
                 "method": "PUT",
                 "path": "/settings",
-                "body": {
-                    "settings": {
-                        "translations": {
-                            "products_url_slug": {"en": "products"}
-                        }
-                    }
-                },
+                "body": {"settings": {"translations": {"products_url_slug": {"en": "products"}}}},
             },
             client,
         )

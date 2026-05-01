@@ -227,8 +227,7 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
     for key in attributes:
         if key not in ATTR_KEYS:
             return error_response(
-                f"product_update: attribute {key!r} not supported. "
-                f"Allowed: {sorted(ATTR_KEYS)}"
+                f"product_update: attribute {key!r} not supported. Allowed: {sorted(ATTR_KEYS)}"
             )
     if "status" in attributes and attributes["status"] not in VALID_STATUS:
         return error_response(
@@ -252,8 +251,7 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
         for lang, value in langs.items():
             if not lang or lang.startswith("-"):
                 return error_response(
-                    f"product_update: empty/malformed lang in "
-                    f"translations[{field!r}]: {lang!r}"
+                    f"product_update: empty/malformed lang in translations[{field!r}]: {lang!r}"
                 )
             if not value:
                 return error_response(
@@ -275,13 +273,10 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
                 f"Allowed: {sorted(TRANSLATABLE_FIELDS)}"
             )
         if not lang or lang.startswith("-"):
-            return error_response(
-                f"product_update: lang segment in {key!r} is empty or malformed"
-            )
+            return error_response(f"product_update: lang segment in {key!r} is empty or malformed")
         if not value:
             return error_response(
-                f"product_update: empty value for {key!r} "
-                "(Voog rejects empty translations)"
+                f"product_update: empty value for {key!r} (Voog rejects empty translations)"
             )
         merged_translations.setdefault(field, {})[lang] = value
 

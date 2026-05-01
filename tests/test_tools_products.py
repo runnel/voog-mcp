@@ -457,9 +457,7 @@ class TestProductUpdateExpandedFields(unittest.TestCase):
             client,
         )
         body = self._put_call(client)
-        self.assertEqual(
-            body["translations"]["description"]["et"], "Eesti tekst"
-        )
+        self.assertEqual(body["translations"]["description"]["et"], "Eesti tekst")
 
     def test_status_update(self):
         client = MagicMock()

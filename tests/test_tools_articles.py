@@ -62,9 +62,7 @@ class TestArticleGet(unittest.TestCase):
     def test_get_returns_full_article(self):
         client = MagicMock()
         client.get.return_value = {"id": 7, "title": "X", "body": "<p>x</p>"}
-        result = articles_tools.call_tool(
-            "article_get", {"article_id": 7}, client
-        )
+        result = articles_tools.call_tool("article_get", {"article_id": 7}, client)
         client.get.assert_called_once_with("/articles/7")
         body = json.loads(result[0].text)
         self.assertEqual(body["id"], 7)
@@ -110,9 +108,7 @@ class TestArticleCreate(unittest.TestCase):
 
     def test_create_requires_page_id_and_title(self):
         client = MagicMock()
-        result = articles_tools.call_tool(
-            "article_create", {"page_id": 5}, client
-        )
+        result = articles_tools.call_tool("article_create", {"page_id": 5}, client)
         self.assertTrue(result.isError)
         client.post.assert_not_called()
 
@@ -167,9 +163,7 @@ class TestArticleUpdate(unittest.TestCase):
 
     def test_update_rejects_empty(self):
         client = MagicMock()
-        result = articles_tools.call_tool(
-            "article_update", {"article_id": 99}, client
-        )
+        result = articles_tools.call_tool("article_update", {"article_id": 99}, client)
         self.assertTrue(result.isError)
         client.put.assert_not_called()
 
@@ -188,15 +182,12 @@ class TestArticlePublish(unittest.TestCase):
             "autosaved_excerpt": "final ex",
         }
         client.put.return_value = {"id": 99}
-        articles_tools.call_tool(
-            "article_publish", {"article_id": 99}, client
-        )
+        articles_tools.call_tool("article_publish", {"article_id": 99}, client)
         body = client.put.call_args.args[1]
         self.assertEqual(body["autosaved_title"], "Final Title")
         self.assertEqual(body["autosaved_body"], "<p>final</p>")
         self.assertEqual(body["autosaved_excerpt"], "final ex")
         self.assertIs(body["publishing"], True)
-
 
     def test_rejects_when_all_autosaved_null(self):
         # If a freshly-created article never had any content set, publishing
@@ -209,9 +200,7 @@ class TestArticlePublish(unittest.TestCase):
             "autosaved_body": None,
             "autosaved_excerpt": None,
         }
-        result = articles_tools.call_tool(
-            "article_publish", {"article_id": 99}, client
-        )
+        result = articles_tools.call_tool("article_publish", {"article_id": 99}, client)
         self.assertTrue(result.isError)
         client.put.assert_not_called()
 
@@ -219,9 +208,7 @@ class TestArticlePublish(unittest.TestCase):
 class TestArticleDelete(unittest.TestCase):
     def test_requires_force(self):
         client = MagicMock()
-        result = articles_tools.call_tool(
-            "article_delete", {"article_id": 99}, client
-        )
+        result = articles_tools.call_tool("article_delete", {"article_id": 99}, client)
         self.assertTrue(result.isError)
         client.delete.assert_not_called()
 

@@ -15,16 +15,18 @@ class TestGetTools(unittest.TestCase):
         names = sorted(t.name for t in tools)
         self.assertEqual(
             names,
-            sorted([
-                "page_set_hidden",
-                "page_set_layout",
-                "page_delete",
-                "page_create",
-                "page_update",
-                "page_set_data",
-                "page_delete_data",
-                "page_duplicate",
-            ]),
+            sorted(
+                [
+                    "page_set_hidden",
+                    "page_set_layout",
+                    "page_delete",
+                    "page_create",
+                    "page_update",
+                    "page_set_data",
+                    "page_delete_data",
+                    "page_duplicate",
+                ]
+            ),
         )
 
     def test_page_set_hidden_schema(self):

@@ -422,10 +422,7 @@ def _page_update(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
         if arguments.get(key) is not None:
             body[key] = arguments[key]
     if not body:
-        return error_response(
-            "page_update: at least one of "
-            f"{PAGE_UPDATE_FIELDS} must be supplied"
-        )
+        return error_response(f"page_update: at least one of {PAGE_UPDATE_FIELDS} must be supplied")
     try:
         result = client.put(f"/pages/{page_id}", body)
         return success_response(

@@ -96,9 +96,7 @@ def call_tool(
         attributes = arguments.get("attributes") or {}
         translations = arguments.get("translations") or {}
         if not (attributes or translations):
-            return error_response(
-                "ecommerce_settings_update: attributes or translations required"
-            )
+            return error_response("ecommerce_settings_update: attributes or translations required")
         for field in translations:
             if field not in TRANSLATABLE_SETTINGS:
                 return error_response(

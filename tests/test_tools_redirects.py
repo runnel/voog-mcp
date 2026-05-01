@@ -194,9 +194,7 @@ class TestRedirectDelete(unittest.TestCase):
         from voog.mcp.tools import redirects as redirects_tools
 
         client = MagicMock()
-        result = redirects_tools.call_tool(
-            "redirect_delete", {"redirect_id": 9}, client
-        )
+        result = redirects_tools.call_tool("redirect_delete", {"redirect_id": 9}, client)
         self.assertTrue(result.isError)
         client.delete.assert_not_called()
 

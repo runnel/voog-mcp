@@ -158,8 +158,7 @@ def call_tool(
         rtype = arguments.get("redirect_type")
         if rtype is not None and rtype not in VALID_REDIRECT_TYPES:
             return error_response(
-                f"redirect_update: invalid redirect_type {rtype!r}; "
-                f"allowed: {VALID_REDIRECT_TYPES}"
+                f"redirect_update: invalid redirect_type {rtype!r}; allowed: {VALID_REDIRECT_TYPES}"
             )
         rule_body: dict = {}
         for key in ("source", "destination", "redirect_type", "active"):
