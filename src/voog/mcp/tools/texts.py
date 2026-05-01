@@ -94,7 +94,14 @@ def get_tools() -> list[Tool]:
                 "{% content %} tag — default 'body' for unnamed, "
                 "'gallery_1' for named. content_type defaults to 'text'; "
                 "valid values: text, gallery, form, content_partial, "
-                "buy_button, code."
+                "buy_button, code.\n\n"
+                "By default, the tool first GETs /pages/{id}/contents and "
+                "refuses if a content area with the same name already "
+                "exists — calling twice with the same name was silently "
+                "creating duplicates. To edit the existing area, use "
+                "text_update on its text.id. Pass force=true to skip the "
+                "pre-check (legitimate use: page templates with multiple "
+                "areas sharing the same name)."
             ),
             inputSchema={
                 "type": "object",
@@ -113,6 +120,17 @@ def get_tools() -> list[Tool]:
                         "type": "string",
                         "enum": list(VALID_CONTENT_TYPES),
                         "default": "text",
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": (
+                            "Skip the duplicate-name pre-check. Default "
+                            "false: the tool refuses to create a second "
+                            "area with a name that already exists on the "
+                            "page. Set true only when the layout legitimately "
+                            "uses repeated names."
+                        ),
+                        "default": False,
                     },
                 },
                 "required": ["site", "page_id"],
@@ -156,11 +174,33 @@ def call_tool(
         page_id = arguments.get("page_id")
         area_name = arguments.get("name") or "body"
         content_type = arguments.get("content_type") or "text"
+        force = bool(arguments.get("force"))
         if content_type not in VALID_CONTENT_TYPES:
             return error_response(
                 f"page_add_content: content_type must be one of "
                 f"{VALID_CONTENT_TYPES} (got {content_type!r})"
             )
+
+        # Default: pre-check that no area with the same name already exists.
+        # Calling twice with the same name was silently creating duplicates.
+        # Use get_all so a same-name area on a paginated later page can't
+        # slip past — Voog's /contents endpoint paginates.
+        if not force:
+            try:
+                existing = client.get_all(f"/pages/{page_id}/contents")
+            except Exception as e:
+                return error_response(f"page_add_content page={page_id} pre-check failed: {e}")
+            existing_list = existing if isinstance(existing, list) else []
+            for content in existing_list:
+                if isinstance(content, dict) and content.get("name") == area_name:
+                    return error_response(
+                        f"page_add_content: page {page_id} already has a "
+                        f"content area named {area_name!r} (id={content.get('id')}). "
+                        "To edit it, use text_update on its text.id. To add "
+                        "another area with the same name anyway (e.g. for a "
+                        "template with repeated section names), pass force=true."
+                    )
+
         try:
             result = client.post(
                 f"/pages/{page_id}/contents",

@@ -157,17 +157,53 @@ def get_tools() -> list[Tool]:
         Tool(
             name="article_publish",
             description=(
-                "Publish an article: GET current autosaved_* values, then "
-                "PUT them back together with publishing:true. Voog only "
-                "copies autosaved_* → published when publishing:true is "
-                "sent in the SAME PUT — that's why this needs a separate "
-                "tool rather than just an `publish` flag on article_update."
+                "Publish an article. Voog only copies autosaved_* → "
+                "published fields when publishing:true is sent in the SAME "
+                "PUT as the autosaved values — that's why this needs a "
+                "separate tool rather than a `publish` flag on "
+                "article_update.\n\n"
+                "Two modes:\n"
+                "  1. FAST PATH (recommended) — pass ALL THREE "
+                "autosaved_title, autosaved_body, autosaved_excerpt args. "
+                "Tool issues a single PUT atomically; no race window.\n"
+                "  2. FALLBACK — pass none of them. Tool does GET to "
+                "fetch current autosaved_* values then PUTs them back "
+                "with publishing:true. There is a small race window "
+                "between the GET and the PUT — if the article is edited "
+                "concurrently, the publish may capture a stale snapshot.\n\n"
+                "Mixed (some autosaved_* provided, some not) is rejected — "
+                "the caller must be explicit."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "site": {"type": "string"},
                     "article_id": {"type": "integer"},
+                    "autosaved_title": {
+                        "type": "string",
+                        "description": (
+                            "Optional. If all three autosaved_* args are "
+                            "supplied, the tool skips the GET and PUTs "
+                            "directly (no race window). If none are "
+                            "supplied, the tool falls back to GET+PUT."
+                        ),
+                    },
+                    "autosaved_body": {
+                        "type": "string",
+                        "description": (
+                            "Optional. See autosaved_title — must be "
+                            "supplied together with the other two "
+                            "autosaved_* args, or omitted entirely."
+                        ),
+                    },
+                    "autosaved_excerpt": {
+                        "type": "string",
+                        "description": (
+                            "Optional. See autosaved_title — must be "
+                            "supplied together with the other two "
+                            "autosaved_* args, or omitted entirely."
+                        ),
+                    },
                 },
                 "required": ["site", "article_id"],
             },
@@ -319,24 +355,46 @@ def _article_update(arguments: dict, client: VoogClient):
 
 def _article_publish(arguments: dict, client: VoogClient):
     article_id = arguments.get("article_id")
-    try:
-        article = client.get(f"/articles/{article_id}")
-    except Exception as e:
-        return error_response(f"article_publish: GET {article_id} failed: {e}")
-
     autosaved_keys = ("autosaved_title", "autosaved_body", "autosaved_excerpt")
-    if all(article.get(k) is None for k in autosaved_keys):
+    provided = {k: arguments[k] for k in autosaved_keys if k in arguments}
+
+    # Mixed (some provided, some not) is ambiguous — force the caller to
+    # be explicit. Either pass all three (fast path, no race) or none
+    # (fallback to GET+PUT, race window documented in tool description).
+    if provided and len(provided) != len(autosaved_keys):
+        missing = [k for k in autosaved_keys if k not in provided]
         return error_response(
-            f"article_publish: article {article_id} has no autosaved values to "
-            "publish — autosaved_title, autosaved_body, and autosaved_excerpt "
-            "are all null. Call article_update first to set the content, then "
-            "publish."
+            "article_publish: when passing autosaved_* arguments, ALL "
+            f"three are required (missing: {missing}). Either pass all "
+            "of autosaved_title/autosaved_body/autosaved_excerpt to skip "
+            "the GET and publish atomically, or pass none of them to "
+            "fall back to GET+PUT."
         )
 
-    body = {"publishing": True}
-    for key in autosaved_keys:
-        if article.get(key) is not None:
-            body[key] = article[key]
+    if provided:
+        # Fast path: caller supplied everything; one PUT, no race window.
+        body = {"publishing": True, **provided}
+    else:
+        # Fallback: GET current autosaved_* values, then PUT them back.
+        # There is a race window between GET and PUT — concurrent edits
+        # may be missed by the publish.
+        try:
+            article = client.get(f"/articles/{article_id}")
+        except Exception as e:
+            return error_response(f"article_publish: GET {article_id} failed: {e}")
+
+        if all(article.get(k) is None for k in autosaved_keys):
+            return error_response(
+                f"article_publish: article {article_id} has no autosaved values to "
+                "publish — autosaved_title, autosaved_body, and autosaved_excerpt "
+                "are all null. Call article_update first to set the content, then "
+                "publish."
+            )
+
+        body = {"publishing": True}
+        for key in autosaved_keys:
+            if article.get(key) is not None:
+                body[key] = article[key]
 
     try:
         result = client.put(f"/articles/{article_id}", body)

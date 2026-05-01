@@ -51,6 +51,7 @@ class TestPageAddContent(unittest.TestCase):
         # Per skill: fresh page returns [] from /contents until edit-mode
         # opens it. POST /pages/{id}/contents materialises the area.
         client = MagicMock()
+        client.get_all.return_value = []
         client.post.return_value = {
             "id": 9999,
             "name": "body",
@@ -69,6 +70,7 @@ class TestPageAddContent(unittest.TestCase):
 
     def test_named_gallery_area(self):
         client = MagicMock()
+        client.get_all.return_value = []
         client.post.return_value = {
             "id": 9999,
             "name": "gallery_1",
@@ -86,3 +88,65 @@ class TestPageAddContent(unittest.TestCase):
         body = client.post.call_args.args[1]
         self.assertEqual(body["name"], "gallery_1")
         self.assertEqual(body["content_type"], "gallery")
+
+    def test_first_time_succeeds(self):
+        # Regression: empty contents list (fresh page) → POST goes through.
+        # Default behaviour is: GET /contents pre-check, then POST if no
+        # area with the same name already exists.
+        client = MagicMock()
+        client.get_all.return_value = []
+        client.post.return_value = {
+            "id": 9999,
+            "name": "body",
+            "content_type": "text",
+        }
+        texts_tools.call_tool(
+            "page_add_content",
+            {"page_id": 5},
+            client,
+        )
+        client.get_all.assert_called_once_with("/pages/5/contents")
+        client.post.assert_called_once()
+        path, body = client.post.call_args.args
+        self.assertEqual(path, "/pages/5/contents")
+        self.assertEqual(body["name"], "body")
+
+    def test_rejects_duplicate_name_by_default(self):
+        # Calling page_add_content twice with the same name was silently
+        # creating two areas. Default behaviour now: pre-check GET; if a
+        # content with the same name already exists, return an error_response
+        # pointing the caller to text_update / force=true.
+        client = MagicMock()
+        client.get_all.return_value = [
+            {"id": 9999, "name": "body", "content_type": "text"},
+        ]
+        result = texts_tools.call_tool(
+            "page_add_content",
+            {"page_id": 5, "name": "body"},
+            client,
+        )
+        client.get_all.assert_called_once_with("/pages/5/contents")
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+        # Error message should hint at the right next step.
+        payload = json.loads(result.content[0].text)
+        self.assertIn("text_update", payload["error"])
+        self.assertIn("force=true", payload["error"])
+
+    def test_force_skips_dup_check(self):
+        # force=true skips the GET pre-check and POSTs blindly. This is the
+        # escape hatch for legitimate repeated-name use cases (e.g. a page
+        # template with multiple unnamed/'body' content areas).
+        client = MagicMock()
+        client.post.return_value = {
+            "id": 10000,
+            "name": "body",
+            "content_type": "text",
+        }
+        texts_tools.call_tool(
+            "page_add_content",
+            {"page_id": 5, "name": "body", "force": True},
+            client,
+        )
+        client.get_all.assert_not_called()
+        client.post.assert_called_once()
