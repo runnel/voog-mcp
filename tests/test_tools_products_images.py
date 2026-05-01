@@ -7,7 +7,7 @@ Covers the 3-step Voog asset upload protocol via mocks:
     3. PUT /assets/{id}/confirm (admin/api) → {public_url, width, height}
 
 Then a final PUT /products/{id} (ecommerce_url) with flat
-{image_id, asset_ids} payload.
+{image_id, assets:[{id:n}]} payload.
 
 Mutating + creates new asset records — never run against live example.com.
 """
