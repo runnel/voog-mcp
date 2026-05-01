@@ -13,7 +13,19 @@ class TestGetTools(unittest.TestCase):
     def test_get_tools_returns_three(self):
         tools = layouts_tools.get_tools()
         names = [t.name for t in tools]
-        self.assertEqual(names, ["layout_rename", "layout_create", "asset_replace"])
+        self.assertEqual(
+            names,
+            [
+                "layout_rename",
+                "layout_create",
+                "asset_replace",
+                "layout_update",
+                "layout_delete",
+                "layout_asset_create",
+                "layout_asset_update",
+                "layout_asset_delete",
+            ],
+        )
 
     def test_layout_rename_schema(self):
         tools = {t.name: t for t in layouts_tools.get_tools()}
@@ -426,6 +438,166 @@ class TestAssetReplace(unittest.TestCase):
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
+
+
+class TestLayoutUpdate(unittest.TestCase):
+    def test_update_body(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        layouts_tools.call_tool(
+            "layout_update",
+            {"layout_id": 5, "body": "<h1>{{ page.title }}</h1>"},
+            client,
+        )
+        path, body = client.put.call_args.args
+        self.assertEqual(path, "/layouts/5")
+        self.assertEqual(body["body"], "<h1>{{ page.title }}</h1>")
+        self.assertNotIn("title", body)
+
+    def test_update_title_and_body(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        layouts_tools.call_tool(
+            "layout_update",
+            {"layout_id": 5, "title": "Renamed", "body": "x"},
+            client,
+        )
+        body = client.put.call_args.args[1]
+        self.assertEqual(body["title"], "Renamed")
+        self.assertEqual(body["body"], "x")
+
+    def test_rejects_unsafe_title(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        result = layouts_tools.call_tool(
+            "layout_update",
+            {"layout_id": 5, "title": "../escape"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_rejects_empty_call(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        result = layouts_tools.call_tool("layout_update", {"layout_id": 5}, client)
+        self.assertTrue(result.isError)
+
+
+class TestLayoutDelete(unittest.TestCase):
+    def test_requires_force(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        result = layouts_tools.call_tool("layout_delete", {"layout_id": 5}, client)
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
+
+    def test_force_true_deletes(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        layouts_tools.call_tool(
+            "layout_delete",
+            {"layout_id": 5, "force": True},
+            client,
+        )
+        client.delete.assert_called_once_with("/layouts/5")
+
+
+class TestLayoutAssetCreate(unittest.TestCase):
+    def test_create_text_asset(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.post.return_value = {"id": 99, "filename": "main.css"}
+        layouts_tools.call_tool(
+            "layout_asset_create",
+            {
+                "filename": "main.css",
+                "asset_type": "stylesheet",
+                "data": "body{margin:0}",
+            },
+            client,
+        )
+        path, body = client.post.call_args.args
+        self.assertEqual(path, "/layout_assets")
+        self.assertEqual(body["filename"], "main.css")
+        self.assertEqual(body["data"], "body{margin:0}")
+
+    def test_rejects_unsafe_filename(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        result = layouts_tools.call_tool(
+            "layout_asset_create",
+            {
+                "filename": "../etc/passwd",
+                "asset_type": "stylesheet",
+                "data": "x",
+            },
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.post.assert_not_called()
+
+
+class TestLayoutAssetUpdate(unittest.TestCase):
+    def test_put_data(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.put.return_value = {"id": 99}
+        layouts_tools.call_tool(
+            "layout_asset_update",
+            {"asset_id": 99, "data": "body{margin:0;padding:0}"},
+            client,
+        )
+        path, body = client.put.call_args.args
+        self.assertEqual(path, "/layout_assets/99")
+        self.assertEqual(body, {"data": "body{margin:0;padding:0}"})
+
+    def test_rejects_filename_change(self):
+        # Skill memory: PUT /layout_assets/{id} with filename returns 500.
+        # Refuse client-side and point at asset_replace.
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        result = layouts_tools.call_tool(
+            "layout_asset_update",
+            {"asset_id": 99, "data": "x", "filename": "new.css"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("asset_replace", payload["error"])
+
+
+class TestLayoutAssetDelete(unittest.TestCase):
+    def test_requires_force(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        result = layouts_tools.call_tool("layout_asset_delete", {"asset_id": 99}, client)
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
+
+    def test_force_deletes(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        layouts_tools.call_tool(
+            "layout_asset_delete",
+            {"asset_id": 99, "force": True},
+            client,
+        )
+        client.delete.assert_called_once_with("/layout_assets/99")
 
 
 class TestUnknownTool(unittest.TestCase):

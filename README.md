@@ -136,16 +136,35 @@ voog_get_page(site="mysite", page_id=42)
 → {...}
 ```
 
+## Tools
+
+Full endpoint coverage reference: [docs/voog-mcp-endpoint-coverage.md](docs/voog-mcp-endpoint-coverage.md)
+
+| Group | Tools |
+|---|---|
+| Sites | `voog_list_sites` |
+| Pages | `pages_list`, `page_get`, `page_create`, `page_update`, `page_set_hidden`, `page_set_layout`, `page_set_data`, `page_delete_data`, `page_duplicate`, `page_delete` |
+| Articles | `articles_list`, `article_get`, `article_create`, `article_update`, `article_publish`, `article_delete` |
+| Layouts | `layouts_pull`, `layouts_push`, `layout_create`, `layout_update`, `layout_rename`, `layout_delete`, `layout_asset_create`, `layout_asset_update`, `layout_asset_delete`, `asset_replace` |
+| Texts / contents | `text_get`, `text_update`, `page_add_content` |
+| Products | `products_list`, `product_get`, `product_update`, `product_set_images` |
+| Ecommerce | `ecommerce_settings_get`, `ecommerce_settings_update` |
+| Multilingual | `languages_list`, `nodes_list`, `node_get` |
+| Redirects | `redirects_list`, `redirect_add`, `redirect_update`, `redirect_delete` |
+| Site | `site_get`, `site_update`, `site_set_data`, `site_delete_data` |
+| Snapshot | `pages_snapshot`, `site_snapshot` |
+| **Generic passthrough** | `voog_admin_api_call`, `voog_ecommerce_api_call` |
+
 ## What's NOT supported
 
 voog-mcp covers the surface area needed to manage content and a small ecommerce catalog. The following Voog API areas are intentionally out of scope for now:
 
-- Form definitions and form responses
+- Order management, cart, and discount data — only via generic passthrough
+- Form definitions and form responses — only via generic passthrough
+- People / site_user admin — only via generic passthrough
 - Comments and visitor data
-- Site-level settings, languages, and translations
-- Customer, order, and cart data (ecommerce orders/checkout flows)
-- Users, roles, and permissions
-- General asset/media library uploads (product images are supported)
+- Multipart uploads (favicons, product bulk imports) — only via generic passthrough
+- Bulk operations (product update/delete, page batch operations) — only via generic passthrough
 - Site creation (voog-mcp targets existing sites)
 
 If you need any of these, open an [issue](https://github.com/runnel/voog-mcp/issues) — or a PR.

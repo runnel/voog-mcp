@@ -674,12 +674,23 @@ class TestServerToolRegistry(unittest.TestCase):
         # products, redirects) plus layouts_sync (Task 11b — filesystem-
         # touching layouts pull/push) and products_images (deferred from
         # Task 13 — 3-step asset upload protocol).
+        # Task 2 (endpoint coverage): raw passthrough tools also added.
+        # Task 10: ecommerce_settings and site singleton tools added.
         from voog.mcp import server
+        from voog.mcp.tools import (
+            articles as articles_t,
+        )
+        from voog.mcp.tools import (
+            ecommerce_settings as ecommerce_settings_t,
+        )
         from voog.mcp.tools import (
             layouts as layouts_t,
         )
         from voog.mcp.tools import (
             layouts_sync as layouts_sync_t,
+        )
+        from voog.mcp.tools import (
+            multilingual as multilingual_t,
         )
         from voog.mcp.tools import (
             pages as pages_t,
@@ -694,21 +705,36 @@ class TestServerToolRegistry(unittest.TestCase):
             products_images as products_images_t,
         )
         from voog.mcp.tools import (
+            raw as raw_t,
+        )
+        from voog.mcp.tools import (
             redirects as redirects_t,
+        )
+        from voog.mcp.tools import (
+            site as site_t,
         )
         from voog.mcp.tools import (
             snapshot as snapshot_t,
         )
+        from voog.mcp.tools import (
+            texts as texts_t,
+        )
 
         expected = {
+            articles_t,
+            ecommerce_settings_t,
             layouts_t,
             layouts_sync_t,
+            multilingual_t,
             pages_t,
             pages_mutate_t,
             products_t,
             products_images_t,
+            raw_t,
             redirects_t,
+            site_t,
             snapshot_t,
+            texts_t,
         }
         self.assertEqual(set(server.TOOL_GROUPS), expected)
 

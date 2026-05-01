@@ -31,9 +31,13 @@ class TestGetTools(unittest.TestCase):
         tools = {t.name: t for t in products_tools.get_tools()}
         schema = tools["product_update"].inputSchema
         self.assertEqual(schema["properties"]["product_id"]["type"], "integer")
+        # v1.2: fields is optional (back-compat), attributes and translations added
         self.assertEqual(schema["properties"]["fields"]["type"], "object")
-        for req in ("product_id", "fields"):
-            self.assertIn(req, schema["required"])
+        self.assertIn("attributes", schema["properties"])
+        self.assertIn("translations", schema["properties"])
+        # Only site + product_id are required; fields/attributes/translations are optional
+        self.assertIn("product_id", schema["required"])
+        self.assertNotIn("fields", schema["required"])
 
     def test_read_only_tools_have_full_explicit_annotations(self):
         # products_list and product_get must have the full triple
@@ -427,6 +431,154 @@ class TestAllToolsRequireSite(unittest.TestCase):
                 tool.inputSchema.get("required", []),
                 f"tool {tool.name} must require 'site'",
             )
+
+
+class TestProductUpdateExpandedFields(unittest.TestCase):
+    """v1.2: product_update accepts the full {product: {...}} envelope.
+
+    Backwards-compatible with the v1.1 'fields' translation-only shape:
+    if `fields` is present, it still routes to translations. New
+    parameters `attributes` and `translations` carry the rest.
+    """
+
+    def _put_call(self, client):
+        return client.put.call_args.args[1]["product"]
+
+    def test_description_translation_update(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        client.put.return_value = {"id": 42}
+        products_tools.call_tool(
+            "product_update",
+            {
+                "product_id": 42,
+                "translations": {"description": {"et": "Eesti tekst"}},
+            },
+            client,
+        )
+        body = self._put_call(client)
+        self.assertEqual(body["translations"]["description"]["et"], "Eesti tekst")
+
+    def test_status_update(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        client.put.return_value = {"id": 42}
+        products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "attributes": {"status": "live"}},
+            client,
+        )
+        body = self._put_call(client)
+        self.assertEqual(body["status"], "live")
+
+    def test_status_invalid_rejected(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "attributes": {"status": "active"}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("status", payload["error"].lower())
+        client.put.assert_not_called()
+
+    def test_price_and_sku_update(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        client.put.return_value = {"id": 42}
+        products_tools.call_tool(
+            "product_update",
+            {
+                "product_id": 42,
+                "attributes": {
+                    "price": "39.00",
+                    "sale_price": "29.00",
+                    "sku": "BAG-001",
+                    "stock": 10,
+                },
+            },
+            client,
+        )
+        body = self._put_call(client)
+        self.assertEqual(body["price"], "39.00")
+        self.assertEqual(body["sale_price"], "29.00")
+        self.assertEqual(body["sku"], "BAG-001")
+        self.assertEqual(body["stock"], 10)
+
+    def test_categories_update(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        client.put.return_value = {"id": 42}
+        products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "attributes": {"category_ids": [1, 7]}},
+            client,
+        )
+        body = self._put_call(client)
+        self.assertEqual(body["category_ids"], [1, 7])
+
+    def test_back_compat_fields_param(self):
+        # Old shape still works (fields → translations).
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        client.put.return_value = {"id": 42}
+        products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "fields": {"name-et": "Suvekott"}},
+            client,
+        )
+        body = self._put_call(client)
+        self.assertEqual(body["translations"]["name"]["et"], "Suvekott")
+
+    def test_combined_attributes_and_translations(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        client.put.return_value = {"id": 42}
+        products_tools.call_tool(
+            "product_update",
+            {
+                "product_id": 42,
+                "attributes": {"status": "draft", "price": "49.00"},
+                "translations": {
+                    "description": {"et": "ET", "en": "EN"},
+                    "name": {"et": "Nimi"},
+                },
+            },
+            client,
+        )
+        body = self._put_call(client)
+        self.assertEqual(body["status"], "draft")
+        self.assertEqual(body["price"], "49.00")
+        self.assertEqual(body["translations"]["description"]["et"], "ET")
+        self.assertEqual(body["translations"]["name"]["et"], "Nimi")
+
+    def test_rejects_empty_call(self):
+        # No fields, no attributes, no translations.
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = products_tools.call_tool(
+            "product_update",
+            {"product_id": 42},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_rejects_unknown_attribute(self):
+        # Defensive: catch typos like 'descriptin' before they hit the API.
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "attributes": {"descriptin": "oops"}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("descriptin", payload["error"])
+        client.put.assert_not_called()
 
 
 if __name__ == "__main__":

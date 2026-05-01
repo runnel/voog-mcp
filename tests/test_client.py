@@ -80,6 +80,31 @@ class TestRequestUrlEncoding(unittest.TestCase):
         self.assertIn("include=variant_types%2Ctranslations", url)
 
 
+class TestPatchMethod(unittest.TestCase):
+    """VoogClient.patch() is a public helper that mirrors put/post/delete."""
+
+    def test_patch_sends_correct_method_and_body(self):
+        client = VoogClient(host="example.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b'{"id": 5}'
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = fake_resp
+            result = client.patch("/site", {"title": "X"})
+        req = mock_urlopen.call_args.args[0]
+        self.assertEqual(req.get_method(), "PATCH")
+        self.assertEqual(result, {"id": 5})
+
+    def test_patch_with_custom_base(self):
+        client = VoogClient(host="example.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = fake_resp
+            client.patch("/settings", {"x": 1}, base="https://example.com/admin/api/ecommerce/v1")
+        url = mock_urlopen.call_args.args[0].full_url
+        self.assertIn("ecommerce/v1/settings", url)
+
+
 class TestGetAllParamsPassthrough(unittest.TestCase):
     """get_all merges caller params with pagination params."""
 

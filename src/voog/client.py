@@ -25,7 +25,7 @@ class VoogClient:
             "X-API-Token": api_token,
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "voog-mcp/1.1.1",
+            "User-Agent": "voog-mcp/1.2.0",
         }
 
     def _request(
@@ -55,8 +55,11 @@ class VoogClient:
     def post(self, path: str, data, *, base: str | None = None):
         return self._request("POST", path, base=base, data=data)
 
-    def delete(self, path: str, *, base: str | None = None):
-        return self._request("DELETE", path, base=base)
+    def patch(self, path: str, data=None, *, base: str | None = None):
+        return self._request("PATCH", path, base=base, data=data)
+
+    def delete(self, path: str, *, base: str | None = None, params: dict | None = None):
+        return self._request("DELETE", path, base=base, params=params)
 
     def get_all(self, path: str, *, base: str | None = None, params: dict | None = None):
         """Pagination through all pages of results.

@@ -1,11 +1,16 @@
-"""MCP tools for mutating Voog pages — set hidden, set layout, delete.
+"""MCP tools for mutating Voog pages — set hidden, set layout, delete, create, update, set_data, delete_data, duplicate.
 
-Three tools:
+Eight tools:
 
-  - ``page_set_hidden``  — bulk toggle hidden flag across page ids (reversible)
-  - ``page_set_layout``  — reassign a page's layout_id (reversible)
-  - ``page_delete``      — DELETE a page (irreversible, ``destructiveHint=True``,
-                            requires explicit ``force=True``)
+  - ``page_set_hidden``   — bulk toggle hidden flag across page ids (reversible)
+  - ``page_set_layout``   — reassign a page's layout_id (reversible)
+  - ``page_delete``       — DELETE a page (irreversible, ``destructiveHint=True``,
+                             requires explicit ``force=True``)
+  - ``page_create``       — POST /pages (root, subpage, or parallel translation)
+  - ``page_update``       — PUT /pages/{id} (general field updates)
+  - ``page_set_data``     — PUT /pages/{id}/data/{key} (PUT-only, non-destructive)
+  - ``page_delete_data``  — DELETE /pages/{id}/data/{key} (requires ``force=True``)
+  - ``page_duplicate``    — POST /pages/{id}/duplicate
 
 Pattern mirrors :mod:`voog.mcp.tools.pages` (read-only): each tool returns
 ``success_response`` with a human-readable summary plus the JSON result, or
@@ -24,7 +29,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._concurrency import parallel_map
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import _validate_data_key, strip_site
 
 
 def get_tools() -> list[Tool]:
@@ -112,6 +117,156 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": False,
             },
         ),
+        Tool(
+            name="page_create",
+            description=(
+                "Create a new page. Required: title, slug, language_id. "
+                "Optional: parent_id (page id, NOT node_id) for subpages, "
+                "node_id for parallel-translation pages of an existing "
+                "page in another language, layout_id, content_type "
+                "('page'|'link'|'blog'|'product'|...), hidden, image_id, "
+                "description, keywords, data (custom dict).\n"
+                "Multilingual: pass node_id of the first-language page "
+                "instead of parent_id when creating its translation in "
+                "another language. Voog binds them as parallels (admin "
+                "Translate UI works correctly). parent_id and node_id are "
+                "mutually exclusive."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "title": {"type": "string"},
+                    "slug": {"type": "string"},
+                    "language_id": {"type": "integer"},
+                    "parent_id": {"type": "integer"},
+                    "node_id": {"type": "integer"},
+                    "layout_id": {"type": "integer"},
+                    "content_type": {"type": "string"},
+                    "hidden": {"type": "boolean"},
+                    "image_id": {"type": "integer"},
+                    "description": {"type": "string"},
+                    "keywords": {"type": "string"},
+                    "data": {"type": "object"},
+                    "publishing": {"type": "boolean"},
+                },
+                "required": ["site", "title", "slug", "language_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": False,
+            },
+        ),
+        Tool(
+            name="page_update",
+            description=(
+                "Update arbitrary fields on a page. At least one of "
+                "title, slug, layout_id, image_id, content_type, "
+                "parent_id, description, keywords, data must be supplied. "
+                "For just hidden / layout id, prefer the dedicated "
+                "page_set_hidden / page_set_layout — they're more explicit "
+                "in tool listings."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "page_id": {"type": "integer"},
+                    "title": {"type": "string"},
+                    "slug": {"type": "string"},
+                    "layout_id": {"type": "integer"},
+                    "image_id": {"type": "integer"},
+                    "content_type": {"type": "string"},
+                    "parent_id": {"type": "integer"},
+                    "description": {"type": "string"},
+                    "keywords": {"type": "string"},
+                    "data": {"type": "object"},
+                },
+                "required": ["site", "page_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
+        Tool(
+            name="page_set_data",
+            description=(
+                "Set a single page.data.<key> value (PUT /pages/{id}/data/{key}). "
+                "To delete a key use page_delete_data. "
+                "Keys starting with 'internal_' are server-protected and "
+                "rejected client-side."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "page_id": {"type": "integer"},
+                    "key": {"type": "string"},
+                    "value": {
+                        "type": ["string", "number", "boolean", "object", "array"],
+                    },
+                },
+                "required": ["site", "page_id", "key", "value"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
+        Tool(
+            name="page_delete_data",
+            description=(
+                "Delete a single page.data.<key> (DELETE /pages/{id}/data/{key}). "
+                "IRREVERSIBLE — the key is removed permanently. "
+                "Requires force=true; without it the call is rejected. "
+                "Keys starting with 'internal_' are server-protected and "
+                "rejected client-side."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "page_id": {"type": "integer"},
+                    "key": {"type": "string"},
+                    "force": {
+                        "type": "boolean",
+                        "description": "Must be true to actually perform the delete. Defaults to false (defensive opt-in).",
+                        "default": False,
+                    },
+                },
+                "required": ["site", "page_id", "key"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": False,
+            },
+        ),
+        Tool(
+            name="page_duplicate",
+            description=(
+                "POST /pages/{id}/duplicate — create a copy of the page "
+                "(including its content). The new page is hidden by "
+                "default per Voog convention."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "page_id": {"type": "integer"},
+                },
+                "required": ["site", "page_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": False,
+            },
+        ),
     ]
 
 
@@ -128,6 +283,21 @@ def call_tool(
 
     if name == "page_delete":
         return _page_delete(arguments, client)
+
+    if name == "page_create":
+        return _page_create(arguments, client)
+
+    if name == "page_update":
+        return _page_update(arguments, client)
+
+    if name == "page_set_data":
+        return _page_set_data(arguments, client)
+
+    if name == "page_delete_data":
+        return _page_delete_data(arguments, client)
+
+    if name == "page_duplicate":
+        return _page_duplicate(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 
@@ -194,3 +364,123 @@ def _page_delete(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
         )
     except Exception as e:
         return error_response(f"page_delete page={page_id} failed: {e}")
+
+
+PAGE_UPDATE_FIELDS = (
+    "title",
+    "slug",
+    "layout_id",
+    "image_id",
+    "content_type",
+    "parent_id",
+    "description",
+    "keywords",
+    "data",
+)
+
+
+def _page_create(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    if arguments.get("node_id") is not None and arguments.get("parent_id") is not None:
+        return error_response(
+            "page_create: node_id and parent_id are mutually exclusive — "
+            "use node_id for parallel translations, parent_id for subpages, "
+            "or omit both for root pages."
+        )
+    body: dict = {
+        "title": arguments.get("title"),
+        "slug": arguments.get("slug"),
+        "language_id": arguments.get("language_id"),
+    }
+    for key in (
+        "parent_id",
+        "node_id",
+        "layout_id",
+        "content_type",
+        "hidden",
+        "image_id",
+        "description",
+        "keywords",
+        "data",
+        "publishing",
+    ):
+        if arguments.get(key) is not None:
+            body[key] = arguments[key]
+    try:
+        result = client.post("/pages", body)
+        return success_response(
+            result,
+            summary=f"📄 page {result.get('id')} created at /{result.get('path', '')}",
+        )
+    except Exception as e:
+        return error_response(f"page_create failed: {e}")
+
+
+def _page_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    page_id = arguments.get("page_id")
+    body: dict = {}
+    for key in PAGE_UPDATE_FIELDS:
+        if arguments.get(key) is not None:
+            body[key] = arguments[key]
+    if not body:
+        return error_response(f"page_update: at least one of {PAGE_UPDATE_FIELDS} must be supplied")
+    try:
+        result = client.put(f"/pages/{page_id}", body)
+        return success_response(
+            result,
+            summary=f"📄 page {page_id} updated: {sorted(body.keys())}",
+        )
+    except Exception as e:
+        return error_response(f"page_update id={page_id} failed: {e}")
+
+
+def _page_set_data(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    page_id = arguments.get("page_id")
+    key = arguments.get("key") or ""
+    value = arguments.get("value")
+
+    err = _validate_data_key(key, tool_name="page_set_data")
+    if err:
+        return error_response(err)
+    try:
+        result = client.put(f"/pages/{page_id}/data/{key}", {"value": value})
+        return success_response(
+            result,
+            summary=f"📄 page {page_id} data.{key} set",
+        )
+    except Exception as e:
+        return error_response(f"page_set_data page={page_id} key={key!r} failed: {e}")
+
+
+def _page_delete_data(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    page_id = arguments.get("page_id")
+    key = arguments.get("key") or ""
+    force = bool(arguments.get("force"))
+
+    err = _validate_data_key(key, tool_name="page_delete_data")
+    if err:
+        return error_response(err)
+    if not force:
+        return error_response(
+            f"page_delete_data: refusing to delete page {page_id} data.{key!r} without force=true. "
+            "Set force=true after confirming the deletion is intentional."
+        )
+    try:
+        client.delete(f"/pages/{page_id}/data/{key}")
+        return success_response(
+            {"deleted": {"page_id": page_id, "key": key}},
+            summary=f"🗑️  page {page_id} data.{key} deleted",
+        )
+    except Exception as e:
+        return error_response(f"page_delete_data page={page_id} key={key!r} failed: {e}")
+
+
+def _page_duplicate(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    page_id = arguments.get("page_id")
+    try:
+        result = client.post(f"/pages/{page_id}/duplicate", {})
+        return success_response(
+            result,
+            summary=f"📑 page {page_id} duplicated → {result.get('id')}",
+        )
+    except Exception as e:
+        return error_response(f"page_duplicate id={page_id} failed: {e}")

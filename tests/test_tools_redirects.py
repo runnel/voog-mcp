@@ -10,10 +10,13 @@ from voog.mcp.tools import redirects as redirects_tools
 
 
 class TestRedirectsTools(unittest.TestCase):
-    def test_get_tools_returns_two(self):
+    def test_get_tools_returns_four(self):
         tools = redirects_tools.get_tools()
         names = [t.name for t in tools]
-        self.assertEqual(names, ["redirects_list", "redirect_add"])
+        self.assertEqual(
+            names,
+            ["redirects_list", "redirect_add", "redirect_update", "redirect_delete"],
+        )
 
     def test_redirects_list_full_annotation_triple(self):
         tools = {t.name: t for t in redirects_tools.get_tools()}
@@ -140,6 +143,71 @@ class TestAllToolsRequireSite(unittest.TestCase):
                 tool.inputSchema.get("required", []),
                 f"tool {tool.name} must require 'site'",
             )
+
+
+class TestRedirectUpdate(unittest.TestCase):
+    def test_update_destination(self):
+        from voog.mcp.tools import redirects as redirects_tools
+
+        client = MagicMock()
+        client.put.return_value = {"id": 9}
+        redirects_tools.call_tool(
+            "redirect_update",
+            {"redirect_id": 9, "destination": "/uus"},
+            client,
+        )
+        path, body = client.put.call_args.args
+        self.assertEqual(path, "/redirect_rules/9")
+        # Voog accepts flat or wrapped — flat is what existing add code uses
+        # via build_redirect_payload. Use the same envelope shape on PUT for
+        # consistency.
+        self.assertEqual(body["redirect_rule"]["destination"], "/uus")
+
+    def test_update_redirect_type_validated(self):
+        from voog.mcp.tools import redirects as redirects_tools
+
+        client = MagicMock()
+        result = redirects_tools.call_tool(
+            "redirect_update",
+            {"redirect_id": 9, "redirect_type": 999},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_update_active_flag(self):
+        from voog.mcp.tools import redirects as redirects_tools
+
+        client = MagicMock()
+        client.put.return_value = {"id": 9}
+        redirects_tools.call_tool(
+            "redirect_update",
+            {"redirect_id": 9, "active": False},
+            client,
+        )
+        body = client.put.call_args.args[1]
+        self.assertIs(body["redirect_rule"]["active"], False)
+
+
+class TestRedirectDelete(unittest.TestCase):
+    def test_requires_force(self):
+        from voog.mcp.tools import redirects as redirects_tools
+
+        client = MagicMock()
+        result = redirects_tools.call_tool("redirect_delete", {"redirect_id": 9}, client)
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
+
+    def test_force_deletes(self):
+        from voog.mcp.tools import redirects as redirects_tools
+
+        client = MagicMock()
+        redirects_tools.call_tool(
+            "redirect_delete",
+            {"redirect_id": 9, "force": True},
+            client,
+        )
+        client.delete.assert_called_once_with("/redirect_rules/9")
 
 
 if __name__ == "__main__":
