@@ -38,6 +38,18 @@ from voog.projections import (
 # Voog product PUT envelope: {"product": {...}}. Allowed keys at the root
 # of the envelope. Whitelist instead of pass-through so typos surface as
 # a clean error rather than a 422 round-trip.
+#
+# Two PUT-specific gotchas live in this whitelist (handled in
+# ``_product_update`` below; see project memory
+# ``feedback_voog_assets_vs_asset_ids`` and
+# ``feedback_voog_variants_destructive_put``):
+#
+#   - ``asset_ids`` is the POST shape. On PUT the same field silently
+#     keeps only the first/hero image. The tool translates it into the
+#     PUT envelope ``assets:[{id:n}]`` internally before sending.
+#   - ``variants`` without ``variant_attributes`` wipes ALL variants —
+#     even ones with ``id``. The tool requires ``variant_attributes``
+#     alongside, or explicit ``force=true``.
 ATTR_KEYS = frozenset(
     [
         "status",
@@ -53,6 +65,7 @@ ATTR_KEYS = frozenset(
         "uses_variants",
         "variant_types",
         "variants",
+        "variant_attributes",
     ]
 )
 
@@ -115,10 +128,18 @@ def get_tools() -> list[Tool]:
                 "  - `attributes`: flat object of root-level product fields "
                 "(status, price, sale_price, sku, stock, description, "
                 "category_ids, image_id, asset_ids, physical_properties, "
-                "uses_variants, variant_types, variants).\n"
+                "uses_variants, variant_types, variants, variant_attributes). "
+                "Note: asset_ids accepted; on PUT it's translated to the "
+                "`assets:[{id}]` envelope Voog requires (sending raw "
+                "asset_ids on PUT silently keeps only the hero image). "
+                "`variants` without `variant_attributes` wipes ALL variants "
+                "(even ones with `id`); pass both together, or set "
+                "`force=true` to acknowledge.\n"
                 "  - `translations`: nested {field: {lang: value}} for "
                 "translatable fields (name, slug, description). Each "
-                "field-language pair must be non-empty.\n"
+                "field-language pair must be non-empty. Cannot overlap "
+                "with attributes (e.g. attributes.description + "
+                "translations.description in the same call is rejected).\n"
                 "  - `fields` (legacy v1.1 shape): flat 'name-et', 'slug-en' "
                 "keys — auto-routed to translations. Kept for back-compat.\n"
                 "At least one of attributes/translations/fields must be "
@@ -139,7 +160,9 @@ def get_tools() -> list[Tool]:
                             "status, price, sale_price, sku, stock, "
                             "description, category_ids, image_id, "
                             "asset_ids, physical_properties, uses_variants, "
-                            "variant_types, variants."
+                            "variant_types, variants, variant_attributes. "
+                            "asset_ids accepted; on PUT it's translated to "
+                            "the `assets:[{id}]` envelope Voog requires."
                         ),
                     },
                     "translations": {
@@ -154,6 +177,14 @@ def get_tools() -> list[Tool]:
                         "description": (
                             "Legacy v1.1 shape: flat 'name-et', 'slug-en' "
                             "keys. Auto-routed to translations."
+                        ),
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": (
+                            "Required to send `variants` without "
+                            "`variant_attributes` — Voog wipes all "
+                            "variants in that case. Default false."
                         ),
                     },
                 },
@@ -216,6 +247,7 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
     attributes = arguments.get("attributes") or {}
     translations = arguments.get("translations") or {}
     legacy_fields = arguments.get("fields") or {}
+    force = bool(arguments.get("force"))
 
     if not (attributes or translations or legacy_fields):
         return error_response(
@@ -233,6 +265,29 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response(
             f"product_update: status must be one of "
             f"{sorted(VALID_STATUS)} (got {attributes['status']!r})"
+        )
+
+    # Reject attributes ∩ translations field overlap. Sending the same
+    # field via both surfaces in one envelope produces undefined
+    # behaviour — per-language values can be silently clobbered. Today
+    # `description` is the only field present in both whitelists.
+    overlap = sorted(set(attributes) & TRANSLATABLE_FIELDS & set(translations))
+    if overlap:
+        return error_response(
+            f"product_update: field(s) {overlap} given in both `attributes` "
+            "and `translations` — Voog's envelope is undefined when both are "
+            "sent together. Pick one surface per field."
+        )
+
+    # Voog gotcha: PUT /products/{id} with `variants` but no
+    # `variant_attributes` wipes ALL variants — even ones with `id`.
+    # Require both, or an explicit force=true to acknowledge.
+    if "variants" in attributes and not attributes.get("variant_attributes") and not force:
+        return error_response(
+            "product_update: passing `variants` without `variant_attributes` "
+            "wipes ALL existing variants on PUT (Voog gotcha — even variants "
+            "with `id` are dropped). Pass `variant_attributes` alongside, or "
+            "set `force=true` to acknowledge the destructive default."
         )
 
     # Validate explicit translations.
@@ -281,6 +336,15 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
         merged_translations.setdefault(field, {})[lang] = value
 
     product_body: dict = dict(attributes)
+
+    # Voog gotcha: PUT envelope is `assets:[{id:n}]`, not `asset_ids`
+    # (that's POST-only). Sending `asset_ids` on PUT silently keeps only
+    # the first/hero image. Translate internally so callers can keep
+    # using the friendlier `asset_ids` shape.
+    if "asset_ids" in product_body:
+        asset_ids = product_body.pop("asset_ids")
+        product_body["assets"] = [{"id": int(n)} for n in asset_ids]
+
     if merged_translations:
         product_body["translations"] = merged_translations
 

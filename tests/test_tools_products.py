@@ -581,5 +581,115 @@ class TestProductUpdateExpandedFields(unittest.TestCase):
         client.put.assert_not_called()
 
 
+class TestProductUpdateDestructiveDefaults(unittest.TestCase):
+    """Three known Voog gotchas reachable via the v1.2 envelope expansion.
+
+    See PR #90 follow-up review:
+      - asset_ids on PUT silently keeps only hero (PUT envelope is
+        assets:[{id}], not asset_ids — POST-only).
+      - variants without variant_attributes wipes ALL variants even
+        ones with id.
+      - attributes ∩ translations field overlap produces undefined
+        behaviour (description in both at once).
+    """
+
+    def _put_call(self, client):
+        return client.put.call_args.args[1]["product"]
+
+    # --- Fix A: asset_ids -> assets:[{id}] translation on PUT ---
+
+    def test_product_update_translates_asset_ids_to_assets_on_put(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        client.put.return_value = {"id": 42}
+        products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "attributes": {"asset_ids": [1, 2, 3]}},
+            client,
+        )
+        body = self._put_call(client)
+        # Translated to PUT envelope shape
+        self.assertEqual(body.get("assets"), [{"id": 1}, {"id": 2}, {"id": 3}])
+        # Raw asset_ids must NOT survive into the PUT body — Voog silently
+        # keeps only the first/hero image when it sees asset_ids on PUT.
+        self.assertNotIn("asset_ids", body)
+
+    # --- Fix B: variants requires variant_attributes (or force=true) ---
+
+    def test_product_update_rejects_variants_without_variant_attributes_unless_forced(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        # Without force: rejected
+        result = products_tools.call_tool(
+            "product_update",
+            {
+                "product_id": 42,
+                "attributes": {"variants": [{"id": 7, "stock": 3}]},
+            },
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("variant_attributes", payload["error"])
+        client.put.assert_not_called()
+
+        # With force=true: passes through
+        client.put.return_value = {"id": 42}
+        products_tools.call_tool(
+            "product_update",
+            {
+                "product_id": 42,
+                "attributes": {"variants": [{"id": 7, "stock": 3}]},
+                "force": True,
+            },
+            client,
+        )
+        body = self._put_call(client)
+        self.assertEqual(body["variants"], [{"id": 7, "stock": 3}])
+        # force is internal to the tool, not part of the envelope
+        self.assertNotIn("force", body)
+
+    def test_product_update_accepts_variants_with_variant_attributes(self):
+        # Regression guard: providing both alongside is the safe path.
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        client.put.return_value = {"id": 42}
+        result = products_tools.call_tool(
+            "product_update",
+            {
+                "product_id": 42,
+                "attributes": {
+                    "variants": [{"id": 7, "stock": 3}],
+                    "variant_attributes": [{"id": 1, "name": "size"}],
+                },
+            },
+            client,
+        )
+        # No error, PUT happened
+        self.assertEqual(len(result), 2)
+        body = self._put_call(client)
+        self.assertEqual(body["variants"], [{"id": 7, "stock": 3}])
+        self.assertEqual(body["variant_attributes"], [{"id": 1, "name": "size"}])
+
+    # --- Fix C: attributes ∩ translations field overlap rejected ---
+
+    def test_product_update_rejects_attributes_translations_field_overlap(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = products_tools.call_tool(
+            "product_update",
+            {
+                "product_id": 42,
+                "attributes": {"description": "X"},
+                "translations": {"description": {"et": "Y"}},
+            },
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("description", payload["error"])
+        client.put.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
