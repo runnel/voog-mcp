@@ -142,146 +142,15 @@ class TestPushSpecificFiles(unittest.TestCase):
         client.put.assert_not_called()
 
 
-class TestPushSilentNoOpDetection(unittest.TestCase):
-    """Issue #96: Voog returned 200 with empty stored content for the
-    wrapped-form bug. Push must surface this rather than print ✓."""
-
-    def test_layout_asset_response_with_empty_data_fails_loudly(self):
-        client = _make_client()
-        # Simulate Voog's silent-no-op response shape: 200 + the resource
-        # echoed back with the body field cleared.
-        client.put.return_value = {"id": 5, "data": ""}
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            _setup_pulled_tree(
-                tmp_path,
-                manifest={
-                    "stylesheets/main.css": {"id": 5, "type": "asset", "updated_at": ""},
-                },
-                files={"stylesheets/main.css": "body { margin: 0; }"},
-            )
-            cwd_before = os.getcwd()
-            try:
-                os.chdir(tmp_path)
-                with (
-                    patch("sys.stderr", new_callable=io.StringIO) as stderr,
-                    patch("sys.stdout", new_callable=io.StringIO) as stdout,
-                ):
-                    args = MagicMock()
-                    args.files = ["stylesheets/main.css"]
-                    rc = push_cmd.run(args, client)
-            finally:
-                os.chdir(cwd_before)
-        self.assertNotEqual(rc, 0, "push must exit non-zero on silent no-op")
-        self.assertIn("NOT updated", stderr.getvalue())
-        self.assertNotIn("✓ stylesheets/main.css", stdout.getvalue())
-
-    def test_layout_response_with_empty_body_fails_loudly(self):
-        client = _make_client()
-        client.put.return_value = {"id": 1, "body": ""}
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            _setup_pulled_tree(
-                tmp_path,
-                manifest={
-                    "layouts/Front.tpl": {"id": 1, "type": "layout", "updated_at": ""},
-                },
-                files={"layouts/Front.tpl": "{% layout %}"},
-            )
-            cwd_before = os.getcwd()
-            try:
-                os.chdir(tmp_path)
-                with (
-                    patch("sys.stderr", new_callable=io.StringIO) as stderr,
-                    patch("sys.stdout", new_callable=io.StringIO) as stdout,
-                ):
-                    args = MagicMock()
-                    args.files = ["layouts/Front.tpl"]
-                    rc = push_cmd.run(args, client)
-            finally:
-                os.chdir(cwd_before)
-        self.assertNotEqual(rc, 0)
-        self.assertIn("NOT updated", stderr.getvalue())
-        self.assertNotIn("✓ layouts/Front.tpl", stdout.getvalue())
-
-    def test_response_echoing_content_back_is_treated_as_success(self):
-        # The healthy case: server echoes the resource with the same body.
-        client = _make_client()
-        client.put.return_value = {"id": 5, "data": "body { margin: 0; }"}
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            _setup_pulled_tree(
-                tmp_path,
-                manifest={
-                    "stylesheets/main.css": {"id": 5, "type": "asset", "updated_at": ""},
-                },
-                files={"stylesheets/main.css": "body { margin: 0; }"},
-            )
-            cwd_before = os.getcwd()
-            try:
-                os.chdir(tmp_path)
-                args = MagicMock()
-                args.files = ["stylesheets/main.css"]
-                rc = push_cmd.run(args, client)
-            finally:
-                os.chdir(cwd_before)
-        self.assertEqual(rc, 0)
-
-    def test_response_omitting_content_field_is_tolerated(self):
-        # Some endpoints / versions may return a slim response without the
-        # content field. We can't verify in that case — don't false-positive.
-        client = _make_client()
-        client.put.return_value = {"id": 5}
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            _setup_pulled_tree(
-                tmp_path,
-                manifest={
-                    "stylesheets/main.css": {"id": 5, "type": "asset", "updated_at": ""},
-                },
-                files={"stylesheets/main.css": "body { margin: 0; }"},
-            )
-            cwd_before = os.getcwd()
-            try:
-                os.chdir(tmp_path)
-                args = MagicMock()
-                args.files = ["stylesheets/main.css"]
-                rc = push_cmd.run(args, client)
-            finally:
-                os.chdir(cwd_before)
-        self.assertEqual(rc, 0)
-
-    def test_empty_local_file_skips_no_op_check(self):
-        # Pushing an empty file legitimately produces an empty stored
-        # body — that's not a silent no-op, that's the user's intent.
-        client = _make_client()
-        client.put.return_value = {"id": 5, "data": ""}
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_path = Path(tmp)
-            _setup_pulled_tree(
-                tmp_path,
-                manifest={
-                    "stylesheets/main.css": {"id": 5, "type": "asset", "updated_at": ""},
-                },
-                files={"stylesheets/main.css": ""},
-            )
-            cwd_before = os.getcwd()
-            try:
-                os.chdir(tmp_path)
-                args = MagicMock()
-                args.files = ["stylesheets/main.css"]
-                rc = push_cmd.run(args, client)
-            finally:
-                os.chdir(cwd_before)
-        self.assertEqual(rc, 0)
+class TestPushPartialFailure(unittest.TestCase):
+    """A failing PUT in the middle of a multi-file push must not block
+    subsequent files. Final exit code reflects whether anything failed."""
 
     def test_one_failing_push_does_not_block_remaining_files(self):
-        # A failing layout_asset must not stop the layout PUT that follows.
-        # Both are attempted; final exit code reflects the failure.
         client = _make_client()
         client.put.side_effect = [
-            {"id": 5, "data": ""},  # asset: silent no-op
-            {"id": 1, "body": "{% layout %}"},  # layout: succeeds
+            {"id": 5, "size": 999},  # asset: size mismatch → fail
+            {"id": 1, "updated_at": "2026-05-01T11:22:33.000Z"},  # layout: ok
         ]
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -289,7 +158,11 @@ class TestPushSilentNoOpDetection(unittest.TestCase):
                 tmp_path,
                 manifest={
                     "stylesheets/main.css": {"id": 5, "type": "asset", "updated_at": ""},
-                    "layouts/Front.tpl": {"id": 1, "type": "layout", "updated_at": ""},
+                    "layouts/Front.tpl": {
+                        "id": 1,
+                        "type": "layout",
+                        "updated_at": "2026-04-30T10:00:00.000Z",
+                    },
                 },
                 files={
                     "stylesheets/main.css": "body { margin: 0; }",
@@ -508,6 +381,164 @@ class TestPushLayoutUpdatedAtVerification(unittest.TestCase):
             finally:
                 os.chdir(cwd_before)
         self.assertEqual(rc, 0)
+
+
+class TestPushUpdatedAtMixedPrecision(unittest.TestCase):
+    """ISO 8601 string comparison breaks when fractional-second precision
+    differs between the manifest and the response. Push must parse
+    timestamps before comparing."""
+
+    def test_response_no_millis_manifest_with_millis_advance_recognized(self):
+        # Manifest stored "...:00.000Z"; response says "...:01Z" (later
+        # but no fractional seconds). String compare would mis-rank these
+        # because '.' < 'Z' lexically. datetime parse handles it.
+        client = _make_client()
+        client.put.return_value = {"id": 1, "updated_at": "2026-04-30T10:00:01Z"}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "layouts/Front.tpl": {
+                        "id": 1,
+                        "type": "layout",
+                        "updated_at": "2026-04-30T10:00:00.000Z",
+                    },
+                },
+                files={"layouts/Front.tpl": "{% layout %}"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                args = MagicMock()
+                args.files = ["layouts/Front.tpl"]
+                rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertEqual(rc, 0)
+
+    def test_unparseable_timestamp_falls_through(self):
+        # Garbage in either field → no signal → don't false-positive.
+        client = _make_client()
+        client.put.return_value = {"id": 1, "updated_at": "not-a-date"}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "layouts/Front.tpl": {
+                        "id": 1,
+                        "type": "layout",
+                        "updated_at": "also-garbage",
+                    },
+                },
+                files={"layouts/Front.tpl": "{% layout %}"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                args = MagicMock()
+                args.files = ["layouts/Front.tpl"]
+                rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertEqual(rc, 0)
+
+    def test_response_older_than_manifest_fails_loudly(self):
+        # Pin the <= behaviour: server timestamp older than manifest is
+        # also a "didn't advance" failure (e.g. clock skew, cached read).
+        client = _make_client()
+        client.put.return_value = {"id": 1, "updated_at": "2026-04-29T10:00:00.000Z"}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "layouts/Front.tpl": {
+                        "id": 1,
+                        "type": "layout",
+                        "updated_at": "2026-04-30T10:00:00.000Z",
+                    },
+                },
+                files={"layouts/Front.tpl": "{% layout %}"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                with patch("sys.stderr", new_callable=io.StringIO):
+                    args = MagicMock()
+                    args.files = ["layouts/Front.tpl"]
+                    rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+        self.assertNotEqual(rc, 0)
+
+
+class TestPushManifestRefresh(unittest.TestCase):
+    """After a successful push, the manifest's `updated_at` should advance
+    to the response's value so a second push without an intervening pull
+    has a fresh anchor for the layout verification check."""
+
+    def test_successful_push_writes_back_updated_at_to_manifest(self):
+        client = _make_client()
+        client.put.return_value = {"id": 1, "updated_at": "2026-05-01T11:22:33.000Z"}
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _setup_pulled_tree(
+                tmp_path,
+                manifest={
+                    "layouts/Front.tpl": {
+                        "id": 1,
+                        "type": "layout",
+                        "updated_at": "2026-04-30T10:00:00.000Z",
+                    },
+                },
+                files={"layouts/Front.tpl": "{% layout %}"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                args = MagicMock()
+                args.files = ["layouts/Front.tpl"]
+                rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+            updated_manifest = json.loads((tmp_path / "manifest.json").read_text())
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            updated_manifest["layouts/Front.tpl"]["updated_at"],
+            "2026-05-01T11:22:33.000Z",
+        )
+
+    def test_failed_push_does_not_dirty_manifest(self):
+        client = _make_client()
+        client.put.return_value = {"id": 5, "size": 999}  # mismatch
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            initial_manifest = {
+                "stylesheets/main.css": {
+                    "id": 5,
+                    "type": "asset",
+                    "updated_at": "2026-04-30T10:00:00.000Z",
+                },
+            }
+            _setup_pulled_tree(
+                tmp_path,
+                manifest=initial_manifest,
+                files={"stylesheets/main.css": "body { margin: 0; }"},
+            )
+            cwd_before = os.getcwd()
+            try:
+                os.chdir(tmp_path)
+                with patch("sys.stderr", new_callable=io.StringIO):
+                    args = MagicMock()
+                    args.files = ["stylesheets/main.css"]
+                    rc = push_cmd.run(args, client)
+            finally:
+                os.chdir(cwd_before)
+            after = json.loads((tmp_path / "manifest.json").read_text())
+        self.assertNotEqual(rc, 0)
+        self.assertEqual(after, initial_manifest)
 
 
 class TestPushAllConfirmation(unittest.TestCase):
