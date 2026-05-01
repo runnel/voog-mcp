@@ -159,12 +159,12 @@ Full endpoint coverage reference: [docs/voog-mcp-endpoint-coverage.md](docs/voog
 
 voog-mcp covers the surface area needed to manage content and a small ecommerce catalog. The following Voog API areas are intentionally out of scope for now:
 
-- Form definitions and form responses
+- Order management, cart, and discount data — only via generic passthrough
+- Form definitions and form responses — only via generic passthrough
+- People / site_user admin — only via generic passthrough
 - Comments and visitor data
-- Site-level settings, languages, and translations
-- Customer, order, and cart data (ecommerce orders/checkout flows)
-- Users, roles, and permissions
-- General asset/media library uploads (product images are supported)
+- Multipart uploads (favicons, product bulk imports) — only via generic passthrough
+- Bulk operations (product update/delete, page batch operations) — only via generic passthrough
 - Site creation (voog-mcp targets existing sites)
 
 If you need any of these, open an [issue](https://github.com/runnel/voog-mcp/issues) — or a PR.
