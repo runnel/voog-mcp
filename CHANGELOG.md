@@ -6,6 +6,9 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- `voog push` no longer silently no-ops on `layout_assets` (CSS/JS/images). The CLI was wrapping the PUT body in `{"layout_asset": {"data": …}}`, which Voog answers with 200 but does not persist; the documented flat `{"data": …}` form (already used by the MCP `layout_asset_update` tool) is required. Layouts switched to flat as well to match the documented convention. Push now surfaces a hard error when Voog echoes the resource back with the content field cleared, instead of printing ✓. Closes #96.
+
 ## [1.2.0] — 2026-05-01
 
 ### Added

@@ -8,6 +8,16 @@ from pathlib import Path
 
 from voog.client import VoogClient
 
+# Voog uses **flat** payloads for both /layouts and /layout_assets PUT
+# (see docs/voog-mcp-endpoint-coverage.md). Wrapping in {"layout": …}
+# happens to be tolerated for layouts, but {"layout_asset": …} is silently
+# 200-ed by Voog and the asset content is NOT persisted (issue #96).
+# Send flat for both to stay aligned with the docs and the MCP tool path.
+_PAYLOAD = {
+    "layout": ("/layouts", "body"),
+    "asset": ("/layout_assets", "data"),
+}
+
 
 def add_arguments(subparsers):
     p = subparsers.add_parser(
@@ -41,12 +51,36 @@ def run(args, client: VoogClient) -> int:
             return 0
         targets = list(manifest)
 
+    failed = 0
     for rel_path in targets:
         entry = manifest[rel_path]
         body = (local_dir / rel_path).read_text(encoding="utf-8")
-        if entry["type"] == "layout":
-            client.put(f"/layouts/{entry['id']}", {"layout": {"body": body}})
-        elif entry["type"] == "asset":
-            client.put(f"/layout_assets/{entry['id']}", {"layout_asset": {"data": body}})
+        kind = entry["type"]
+        endpoint_info = _PAYLOAD.get(kind)
+        if endpoint_info is None:
+            sys.stderr.write(f"  ✗ {rel_path}: unknown manifest type {kind!r}\n")
+            failed += 1
+            continue
+        path_prefix, content_field = endpoint_info
+        result = client.put(f"{path_prefix}/{entry['id']}", {content_field: body})
+        # Silent-no-op detector (issue #96): Voog's wrapped-payload bug
+        # returned 200 with the resource echoed back but with the content
+        # field cleared. Surface that pattern as a hard failure rather
+        # than printing ✓.  The check is deliberately narrow — we only
+        # flag the case where the server explicitly echoed the field as
+        # empty; a slim response that omits the field altogether is left
+        # alone (some endpoints/versions may not echo).
+        if (
+            body
+            and isinstance(result, dict)
+            and content_field in result
+            and not result[content_field]
+        ):
+            sys.stderr.write(
+                f"  ✗ {rel_path}: PUT returned 200 but stored "
+                f"{content_field!r} is empty — content NOT updated on Voog\n"
+            )
+            failed += 1
+            continue
         print(f"  ✓ {rel_path}")
-    return 0
+    return 2 if failed else 0
