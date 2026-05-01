@@ -55,19 +55,35 @@ def _validate_data_key(key: str, *, tool_name: str) -> str | None:
 
     Rejected:
     - empty or whitespace-only
-    - keys starting with ``internal_`` (server-protected on Voog)
-    - keys containing ``/``, ``?``, or ``#`` — these would alter URL structure
-    - keys that contain ``..`` after percent-decoding (defence-in-depth, same
-      hygiene as ``raw.py``'s path validator)
+    - keys whose lowercase form starts with ``internal_`` (server-protected
+      on Voog; the namespace is treated case-insensitively server-side, so
+      ``INTERNAL_x`` and ``Internal_foo`` are rejected too)
+    - keys containing ``/``, ``?``, or ``#`` after percent-decoding — these
+      would alter URL structure server-side. Apache and many other backends
+      normalise ``%2F → /`` before routing, so the structural check has to
+      run on the decoded form rather than the raw key (otherwise
+      ``foo%2Fbar``, ``foo%23x``, ``foo%3Fx`` slip past).
+    - keys that contain ``..`` after percent-decoding (defence-in-depth,
+      same hygiene as ``raw.py``'s path validator)
     """
     if not key or not key.strip():
         return f"{tool_name}: key must be non-empty"
-    if key.startswith("internal_"):
+    # Decode at the top so every structural check below sees the
+    # post-normalisation form. Asymmetric checks (raw vs decoded) were
+    # the bypass class. Loop until stable: the key is interpolated into
+    # a URL path (``/site/data/{key}``) so the same double-decode threat
+    # model as ``raw.py``'s path validator applies.
+    decoded = key
+    for _ in range(8):
+        next_decoded = urllib.parse.unquote(decoded)
+        if next_decoded == decoded:
+            break
+        decoded = next_decoded
+    if decoded.lower().startswith("internal_"):
         return f"{tool_name}: 'internal_' keys are server-protected (got {key!r})"
     for forbidden_char in ("/", "?", "#"):
-        if forbidden_char in key:
+        if forbidden_char in decoded:
             return f"{tool_name}: key must not contain {forbidden_char!r} (got {key!r})"
-    decoded = urllib.parse.unquote(key)
     if ".." in decoded.split("/"):
         return f"{tool_name}: key must not contain '..' segments (got {key!r})"
     return None

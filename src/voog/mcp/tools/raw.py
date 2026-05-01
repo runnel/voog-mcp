@@ -186,6 +186,17 @@ def _passthrough(
     if params is not None and not isinstance(params, dict):
         return error_response(f"voog_{label}_api_call: params must be an object or null")
 
+    # client._request appends ``?<urlencode(params)>`` blindly; if path also
+    # contains a literal '?', the resulting URL is /x?a=1?b=2 (two query
+    # markers, malformed). Reject at the tool boundary with a clear hint
+    # — caller should use either path-with-query OR params=, not both.
+    if params and "?" in path:
+        return error_response(
+            f"voog_{label}_api_call: path must not contain '?' when params is also set "
+            f"(got path={path!r}, params={params!r}); pass query parameters via params= "
+            f"OR embed them in path, not both"
+        )
+
     try:
         if method == "GET":
             data = client.get(path, base=base, params=params)
@@ -213,7 +224,17 @@ def _validate_path(path: str) -> str | None:
         return f"path must not be an absolute URL (got {path!r})"
     if not path.startswith("/"):
         return f"path must start with '/' (got {path!r})"
-    decoded = urllib.parse.unquote(path)
+    # Loop unquote until stable. Single-pass urllib.parse.unquote on
+    # ``/%252e%252e/etc/passwd`` decodes to ``/%2e%2e/etc/passwd`` (no
+    # literal '..'). If any intermediate proxy decodes a second time
+    # before routing, the request becomes ``/../etc/passwd``. Iterating
+    # until the string stops changing catches arbitrary nesting depth.
+    decoded = path
+    for _ in range(8):  # bounded; pathological input shouldn't loop forever
+        next_decoded = urllib.parse.unquote(decoded)
+        if next_decoded == decoded:
+            break
+        decoded = next_decoded
     if ".." in decoded.split("/"):
         return f"path must not contain '..' segments (got {path!r})"
     return None
