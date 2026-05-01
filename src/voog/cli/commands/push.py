@@ -11,11 +11,16 @@ from voog.client import VoogClient
 
 # Endpoint dispatch by manifest entry type.  Both endpoints take a flat
 # payload — wrapping {"layout_asset": …} is silently 200-ed without
-# persisting (issue #96).
+# persisting (issue #96).  ``layout_asset`` is the legacy spelling
+# written by pre-rename ``voog.py`` manifests; current ``voog pull``
+# emits ``asset``.  Routing both to the same target keeps long-lived
+# checkouts working without a forced re-pull.
 _ENDPOINT = {
     "layout": ("/layouts", "body"),
     "asset": ("/layout_assets", "data"),
+    "layout_asset": ("/layout_assets", "data"),
 }
+_ASSET_KINDS = {"asset", "layout_asset"}
 
 
 def add_arguments(subparsers):
@@ -70,9 +75,14 @@ def run(args, client: VoogClient) -> int:
             continue
         # Refresh the manifest's updated_at so a second push without an
         # intervening pull still has a fresh anchor for the next layout
-        # verification.
+        # verification. Also normalize the legacy "layout_asset" type
+        # here — successive pushes self-heal the manifest without
+        # requiring a forced re-pull.
         if isinstance(result, dict) and result.get("updated_at"):
             entry["updated_at"] = result["updated_at"]
+            manifest_dirty = True
+        if kind == "layout_asset":
+            entry["type"] = "asset"
             manifest_dirty = True
         print(f"  ✓ {rel_path}")
     if manifest_dirty:
@@ -90,7 +100,7 @@ def _verify_persisted(kind: str, body: str, entry: dict, result) -> str | None:
     """
     if not isinstance(result, dict):
         return None
-    if kind == "asset":
+    if kind in _ASSET_KINDS:
         sent_bytes = len(body.encode("utf-8"))
         stored_size = result.get("size")
         if stored_size is not None and stored_size != sent_bytes:

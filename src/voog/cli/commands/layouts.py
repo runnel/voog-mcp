@@ -121,11 +121,12 @@ def cmd_asset_replace(args, client: VoogClient) -> int:
     old_path = None
     folder = None
     for path, info in manifest.items():
-        # ``pull.py`` writes layout-asset entries with ``type="asset"``.
-        # The previous "layout_asset" string here never matched, so the
-        # rename-on-disk + manifest-update branch silently never ran in
-        # production — POST happened, but the local tree fell out of sync.
-        if info.get("id") == asset_id and info.get("type") == "asset":
+        # ``pull.py`` writes layout-asset entries with ``type="asset"``;
+        # the legacy ``voog.py`` tooling wrote ``"layout_asset"``. Match
+        # both, otherwise the rename-on-disk + manifest-update branch
+        # silently no-ops on long-lived checkouts (root cause of #96 in
+        # `voog push`; identical bug pattern lurked here).
+        if info.get("id") == asset_id and info.get("type") in ("asset", "layout_asset"):
             old_path = path
             folder = path.split("/", 1)[0]
             break
