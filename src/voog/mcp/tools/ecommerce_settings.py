@@ -13,7 +13,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import strip_site, validate_translations_shape
 
 # Voog ecommerce settings keys that are translatable per-language.
 TRANSLATABLE_SETTINGS = frozenset(
@@ -97,12 +97,17 @@ def call_tool(
         translations = arguments.get("translations") or {}
         if not (attributes or translations):
             return error_response("ecommerce_settings_update: attributes or translations required")
-        for field in translations:
+        for field, langs in translations.items():
             if field not in TRANSLATABLE_SETTINGS:
                 return error_response(
                     f"ecommerce_settings_update: translations field {field!r} "
                     f"not supported. Allowed: {sorted(TRANSLATABLE_SETTINGS)}"
                 )
+            shape_err = validate_translations_shape(
+                field, langs, tool_name="ecommerce_settings_update"
+            )
+            if shape_err:
+                return error_response(shape_err)
         body: dict = dict(attributes)
         if translations:
             body["translations"] = translations

@@ -47,6 +47,40 @@ class TestSiteUpdate(unittest.TestCase):
         self.assertTrue(result.isError)
         client.put.assert_not_called()
 
+    def test_site_update_rejects_id_field(self):
+        # `id` is server-managed — should never be PUT back. Defends against
+        # round-tripping a GET response into a PUT.
+        client = MagicMock()
+        result = site_tools.call_tool(
+            "site_update",
+            {"attributes": {"id": 99}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_site_update_rejects_created_at(self):
+        # `created_at` is server-managed.
+        client = MagicMock()
+        result = site_tools.call_tool(
+            "site_update",
+            {"attributes": {"created_at": "2026-01-01T00:00:00Z"}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_site_update_rejects_updated_at(self):
+        # `updated_at` is server-managed.
+        client = MagicMock()
+        result = site_tools.call_tool(
+            "site_update",
+            {"attributes": {"updated_at": "2026-01-01T00:00:00Z"}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
 
 class TestSiteSetData(unittest.TestCase):
     def test_set_data(self):

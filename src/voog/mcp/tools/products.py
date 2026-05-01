@@ -28,7 +28,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import strip_site, validate_translations_shape
 from voog.projections import (
     PRODUCTS_DETAIL_INCLUDE,
     PRODUCTS_LIST_INCLUDE,
@@ -287,20 +287,10 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
                 f"product_update: translations field {field!r} not supported. "
                 f"Allowed: {sorted(TRANSLATABLE_FIELDS)}"
             )
-        if not isinstance(langs, dict) or not langs:
-            return error_response(
-                f"product_update: translations[{field!r}] must be a "
-                "non-empty object {lang: value}"
-            )
+        shape_err = validate_translations_shape(field, langs, tool_name="product_update")
+        if shape_err:
+            return error_response(shape_err)
         for lang, value in langs.items():
-            if not lang or lang.startswith("-"):
-                return error_response(
-                    f"product_update: empty/malformed lang in translations[{field!r}]: {lang!r}"
-                )
-            if not value:
-                return error_response(
-                    f"product_update: empty value for translations[{field!r}][{lang!r}]"
-                )
             merged_translations.setdefault(field, {})[lang] = value
 
     # Fold legacy `fields` ('name-et', 'slug-en') into translations.

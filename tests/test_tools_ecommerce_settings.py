@@ -67,3 +67,43 @@ class TestUpdate(unittest.TestCase):
         result = es.call_tool("ecommerce_settings_update", {}, client)
         self.assertTrue(result.isError)
         client.put.assert_not_called()
+
+    def test_ecommerce_settings_update_rejects_string_translation_value(self):
+        # A common LLM mistake: passing `translations={"products_url_slug":
+        # "products"}` (string) instead of `{"products_url_slug": {"en":
+        # "products"}}` (dict). Catch this client-side rather than letting
+        # Voog return a generic 422.
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = es.call_tool(
+            "ecommerce_settings_update",
+            {"translations": {"products_url_slug": "products"}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_ecommerce_settings_update_rejects_empty_translation_dict(self):
+        # `{"products_url_slug": {}}` — dict shape but empty payload.
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = es.call_tool(
+            "ecommerce_settings_update",
+            {"translations": {"products_url_slug": {}}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_ecommerce_settings_update_rejects_empty_translation_lang_value(self):
+        # `{"products_url_slug": {"et": ""}}` — Voog rejects empty
+        # translation values, surface this client-side.
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = es.call_tool(
+            "ecommerce_settings_update",
+            {"translations": {"products_url_slug": {"et": ""}}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
