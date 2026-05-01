@@ -11,13 +11,13 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 ### Added
 - Generic Admin API + Ecommerce v1 passthrough tools `voog_admin_api_call` and `voog_ecommerce_api_call`. Forward any (method, path, body, params) through the configured VoogClient — closes the "fall back to curl" gap when no typed tool exists.
 - Articles CRUD: `articles_list`, `article_get`, `article_create`, `article_update`, `article_publish`, `article_delete`. Captures the `autosaved_*` + `publishing:true` semantics from the project memory.
-- Page mutations: `page_create`, `page_update`, `page_set_data`, `page_duplicate`. `page_create` supports parallel-translation `node_id` parameter.
+- Page mutations: `page_create`, `page_update`, `page_set_data`, `page_delete_data`, `page_duplicate`. `page_create` supports parallel-translation `node_id` parameter; `page_delete_data` requires `force=true`.
 - Text content: `text_get`, `text_update`, `page_add_content`.
 - Layout body update + asset CRUD: `layout_update`, `layout_delete`, `layout_asset_create`, `layout_asset_update`, `layout_asset_delete`. Pure-API editing without the layouts_pull/layouts_push filesystem detour.
 - Multilingual helpers: `languages_list`, `nodes_list`, `node_get`. Enables the parallel-translation workflow without raw API calls.
 - Redirect lifecycle: `redirect_update`, `redirect_delete`.
 - Ecommerce settings: `ecommerce_settings_get`, `ecommerce_settings_update`. Per-language `products_url_slug` covered.
-- Site singleton: `site_get`, `site_update`, `site_set_data`. Refuses immutable `code` and protected `internal_*` keys client-side.
+- Site singleton: `site_get`, `site_update`, `site_set_data`, `site_delete_data`. Refuses immutable `code` and protected `internal_*` keys client-side; `site_delete_data` requires `force=true`.
 - `docs/voog-mcp-endpoint-coverage.md` — endpoint coverage reference doc.
 
 ### Changed
