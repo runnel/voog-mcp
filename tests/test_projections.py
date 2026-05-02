@@ -105,7 +105,12 @@ class TestSimplifyProducts(unittest.TestCase):
             "on_sale": False,
             "price": "100.00",
             "effective_price": "100.00",
+            "stock": 7,
+            "reserved_quantity": 2,
+            "uses_variants": False,
+            "variants_count": 0,
             "translations": {"name": {"et": "Kott"}},
+            "created_at": "2025-12-01T00:00:00Z",
             "updated_at": "2026-01-01T00:00:00Z",
         }
         result = simplify_products([product])
@@ -118,6 +123,34 @@ class TestSimplifyProducts(unittest.TestCase):
         self.assertIsNone(result[0]["status"])
         self.assertIsNone(result[0]["price"])
         self.assertIsNone(result[0]["translations"])
+        # New stock-related fields default to None when API omits them
+        self.assertIsNone(result[0]["stock"])
+        self.assertIsNone(result[0]["reserved_quantity"])
+        self.assertIsNone(result[0]["uses_variants"])
+        self.assertIsNone(result[0]["variants_count"])
+        self.assertIsNone(result[0]["created_at"])
+
+    def test_stock_fields_for_variant_product(self):
+        # Per issue #104: a variant-bearing product reports its aggregate
+        # stock at the top level too, plus uses_variants=True and a
+        # variants_count summary so the list view can answer "what is the
+        # stock" without an extra detail fetch.
+        product = {
+            "id": 3097094,
+            "name": "Argilla tote",
+            "stock": 2,
+            "reserved_quantity": 0,
+            "in_stock": True,
+            "uses_variants": True,
+            "variants_count": 9,
+            "created_at": "2026-04-25T10:00:00Z",
+        }
+        result = simplify_products([product])[0]
+        self.assertEqual(result["stock"], 2)
+        self.assertEqual(result["reserved_quantity"], 0)
+        self.assertTrue(result["uses_variants"])
+        self.assertEqual(result["variants_count"], 9)
+        self.assertEqual(result["created_at"], "2026-04-25T10:00:00Z")
 
     def test_extra_fields_stripped(self):
         # Description/asset_ids/physical_properties are intentionally stripped

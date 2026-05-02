@@ -132,11 +132,11 @@ class TestProductsResourcesReadSingleProduct(unittest.TestCase):
 
         result = products_resources.read_resource("voog://stella/products/42", client)
 
-        # Must request both includes per spec § 5
+        # Must request both includes per spec § 5 + variants per issue #104
         client.get.assert_called_once_with(
             "/products/42",
             base="https://example.com/admin/api/ecommerce/v1",
-            params={"include": "variant_types,translations"},
+            params={"include": "variants,variant_types,translations"},
         )
         client.get_all.assert_not_called()
 
