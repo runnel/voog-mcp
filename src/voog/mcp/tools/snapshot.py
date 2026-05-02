@@ -34,6 +34,7 @@ from voog._concurrency import parallel_map
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site, validate_output_dir, write_json
+from voog.projections import PRODUCTS_DETAIL_INCLUDE
 
 # Standard /admin/api/ list endpoints. Each is paginated via client.get_all.
 SITE_SNAPSHOT_LIST_ENDPOINTS = [
@@ -300,7 +301,7 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
             return client.get(
                 f"/products/{pid}",
                 base=client.ecommerce_url,
-                params={"include": "variant_types,translations"},
+                params={"include": PRODUCTS_DETAIL_INCLUDE},
             )
 
         product_detail_results = parallel_map(

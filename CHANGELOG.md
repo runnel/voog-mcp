@@ -7,8 +7,11 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
-- `products_list` (and the mirrored `voog://{site}/products` resource) now expose `stock`, `reserved_quantity`, `uses_variants`, `variants_count`, and `created_at` on every product in the simplified projection. Closes the inventory blind spot that previously forced a raw `curl` fallback to answer "what is the laoseis on these products" / "what was added this week" — `in_stock` was a boolean only, and `created_at` was missing entirely. Existing fields are unchanged; callers only see new keys appear. (#104)
-- `product_get` (and `voog://{site}/products/{id}`) now request `?include=variants,variant_types,translations`, so the response includes the per-variant `variants[]` array with `stock`, `reserved_quantity`, `in_stock`, `variant_attributes_text`, and `variant_attributes`. Per-variant inventory is now visible via MCP without the raw API fallback. Verified empirically against a 9-variant Argilla tote; the response schema is otherwise unchanged. (#104)
+- `products_list` projection now includes `stock`, `reserved_quantity`, `uses_variants`, `variants_count`, `created_at`. Same applies to the mirrored `voog://{site}/products` resource. Closes the inventory blind spot — previously `in_stock` was a boolean only, and `created_at` was missing entirely. Field names verified against the live Voog ecommerce API. Existing fields are unchanged; callers only see new keys appear. (#104)
+- `product_get` (and `voog://{site}/products/{id}`) now request `?include=variants,variant_types,translations`, so the response carries the per-variant `variants[]` array with `stock`, `reserved_quantity`, `in_stock`, `variant_attributes_text`, `variant_attributes`. Per-variant inventory is now visible via MCP without the raw API fallback. Verified empirically against a 9-variant Argilla tote. (#104)
+
+### Changed
+- `voog site-snapshot` (CLI) and `site_snapshot` (MCP tool) now fetch product details with the same `PRODUCTS_DETAIL_INCLUDE` constant the live tools use, so backups inherit per-variant inventory automatically. Previously each surface hardcoded `"variant_types,translations"`, drifting from the source of truth. (#104)
 
 ## [1.2.2] — 2026-05-01
 

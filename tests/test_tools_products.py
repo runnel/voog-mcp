@@ -202,8 +202,13 @@ class TestProductGet(unittest.TestCase):
     def test_product_get_returns_per_variant_stock(self):
         # Per issue #104: detail must surface the `variants` array with
         # per-variant stock so callers can answer "what's the stock on this
-        # 9-variant tote" without a raw-curl fallback. The include string
-        # asks for variants; this test pins the field through to the caller.
+        # 9-variant tote" without a raw-curl fallback. Without
+        # ?include=variants, Voog only returns variant_types definitions
+        # (the colour palette), not the per-variant stock — pin both the
+        # include string AND the per-variant pass-through here. The test
+        # would otherwise be vacuous because _product_get is pure
+        # pass-through; the assert_called_once_with is what catches a
+        # regression in the include constant.
         client = MagicMock()
         client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
         client.get.return_value = {
@@ -227,6 +232,11 @@ class TestProductGet(unittest.TestCase):
             "product_get",
             {"product_id": 3097094},
             client,
+        )
+        client.get.assert_called_once_with(
+            "/products/3097094",
+            base="https://example.com/admin/api/ecommerce/v1",
+            params={"include": "variants,variant_types,translations"},
         )
         payload = json.loads(result[0].text)
         self.assertEqual(payload["variants"][0]["stock"], 2)
