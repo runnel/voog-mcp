@@ -84,9 +84,12 @@ def get_tools() -> list[Tool]:
             description=(
                 "List all ecommerce products on the Voog site (simplified: id, "
                 "name, slug, sku, status, in_stock, on_sale, price, "
-                "effective_price, translations, updated_at). Read-only. Same "
-                "shape as the voog://products resource — consistent across the "
-                "tools and resources surfaces."
+                "effective_price, stock, reserved_quantity, uses_variants, "
+                "variants_count, translations, created_at, updated_at). "
+                "Read-only. Same shape as the voog://products resource — "
+                "consistent across the tools and resources surfaces. For "
+                "per-variant stock on a variant-bearing product, follow up "
+                "with product_get."
             ),
             inputSchema={
                 "type": "object",
@@ -104,8 +107,11 @@ def get_tools() -> list[Tool]:
         Tool(
             name="product_get",
             description=(
-                "Get full product details by id, including variant_types and "
-                "translations (?include=variant_types,translations). Read-only."
+                "Get full product details by id, including the per-variant "
+                "`variants` array (with stock, reserved_quantity, "
+                "variant_attributes_text), `variant_types` definitions, and "
+                "`translations` (?include=variants,variant_types,translations). "
+                "Read-only."
             ),
             inputSchema={
                 "type": "object",

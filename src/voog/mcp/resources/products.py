@@ -4,17 +4,20 @@ Phase D resource group covering two URI shapes:
 
   - ``voog://{site}/products``        — list all products (simplified: id, name, slug,
                                          sku, status, in_stock, on_sale, price,
-                                         effective_price, translations, updated_at)
-  - ``voog://{site}/products/{id}``   — full product details (with variant_types,
-                                         translations, assets, etc.)
+                                         effective_price, stock, reserved_quantity,
+                                         uses_variants, variants_count, translations,
+                                         created_at, updated_at)
+  - ``voog://{site}/products/{id}``   — full product details (with per-variant
+                                         ``variants[]`` incl. stock, ``variant_types``,
+                                         ``translations``, assets, etc.)
 
 Unlike pages/layouts/articles/redirects which use the Admin API base, products
 live on the ``ecommerce/v1`` API; ``client.ecommerce_url`` is passed as ``base``.
 
-Per spec § 5: list view uses ``?include=translations`` (matches the existing
-``products_list`` CLI shape), single product view uses
-``?include=variant_types,translations`` (variants + i18n metadata for the
-detail view).
+Per spec § 5 + issue #104: list view uses ``?include=translations`` (matches
+the existing ``products_list`` CLI shape), single product view uses
+``?include=variants,variant_types,translations`` (per-variant stock + variant
+type definitions + i18n metadata for the detail view).
 
 Pattern mirrors :mod:`voog.mcp.resources.pages`: ``URI_TEMPLATE`` constant,
 site-namespaced :func:`matches`, strict :func:`parse_id` (shared),
@@ -68,9 +71,10 @@ def get_resources() -> list[Resource]:
             name="Products",
             description=(
                 "All ecommerce products on the Voog site (simplified: id, name, slug, "
-                "sku, status, in_stock, on_sale, price, effective_price, translations, "
-                "updated_at). Full product details (with variant_types) at "
-                "voog://{site}/products/{id}."
+                "sku, status, in_stock, on_sale, price, effective_price, stock, "
+                "reserved_quantity, uses_variants, variants_count, translations, "
+                "created_at, updated_at). Full product details with per-variant "
+                "stock at voog://{site}/products/{id}."
             ),
             mimeType="application/json",
         ),

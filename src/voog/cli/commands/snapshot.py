@@ -7,6 +7,7 @@ from pathlib import Path
 
 from voog._concurrency import parallel_map
 from voog.client import VoogClient
+from voog.projections import PRODUCTS_DETAIL_INCLUDE
 
 
 def add_arguments(subparsers):
@@ -138,7 +139,7 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
             return client.get(
                 f"/products/{pid}",
                 base=client.ecommerce_url,
-                params={"include": "variant_types,translations"},
+                params={"include": PRODUCTS_DETAIL_INCLUDE},
             )
 
         product_detail_results = parallel_map(

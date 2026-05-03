@@ -9,6 +9,7 @@ from pathlib import Path
 
 from voog._upload_validation import _validate_upload_url
 from voog.client import VoogClient
+from voog.projections import PRODUCTS_DETAIL_INCLUDE
 
 CONTENT_TYPES = {
     ".jpg": "image/jpeg",
@@ -66,7 +67,7 @@ def cmd_product(args, client: VoogClient) -> int:
         prod = client.get(
             f"/products/{pid}",
             base=client.ecommerce_url,
-            params={"include": "variant_types,variants,translations"},
+            params={"include": PRODUCTS_DETAIL_INCLUDE},
         )
         print(json.dumps(prod, indent=2, ensure_ascii=False))
         return 0

@@ -121,7 +121,10 @@ class TestProductsList(unittest.TestCase):
         items = json.loads(result[1].text)
         self.assertEqual(len(items), 1)
         item = items[0]
-        # Curated fields kept
+        # Curated fields kept (issue #104 added stock, reserved_quantity,
+        # uses_variants, variants_count, created_at to the projection so
+        # the list view can answer "what's the stock" / "what was added
+        # this week" without a follow-up detail fetch).
         for keep in (
             "id",
             "name",
@@ -132,7 +135,12 @@ class TestProductsList(unittest.TestCase):
             "on_sale",
             "price",
             "effective_price",
+            "stock",
+            "reserved_quantity",
+            "uses_variants",
+            "variants_count",
             "translations",
+            "created_at",
             "updated_at",
         ):
             self.assertIn(keep, item)
@@ -186,10 +194,54 @@ class TestProductGet(unittest.TestCase):
         client.get.assert_called_once_with(
             "/products/42",
             base="https://example.com/admin/api/ecommerce/v1",
-            params={"include": "variant_types,translations"},
+            params={"include": "variants,variant_types,translations"},
         )
         # Detail returned in full (no projection)
         self.assertEqual(len(result), 1)  # success_response without summary
+
+    def test_product_get_returns_per_variant_stock(self):
+        # Per issue #104: detail must surface the `variants` array with
+        # per-variant stock so callers can answer "what's the stock on this
+        # 9-variant tote" without a raw-curl fallback. Without
+        # ?include=variants, Voog only returns variant_types definitions
+        # (the colour palette), not the per-variant stock — pin both the
+        # include string AND the per-variant pass-through here. The test
+        # would otherwise be vacuous because _product_get is pure
+        # pass-through; the assert_called_once_with is what catches a
+        # regression in the include constant.
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        client.get.return_value = {
+            "id": 3097094,
+            "name": "Argilla tote",
+            "uses_variants": True,
+            "variants": [
+                {
+                    "id": 3097430,
+                    "stock": 2,
+                    "reserved_quantity": 0,
+                    "in_stock": True,
+                    "variant_attributes_text": "Sang: violetne",
+                    "variant_attributes": [{"type_id": 223193, "value_id": 910776}],
+                },
+            ],
+            "variant_types": [{"id": 223193, "name": "Sang"}],
+            "translations": {},
+        }
+        result = products_tools.call_tool(
+            "product_get",
+            {"product_id": 3097094},
+            client,
+        )
+        client.get.assert_called_once_with(
+            "/products/3097094",
+            base="https://example.com/admin/api/ecommerce/v1",
+            params={"include": "variants,variant_types,translations"},
+        )
+        payload = json.loads(result[0].text)
+        self.assertEqual(payload["variants"][0]["stock"], 2)
+        self.assertEqual(payload["variants"][0]["reserved_quantity"], 0)
+        self.assertEqual(payload["variants"][0]["variant_attributes_text"], "Sang: violetne")
 
     def test_product_get_api_error(self):
         client = MagicMock()

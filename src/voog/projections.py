@@ -18,7 +18,11 @@ without circulars.
 PRODUCTS_LIST_INCLUDE = "translations"
 
 # Voog ?include= for product detail views (full enrichment).
-PRODUCTS_DETAIL_INCLUDE = "variant_types,translations"
+# `variants` is required for per-variant stock — without it Voog returns
+# only `variant_types` definitions, not the per-variant `stock` /
+# `reserved_quantity` / `variant_attributes_text` fields needed to answer
+# "what's the stock on this 9-variant tote" (issue #104).
+PRODUCTS_DETAIL_INCLUDE = "variants,variant_types,translations"
 
 
 def simplify_pages(pages: list) -> list:
@@ -47,11 +51,17 @@ def simplify_pages(pages: list) -> list:
 def simplify_products(products: list) -> list:
     """Project products to a curated subset.
 
-    Keeps small ecommerce-relevant fields (status flags, prices) plus the
-    translations object (small, useful for multilingual list views, matches
-    the existing voog.py products_list CLI shape). Larger fields like
-    ``description``, ``physical_properties``, and ``asset_ids`` are stripped
-    — clients fetching ``voog://products/{id}`` get the full detail.
+    Keeps small ecommerce-relevant fields (status flags, prices, stock
+    summary) plus the translations object (small, useful for multilingual
+    list views, matches the existing voog.py products_list CLI shape).
+    Larger fields like ``description``, ``physical_properties``, and
+    ``asset_ids`` are stripped — clients fetching ``voog://products/{id}``
+    get the full detail.
+
+    Stock-summary fields (``stock``, ``reserved_quantity``, ``uses_variants``,
+    ``variants_count``) and ``created_at`` were added per issue #104 so
+    inventory and "added this week" questions can be answered from the
+    list view alone, without an extra detail fetch per product.
     """
     simplified = []
     for product in products:
@@ -66,7 +76,12 @@ def simplify_products(products: list) -> list:
                 "on_sale": product.get("on_sale"),
                 "price": product.get("price"),
                 "effective_price": product.get("effective_price"),
+                "stock": product.get("stock"),
+                "reserved_quantity": product.get("reserved_quantity"),
+                "uses_variants": product.get("uses_variants"),
+                "variants_count": product.get("variants_count"),
                 "translations": product.get("translations"),
+                "created_at": product.get("created_at"),
                 "updated_at": product.get("updated_at"),
             }
         )
