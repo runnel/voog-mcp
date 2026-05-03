@@ -205,7 +205,7 @@ class TestProductGetUpdate(unittest.TestCase):
         client.get.assert_called_once_with(
             "/products/42",
             base=client.ecommerce_url,
-            params={"include": "variant_types,variants,translations"},
+            params={"include": "variants,variant_types,translations"},
         )
         # JSON dump output present
         self.assertIn('"id": 42', stdout.getvalue())
