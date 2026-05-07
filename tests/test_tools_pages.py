@@ -110,6 +110,54 @@ class TestPagesTools(unittest.TestCase):
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
+    def test_pages_list_passes_q_language_code(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"language_code": "et"}, client)
+        client.get_all.assert_called_once_with(
+            "/pages", params={"q.page.language_code": "et"}
+        )
+
+    def test_pages_list_passes_q_content_type(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"content_type": "blog"}, client)
+        client.get_all.assert_called_once_with(
+            "/pages", params={"q.page.content_type": "blog"}
+        )
+
+    def test_pages_list_passes_q_node_id(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"node_id": 42}, client)
+        client.get_all.assert_called_once_with(
+            "/pages", params={"q.page.node_id": 42}
+        )
+
+    def test_pages_list_combines_multiple_q_filters(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool(
+            "pages_list",
+            {"language_code": "en", "content_type": "blog"},
+            client,
+        )
+        client.get_all.assert_called_once_with(
+            "/pages",
+            params={
+                "q.page.language_code": "en",
+                "q.page.content_type": "blog",
+            },
+        )
+
+    def test_pages_list_no_filters_passes_no_params(self):
+        # Regression guard: behaviour with no filter args must match v1.2.x —
+        # an unparameterised call to client.get_all("/pages").
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {}, client)
+        client.get_all.assert_called_once_with("/pages")
+
 
 class TestAllToolsRequireSite(unittest.TestCase):
     def test_all_tools_require_site(self):
