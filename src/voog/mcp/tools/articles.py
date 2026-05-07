@@ -32,13 +32,42 @@ def get_tools() -> list[Tool]:
         Tool(
             name="articles_list",
             description=(
-                "List all blog articles on the Voog site (simplified: id, "
-                "title, path, public_url, published, published_at, "
-                "updated_at, created_at, language_code, page_id). Read-only."
+                "List blog articles on the Voog site (simplified: id, title, "
+                "path, public_url, published, published_at, updated_at, "
+                "created_at, language_code, page_id). All filters optional. "
+                "Read-only."
             ),
             inputSchema={
                 "type": "object",
-                "properties": {"site": {"type": "string"}},
+                "properties": {
+                    "site": {"type": "string"},
+                    "page_id": {
+                        "type": "integer",
+                        "description": "Filter to a specific blog page id",
+                    },
+                    "language_code": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Filter by language code (e.g. 'et', 'en')",
+                    },
+                    "language_id": {
+                        "type": "integer",
+                        "description": "Filter by language id (use language_code for the human-readable form)",
+                    },
+                    "tag": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Filter to articles tagged with this label",
+                    },
+                    "sort": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": (
+                            "Voog sort string: '<object>.<attr>.<$asc|$desc>'. "
+                            "Example: 'article.created_at.$desc'."
+                        ),
+                    },
+                },
                 "required": ["site"],
             },
             annotations={
@@ -243,7 +272,7 @@ def call_tool(
     arguments = strip_site(arguments or {})
 
     if name == "articles_list":
-        return _articles_list(client)
+        return _articles_list(arguments, client)
     if name == "article_get":
         return _article_get(arguments, client)
     if name == "article_create":
@@ -258,9 +287,29 @@ def call_tool(
     return error_response(f"Unknown tool: {name}")
 
 
-def _articles_list(client: VoogClient):
+_ARTICLES_PLAIN_PARAMS = ("page_id", "language_code", "language_id", "tag")
+
+
+def _build_articles_list_params(arguments: dict) -> dict | None:
+    """Translate tool args to Voog query params. Returns None when no
+    filters are set, so the caller falls through to the unparameterised
+    `client.get_all("/articles")` shape."""
+    params: dict = {}
+    for arg_key in _ARTICLES_PLAIN_PARAMS:
+        if arg_key in arguments:
+            params[arg_key] = arguments[arg_key]
+    if "sort" in arguments:
+        params["s"] = arguments["sort"]
+    return params or None
+
+
+def _articles_list(arguments: dict, client: VoogClient):
+    params = _build_articles_list_params(arguments)
     try:
-        articles = client.get_all("/articles")
+        if params:
+            articles = client.get_all("/articles", params=params)
+        else:
+            articles = client.get_all("/articles")
         simplified = simplify_articles(articles)
         return success_response(simplified, summary=f"📝 {len(simplified)} articles")
     except Exception as e:

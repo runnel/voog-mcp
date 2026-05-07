@@ -57,6 +57,83 @@ class TestArticlesList(unittest.TestCase):
         self.assertEqual(items[0]["language_code"], "et")
         self.assertEqual(items[0]["page_id"], 5)
 
+    def test_articles_list_no_filters_passes_no_params(self):
+        # Regression guard alongside test_list_returns_simplified — make
+        # sure the bare-call request line stays unparameterised.
+        client = MagicMock()
+        client.get_all.return_value = []
+        articles_tools.call_tool("articles_list", {}, client)
+        client.get_all.assert_called_once_with("/articles")
+
+    def test_articles_list_passes_page_id(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        articles_tools.call_tool("articles_list", {"page_id": 42}, client)
+        client.get_all.assert_called_once_with(
+            "/articles", params={"page_id": 42}
+        )
+
+    def test_articles_list_passes_language_code(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        articles_tools.call_tool(
+            "articles_list", {"language_code": "et"}, client
+        )
+        client.get_all.assert_called_once_with(
+            "/articles", params={"language_code": "et"}
+        )
+
+    def test_articles_list_passes_language_id(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        articles_tools.call_tool(
+            "articles_list", {"language_id": 627582}, client
+        )
+        client.get_all.assert_called_once_with(
+            "/articles", params={"language_id": 627582}
+        )
+
+    def test_articles_list_passes_single_tag(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        articles_tools.call_tool("articles_list", {"tag": "news"}, client)
+        client.get_all.assert_called_once_with(
+            "/articles", params={"tag": "news"}
+        )
+
+    def test_articles_list_passes_sort(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        articles_tools.call_tool(
+            "articles_list", {"sort": "article.created_at.$desc"}, client
+        )
+        client.get_all.assert_called_once_with(
+            "/articles", params={"s": "article.created_at.$desc"}
+        )
+
+    def test_articles_list_combines_filters(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        articles_tools.call_tool(
+            "articles_list",
+            {
+                "page_id": 42,
+                "language_code": "en",
+                "tag": "news",
+                "sort": "article.created_at.$desc",
+            },
+            client,
+        )
+        client.get_all.assert_called_once_with(
+            "/articles",
+            params={
+                "page_id": 42,
+                "language_code": "en",
+                "tag": "news",
+                "s": "article.created_at.$desc",
+            },
+        )
+
 
 class TestArticleGet(unittest.TestCase):
     def test_get_returns_full_article(self):
@@ -332,3 +409,33 @@ class TestArticleDelete(unittest.TestCase):
             client,
         )
         client.delete.assert_called_once_with("/articles/99")
+
+
+class TestArticlesListSchema(unittest.TestCase):
+    def test_articles_list_schema_exposes_filter_args(self):
+        tool = next(
+            t for t in articles_tools.get_tools() if t.name == "articles_list"
+        )
+        props = tool.inputSchema["properties"]
+        for arg in ("page_id", "language_code", "language_id", "tag", "sort"):
+            self.assertIn(arg, props, f"articles_list schema missing {arg!r}")
+
+    def test_articles_list_only_site_required(self):
+        tool = next(
+            t for t in articles_tools.get_tools() if t.name == "articles_list"
+        )
+        self.assertEqual(tool.inputSchema["required"], ["site"])
+
+    def test_articles_list_string_filters_have_minlength(self):
+        # Empty-string filter values would silently pass through to Voog.
+        # Schema-level minLength:1 rejects this at the MCP boundary.
+        tool = next(
+            t for t in articles_tools.get_tools() if t.name == "articles_list"
+        )
+        props = tool.inputSchema["properties"]
+        for arg in ("language_code", "tag", "sort"):
+            self.assertEqual(
+                props[arg].get("minLength"),
+                1,
+                f"articles_list schema {arg!r} missing minLength:1",
+            )
