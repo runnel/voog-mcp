@@ -289,6 +289,40 @@ def call_tool(
     return error_response(f"Unknown tool: {name}")
 
 
+def _detect_silent_no_op(result, sent: dict, field: str) -> str | None:
+    """Defense-in-depth check that the PUT actually persisted.
+
+    Mirrors the narrow detector that ``voog push`` carried before #101
+    moved to ``size`` / ``updated_at`` indirect signals: if the request
+    sent a non-empty ``field`` and the response *includes* that field
+    but it is empty/falsy, treat the response as a silent no-op
+    (issue #96 symptom against ``layout_assets`` with a wrapped
+    payload). This currently can't reproduce against the MCP path
+    because the tools send the correct flat payload form, but a
+    future regression — accidental envelope re-introduction, rate-
+    limit anomaly, server-side change — would otherwise read back
+    as ``✓`` while the content sat unchanged on Voog. (#99)
+
+    Returns an error message if a silent no-op is detected, ``None``
+    otherwise. Voog's slim PUT responses normally omit the content
+    field entirely, so this falls through to ``None`` on every
+    real response shape we've observed.
+    """
+    sent_value = sent.get(field)
+    if not sent_value:
+        return None
+    if not isinstance(result, dict):
+        return None
+    if field not in result:
+        return None
+    if not result[field]:
+        return (
+            f"response echoed back with `{field}` cleared — content "
+            "NOT updated on Voog (silent no-op symptom)"
+        )
+    return None
+
+
 def _validate_voog_name(value: str, field: str) -> str | None:
     """Voog title/filename rules: non-empty, no / or \\, no leading dot.
 
@@ -431,12 +465,15 @@ def _layout_update(arguments: dict, client: VoogClient) -> list[TextContent] | C
         return error_response("layout_update: at least one of title/body required")
     try:
         result = client.put(f"/layouts/{layout_id}", body)
-        return success_response(
-            result,
-            summary=f"✏️  layout {layout_id} updated ({sorted(body.keys())})",
-        )
     except Exception as e:
         return error_response(f"layout_update id={layout_id} failed: {e}")
+    err = _detect_silent_no_op(result, body, "body")
+    if err:
+        return error_response(f"layout_update id={layout_id}: {err}")
+    return success_response(
+        result,
+        summary=f"✏️  layout {layout_id} updated ({sorted(body.keys())})",
+    )
 
 
 def _layout_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
@@ -490,17 +527,18 @@ def _layout_asset_update(arguments: dict, client: VoogClient) -> list[TextConten
         )
     if arguments.get("data") is None:
         return error_response("layout_asset_update: data is required")
+    payload = {"data": arguments["data"]}
     try:
-        result = client.put(
-            f"/layout_assets/{asset_id}",
-            {"data": arguments["data"]},
-        )
-        return success_response(
-            result,
-            summary=f"📁 layout_asset {asset_id} content updated",
-        )
+        result = client.put(f"/layout_assets/{asset_id}", payload)
     except Exception as e:
         return error_response(f"layout_asset_update id={asset_id} failed: {e}")
+    err = _detect_silent_no_op(result, payload, "data")
+    if err:
+        return error_response(f"layout_asset_update id={asset_id}: {err}")
+    return success_response(
+        result,
+        summary=f"📁 layout_asset {asset_id} content updated",
+    )
 
 
 def _layout_asset_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
