@@ -117,7 +117,7 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
     def test_no_params_uses_only_pagination(self):
         client = self._make_client()
         client.get_all("/pages")
-        client.get.assert_called_once_with("/pages", base=None, params={"per_page": 100, "page": 1})
+        client.get.assert_called_once_with("/pages", base=None, params={"per_page": 200, "page": 1})
 
     def test_caller_params_merged_with_pagination(self):
         client = self._make_client()
@@ -125,7 +125,7 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
         client.get.assert_called_once_with(
             "/products",
             base=None,
-            params={"per_page": 100, "page": 1, "include": "translations"},
+            params={"per_page": 200, "page": 1, "include": "translations"},
         )
 
     def test_base_kwarg_passed_through(self):
@@ -150,8 +150,8 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
         client = VoogClient(host="example.com", api_token="t")
         client.get = MagicMock(
             side_effect=[
-                [{"id": i} for i in range(100)],  # page 1, full
-                [{"id": 100}],  # page 2, partial → loop exits
+                [{"id": i} for i in range(200)],  # page 1, full (new default 200)
+                [{"id": 200}],  # page 2, partial → loop exits
             ]
         )
         client.get_all("/x", params={"page": 99})  # caller's `page` ignored
@@ -163,15 +163,15 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
 
     def test_pagination_increments_page_across_calls(self):
         client = VoogClient(host="example.com", api_token="t")
-        # First page returns full 100, second returns partial → loop exits
+        # First page returns full 200 (new default), second returns partial → loop exits
         client.get = MagicMock(
             side_effect=[
-                [{"id": i} for i in range(100)],
-                [{"id": 100}],
+                [{"id": i} for i in range(200)],
+                [{"id": 200}],
             ]
         )
         result = client.get_all("/x", params={"include": "y"})
-        self.assertEqual(len(result), 101)
+        self.assertEqual(len(result), 201)
         # Page 1 and 2 both got the include param
         first_call = client.get.call_args_list[0]
         second_call = client.get.call_args_list[1]
@@ -179,3 +179,63 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
         self.assertEqual(first_call.kwargs["params"]["include"], "y")
         self.assertEqual(second_call.kwargs["params"]["page"], 2)
         self.assertEqual(second_call.kwargs["params"]["include"], "y")
+
+
+class TestGetAllPagination(unittest.TestCase):
+    """Regression guards for B3 (audit 03-bugs-and-correctness.md)."""
+
+    def test_terminates_when_page_short_under_caller_per_page(self):
+        # Caller asks for per_page=250. Page 1 returns 150 items. The
+        # short page (<250) means iteration must stop — but the pre-fix
+        # implementation hardcoded `< 100`, which would loop forever
+        # (or until Voog's empty page) on a real 150-item endpoint.
+        client = VoogClient(host="example.com", api_token="t")
+        with patch.object(client, "get") as mock_get:
+            mock_get.return_value = [{"id": i} for i in range(150)]
+            results = client.get_all("/pages", params={"per_page": 250})
+        self.assertEqual(len(results), 150)
+        # Exactly one request was made — termination on the short page.
+        mock_get.assert_called_once()
+
+    def test_terminates_when_caller_per_page_full_page_then_empty(self):
+        # Caller asks for per_page=200. Page 1 returns 200 (full); page 2
+        # returns 0. Pre-fix code never terminated correctly here unless
+        # the empty-page short-circuit caught it.
+        client = VoogClient(host="example.com", api_token="t")
+        with patch.object(client, "get") as mock_get:
+            mock_get.side_effect = [
+                [{"id": i} for i in range(200)],
+                [],
+            ]
+            results = client.get_all("/pages", params={"per_page": 200})
+        self.assertEqual(len(results), 200)
+        self.assertEqual(mock_get.call_count, 2)
+
+    def test_terminates_on_empty_first_page(self):
+        client = VoogClient(host="example.com", api_token="t")
+        with patch.object(client, "get") as mock_get:
+            mock_get.return_value = []
+            results = client.get_all("/pages")
+        self.assertEqual(results, [])
+        mock_get.assert_called_once()
+
+    def test_default_per_page_is_200(self):
+        # I10: default per_page raised to 200 (audit P2 — was 100).
+        client = VoogClient(host="example.com", api_token="t")
+        with patch.object(client, "get") as mock_get:
+            mock_get.return_value = []
+            client.get_all("/pages")
+        # The first (and only, since [] returns) call's params should
+        # include per_page=200.
+        _, kwargs = mock_get.call_args
+        self.assertEqual(kwargs["params"]["per_page"], 200)
+
+    def test_caller_per_page_override_wins(self):
+        # Regression guard: caller-supplied per_page in params still
+        # overrides the default.
+        client = VoogClient(host="example.com", api_token="t")
+        with patch.object(client, "get") as mock_get:
+            mock_get.return_value = []
+            client.get_all("/pages", params={"per_page": 250})
+        _, kwargs = mock_get.call_args
+        self.assertEqual(kwargs["params"]["per_page"], 250)

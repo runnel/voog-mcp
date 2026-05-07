@@ -25,7 +25,7 @@ class VoogClient:
             "X-API-Token": api_token,
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "voog-mcp/1.2.2",
+            "User-Agent": "voog-mcp/1.3.0-dev",
         }
 
     def _request(
@@ -66,21 +66,27 @@ class VoogClient:
 
         Caller-provided ``params`` (e.g. ``{"include": "translations"}``) are
         merged with pagination params. ``per_page`` may be overridden by the
-        caller (escape hatch for endpoints that benefit from a different
-        page size); ``page`` is **always** controlled by the iteration loop —
+        caller; ``page`` is **always** controlled by the iteration loop —
         any caller-supplied ``page`` value is ignored, since overriding it
         would silently re-fetch the same page on every iteration and
         infinite-loop on endpoints with ≥1 full page.
+
+        Termination uses the **resolved** ``per_page`` (caller's override
+        wins over the default) so callers asking for ``per_page=250`` get
+        a correct stop condition on short last pages — pre-1.3.0 hardcoded
+        a ``< 100`` check that silently dropped data when the last page
+        contained 100-249 items under a caller override.
         """
         results = []
         page = 1
         while True:
-            page_params = {"per_page": 100, **(params or {}), "page": page}
+            page_params = {"per_page": 200, **(params or {}), "page": page}
+            per_page_resolved = page_params["per_page"]
             data = self.get(path, base=base, params=page_params)
             if not data:
                 break
             results.extend(data)
-            if len(data) < 100:
+            if len(data) < per_page_resolved:
                 break
             page += 1
         return results
