@@ -77,6 +77,7 @@ class TestRedirectsTools(unittest.TestCase):
                     "destination": "/b",
                     "redirect_type": 301,
                     "active": True,
+                    "regexp": False,
                 }
             },
         )
@@ -98,6 +99,7 @@ class TestRedirectsTools(unittest.TestCase):
                     "destination": "/y",
                     "redirect_type": 410,
                     "active": True,
+                    "regexp": False,
                 }
             },
         )

@@ -36,6 +36,33 @@ class TestBuildRedirectPayload(unittest.TestCase):
                     "destination": "/new",
                     "redirect_type": 410,
                     "active": False,
+                    "regexp": False,
+                }
+            },
+        )
+
+    def test_regexp_defaults_false(self):
+        payload = build_redirect_payload("/old", "/new")
+        self.assertIs(payload["redirect_rule"]["regexp"], False)
+
+    def test_regexp_can_be_set_true(self):
+        payload = build_redirect_payload("/old/.*", "/new", regexp=True)
+        self.assertIs(payload["redirect_rule"]["regexp"], True)
+
+    def test_all_fields_present(self):
+        # Full envelope shape — regression guard for any future schema drift.
+        payload = build_redirect_payload(
+            "/old", "/new", redirect_type=302, active=False, regexp=True
+        )
+        self.assertEqual(
+            payload,
+            {
+                "redirect_rule": {
+                    "source": "/old",
+                    "destination": "/new",
+                    "redirect_type": 302,
+                    "active": False,
+                    "regexp": True,
                 }
             },
         )
