@@ -219,6 +219,36 @@ class TestPagesTools(unittest.TestCase):
             },
         )
 
+    def test_pages_list_schema_exposes_q_filter_args(self):
+        tool = next(t for t in pages_tools.get_tools() if t.name == "pages_list")
+        props = tool.inputSchema["properties"]
+        for arg in ("language_code", "content_type", "node_id"):
+            self.assertIn(arg, props, f"pages_list schema missing {arg!r}")
+
+    def test_pages_list_schema_exposes_plain_params(self):
+        tool = next(t for t in pages_tools.get_tools() if t.name == "pages_list")
+        props = tool.inputSchema["properties"]
+        for arg in ("path_prefix", "search", "parent_id", "language_id", "sort"):
+            self.assertIn(arg, props, f"pages_list schema missing {arg!r}")
+
+    def test_pages_list_schema_filter_args_are_optional(self):
+        tool = next(t for t in pages_tools.get_tools() if t.name == "pages_list")
+        # Only `site` is required — every filter is optional.
+        self.assertEqual(tool.inputSchema["required"], ["site"])
+
+    def test_pages_list_schema_string_filters_have_minlength(self):
+        # Empty-string filter values would silently pass through to Voog
+        # (e.g. "?q.page.language_code=") — schema-level minLength:1
+        # rejects this at the MCP boundary instead of letting Voog handle it.
+        tool = next(t for t in pages_tools.get_tools() if t.name == "pages_list")
+        props = tool.inputSchema["properties"]
+        for arg in ("language_code", "content_type", "path_prefix", "search", "sort"):
+            self.assertEqual(
+                props[arg].get("minLength"),
+                1,
+                f"pages_list schema {arg!r} missing minLength:1 — empty strings would slip through",
+            )
+
 
 class TestAllToolsRequireSite(unittest.TestCase):
     def test_all_tools_require_site(self):

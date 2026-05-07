@@ -40,11 +40,57 @@ def get_tools() -> list[Tool]:
     return [
         Tool(
             name="pages_list",
-            description="List all pages on the Voog site (id, path, title, hidden, layout name). Read-only.",
+            description=(
+                "List pages on the Voog site (id, path, title, hidden, layout name). "
+                "All filters are optional; with no filters this returns every page. "
+                "Read-only."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "site": {"type": "string", "description": "Site name from voog_list_sites"},
+                    # q.* filters (exact-match attributes on the page resource)
+                    "language_code": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Filter by language code (e.g. 'et', 'en')",
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Filter by page type. Voog accepts 'page', 'blog', 'elements', 'link'.",
+                    },
+                    "node_id": {
+                        "type": "integer",
+                        "description": "Filter to pages on a specific node (parallel-translation group)",
+                    },
+                    # Plain endpoint params (multi-field or special-purpose filters)
+                    "path_prefix": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Pages whose path starts with this prefix (e.g. '/blog')",
+                    },
+                    "search": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Free-text search across title, menu_title, description, path",
+                    },
+                    "parent_id": {
+                        "type": "integer",
+                        "description": "Filter to direct children of a specific parent page id",
+                    },
+                    "language_id": {
+                        "type": "integer",
+                        "description": "Filter by language id (use language_code for the human-readable form)",
+                    },
+                    "sort": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": (
+                            "Voog sort string: '<object>.<attr>.<$asc|$desc>'. "
+                            "Examples: 'page.title.$asc', 'page.created_at.$desc'."
+                        ),
+                    },
                 },
                 "required": ["site"],
             },
