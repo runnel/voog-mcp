@@ -489,6 +489,53 @@ class TestLayoutUpdate(unittest.TestCase):
         result = layouts_tools.call_tool("layout_update", {"layout_id": 5}, client)
         self.assertTrue(result.isError)
 
+    def test_silent_no_op_body_echo_back_empty(self):
+        # Defense-in-depth (#99): if Voog ever regresses to echoing the
+        # resource with `body` cleared (the original #96 symptom),
+        # surface it as an error instead of silently lying.
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.put.return_value = {"id": 5, "body": ""}
+        result = layouts_tools.call_tool(
+            "layout_update",
+            {"layout_id": 5, "body": "<h1>x</h1>"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("silent no-op", payload["error"])
+        self.assertIn("body", payload["error"])
+
+    def test_slim_response_without_body_field_succeeds(self):
+        # Real Voog PUT responses are slim — `body` is omitted entirely.
+        # Don't false-positive: detector must fall through.
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        result = layouts_tools.call_tool(
+            "layout_update",
+            {"layout_id": 5, "body": "<h1>x</h1>"},
+            client,
+        )
+        self.assertFalse(getattr(result, "isError", False))
+
+    def test_empty_body_input_does_not_trip_detector(self):
+        # If the sent body itself was empty, a cleared response is
+        # consistent — not a silent no-op symptom. (Body required by
+        # earlier validation but defense-in-depth shouldn't false-fire.)
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.put.return_value = {"id": 5, "title": "t"}
+        result = layouts_tools.call_tool(
+            "layout_update",
+            {"layout_id": 5, "title": "t"},
+            client,
+        )
+        self.assertFalse(getattr(result, "isError", False))
+
 
 class TestLayoutDelete(unittest.TestCase):
     def test_requires_force(self):
@@ -577,6 +624,36 @@ class TestLayoutAssetUpdate(unittest.TestCase):
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("asset_replace", payload["error"])
+
+    def test_silent_no_op_data_echo_back_empty(self):
+        # Defense-in-depth (#99) for the asset path — same symptom that
+        # bit `voog push` for legacy "layout_asset" type entries.
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.put.return_value = {"id": 99, "data": ""}
+        result = layouts_tools.call_tool(
+            "layout_asset_update",
+            {"asset_id": 99, "data": "body{margin:0}"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("silent no-op", payload["error"])
+        self.assertIn("data", payload["error"])
+
+    def test_slim_response_without_data_field_succeeds(self):
+        # Real Voog PUT responses omit `data` entirely — must fall through.
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.put.return_value = {"id": 99, "size": 14}
+        result = layouts_tools.call_tool(
+            "layout_asset_update",
+            {"asset_id": 99, "data": "body{margin:0}"},
+            client,
+        )
+        self.assertFalse(getattr(result, "isError", False))
 
 
 class TestLayoutAssetDelete(unittest.TestCase):

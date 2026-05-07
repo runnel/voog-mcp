@@ -12,6 +12,7 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - `voog site-snapshot` (CLI) and `site_snapshot` (MCP tool) now fetch product details with the same `PRODUCTS_DETAIL_INCLUDE` constant the live tools use, so backups inherit per-variant inventory automatically. Previously each surface hardcoded `"variant_types,translations"`, drifting from the source of truth. (#104)
+- `layout_update` and `layout_asset_update` now hard-fail when the PUT response echoes back the resource with the content field cleared (the original #96 silent-no-op symptom). Defense-in-depth only — the MCP tools already send the correct flat payload form, so this can't reproduce on current code paths, but a future regression (envelope re-introduction, server-side rate-limit anomaly, etc.) would otherwise read back as `✓` while the content sat unchanged on Voog. Voog's slim PUT responses normally omit the content field entirely, so the detector falls through on every real response shape. (#99)
 
 ## [1.2.2] — 2026-05-01
 
