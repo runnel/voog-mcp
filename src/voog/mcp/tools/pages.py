@@ -7,24 +7,32 @@ from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
 from voog.projections import simplify_pages
 
-# Mapping from tool argument name → Voog q.* filter key. Kept narrow
-# (Task 1: q.* only); plain params (path_prefix, search, parent_id, sort)
-# are added in Task 2.
+# q.* filters (object.attribute on the resource).
 _PAGES_Q_FILTERS = {
     "language_code": "q.page.language_code",
     "content_type": "q.page.content_type",
     "node_id": "q.page.node_id",
 }
 
+# Plain endpoint params — supported by GET /pages but NOT expressible as
+# q.* filters (multi-field search, prefix matching, parent traversal).
+# See https://www.voog.com/developers/api/resources/pages.
+_PAGES_PLAIN_PARAMS = ("path_prefix", "search", "parent_id", "language_id")
+
 
 def _build_pages_list_params(arguments: dict) -> dict | None:
     """Translate tool args to Voog query params. Returns None when no
     filters are set, so the caller falls through to the unparameterised
-    `client.get_all("/pages")` shape (preserves v1.2.x request line)."""
+    `client.get_all("/pages")` shape."""
     params: dict = {}
     for arg_key, voog_key in _PAGES_Q_FILTERS.items():
         if arg_key in arguments:
             params[voog_key] = arguments[arg_key]
+    for arg_key in _PAGES_PLAIN_PARAMS:
+        if arg_key in arguments:
+            params[arg_key] = arguments[arg_key]
+    if "sort" in arguments:
+        params["s"] = arguments["sort"]
     return params or None
 
 

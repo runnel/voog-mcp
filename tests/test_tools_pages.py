@@ -158,6 +158,67 @@ class TestPagesTools(unittest.TestCase):
         pages_tools.call_tool("pages_list", {}, client)
         client.get_all.assert_called_once_with("/pages")
 
+    def test_pages_list_passes_path_prefix(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"path_prefix": "/blog"}, client)
+        client.get_all.assert_called_once_with(
+            "/pages", params={"path_prefix": "/blog"}
+        )
+
+    def test_pages_list_passes_search(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"search": "about"}, client)
+        client.get_all.assert_called_once_with(
+            "/pages", params={"search": "about"}
+        )
+
+    def test_pages_list_passes_parent_id(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"parent_id": 12}, client)
+        client.get_all.assert_called_once_with(
+            "/pages", params={"parent_id": 12}
+        )
+
+    def test_pages_list_passes_language_id(self):
+        # language_id (integer) is the plain endpoint param. language_code
+        # (string) is the q.page.language_code filter (covered in Task 1).
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"language_id": 627583}, client)
+        client.get_all.assert_called_once_with(
+            "/pages", params={"language_id": 627583}
+        )
+
+    def test_pages_list_passes_sort(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool(
+            "pages_list", {"sort": "page.title.$asc"}, client
+        )
+        client.get_all.assert_called_once_with(
+            "/pages", params={"s": "page.title.$asc"}
+        )
+
+    def test_pages_list_combines_q_and_plain_params(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool(
+            "pages_list",
+            {"content_type": "blog", "search": "leather", "sort": "page.created_at.$desc"},
+            client,
+        )
+        client.get_all.assert_called_once_with(
+            "/pages",
+            params={
+                "q.page.content_type": "blog",
+                "search": "leather",
+                "s": "page.created_at.$desc",
+            },
+        )
+
 
 class TestAllToolsRequireSite(unittest.TestCase):
     def test_all_tools_require_site(self):
