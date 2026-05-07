@@ -134,6 +134,62 @@ class TestRedirectsTools(unittest.TestCase):
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
+    def test_redirect_add_schema_exposes_regexp_and_active(self):
+        tools = {t.name: t for t in redirects_tools.get_tools()}
+        props = tools["redirect_add"].inputSchema["properties"]
+        self.assertIn("regexp", props)
+        self.assertEqual(props["regexp"]["type"], "boolean")
+        self.assertIn("active", props)
+        self.assertEqual(props["active"]["type"], "boolean")
+
+    def test_redirect_add_schema_regexp_and_active_optional(self):
+        tools = {t.name: t for t in redirects_tools.get_tools()}
+        required = tools["redirect_add"].inputSchema["required"]
+        self.assertNotIn("regexp", required)
+        self.assertNotIn("active", required)
+
+    def test_redirect_add_passes_regexp_to_client(self):
+        client = MagicMock()
+        client.post.return_value = {
+            "id": 1,
+            "source": "/old/.*",
+            "destination": "/new",
+            "redirect_type": 301,
+            "regexp": True,
+            "active": True,
+        }
+        redirects_tools.call_tool(
+            "redirect_add",
+            {"source": "/old/.*", "destination": "/new", "regexp": True},
+            client,
+        )
+        sent_path = client.post.call_args[0][0]
+        sent_body = client.post.call_args[0][1]
+        self.assertEqual(sent_path, "/redirect_rules")
+        self.assertIs(sent_body["redirect_rule"]["regexp"], True)
+
+    def test_redirect_add_defaults_regexp_false(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 1, "source": "/old", "destination": "/new"}
+        redirects_tools.call_tool(
+            "redirect_add",
+            {"source": "/old", "destination": "/new"},
+            client,
+        )
+        sent_body = client.post.call_args[0][1]
+        self.assertIs(sent_body["redirect_rule"]["regexp"], False)
+
+    def test_redirect_add_passes_active_false(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 1, "source": "/old", "destination": "/new"}
+        redirects_tools.call_tool(
+            "redirect_add",
+            {"source": "/old", "destination": "/new", "active": False},
+            client,
+        )
+        sent_body = client.post.call_args[0][1]
+        self.assertIs(sent_body["redirect_rule"]["active"], False)
+
 
 class TestAllToolsRequireSite(unittest.TestCase):
     def test_all_tools_require_site(self):

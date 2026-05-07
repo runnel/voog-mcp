@@ -34,6 +34,8 @@ def get_tools() -> list[Tool]:
             description=(
                 "Add a redirect rule. source/destination are paths (e.g. /old → /new). "
                 "redirect_type defaults to 301; allowed: 301, 302, 307, 410. "
+                "Set regexp=true to treat source as a regex pattern. "
+                "Set active=false to create the rule disabled. "
                 "For 410 (Gone), destination is semantically meaningless — Voog still "
                 "stores it but never redirects there; pass any value (e.g. source path)."
             ),
@@ -57,6 +59,19 @@ def get_tools() -> list[Tool]:
                         "description": "HTTP status code: 301 (permanent), 302 (temporary), 307 (temporary, preserve method), 410 (gone — destination ignored). Default 301.",
                         "enum": VALID_REDIRECT_TYPES,
                         "default": 301,
+                    },
+                    "active": {
+                        "type": "boolean",
+                        "description": "Whether the rule is active. Default true.",
+                        "default": True,
+                    },
+                    "regexp": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, treat 'source' as a regex pattern (Voog's regex "
+                            "redirect feature). Default false (literal path match)."
+                        ),
+                        "default": False,
                     },
                 },
                 "required": ["site", "source", "destination"],
@@ -146,14 +161,27 @@ def call_tool(
         source = arguments.get("source")
         destination = arguments.get("destination")
         rtype = arguments.get("redirect_type", 301)
+        active = arguments.get("active", True)
+        regexp = arguments.get("regexp", False)
         try:
             result = client.post(
                 "/redirect_rules",
-                build_redirect_payload(source, destination, redirect_type=rtype),
+                build_redirect_payload(
+                    source,
+                    destination,
+                    redirect_type=rtype,
+                    active=active,
+                    regexp=regexp,
+                ),
             )
+            summary_extras = ""
+            if regexp:
+                summary_extras += ", regex"
+            if not active:
+                summary_extras += ", inactive"
             return success_response(
                 result,
-                summary=f"✅ {source} → {destination} ({rtype})",
+                summary=f"✅ {source} → {destination} ({rtype}{summary_extras})",
             )
         except Exception as e:
             return error_response(f"redirect_add failed: {e}")
