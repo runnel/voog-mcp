@@ -297,6 +297,58 @@ class TestRedirectUpdate(unittest.TestCase):
         self.assertEqual(rr["destination"], "/new-dest")
         self.assertEqual(rr["redirect_type"], 302)
 
+    def test_redirect_update_schema_exposes_regexp(self):
+        tools = {t.name: t for t in redirects_tools.get_tools()}
+        props = tools["redirect_update"].inputSchema["properties"]
+        self.assertIn("regexp", props)
+        self.assertEqual(props["regexp"]["type"], "boolean")
+
+    def test_redirect_update_merges_regexp_into_put(self):
+        client = MagicMock()
+        # GET returns the existing rule; redirect_update merges and PUTs.
+        client.get.return_value = {
+            "id": 7,
+            "source": "/old",
+            "destination": "/new",
+            "redirect_type": 301,
+            "active": True,
+            "regexp": False,
+        }
+        client.put.return_value = {"id": 7}
+        redirects_tools.call_tool(
+            "redirect_update",
+            {"redirect_id": 7, "regexp": True},
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertIs(sent_body["redirect_rule"]["regexp"], True)
+        # Other fields preserved from GET (B2 GET-merge-PUT contract).
+        self.assertEqual(sent_body["redirect_rule"]["source"], "/old")
+        self.assertEqual(sent_body["redirect_rule"]["destination"], "/new")
+        self.assertIs(sent_body["redirect_rule"]["active"], True)
+
+    def test_redirect_update_preserves_regexp_when_not_supplied(self):
+        # If caller doesn't pass regexp, the GET-merge-PUT must echo back
+        # whatever Voog had. Pre-fix REDIRECT_FIELDS lacked regexp, so the
+        # PUT envelope omitted it and Voog coerced to default false.
+        client = MagicMock()
+        client.get.return_value = {
+            "id": 7,
+            "source": "/old",
+            "destination": "/new",
+            "redirect_type": 301,
+            "active": True,
+            "regexp": True,
+        }
+        client.put.return_value = {"id": 7}
+        redirects_tools.call_tool(
+            "redirect_update",
+            {"redirect_id": 7, "destination": "/even-newer"},
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertIs(sent_body["redirect_rule"]["regexp"], True)
+
 
 class TestRedirectDelete(unittest.TestCase):
     def test_requires_force(self):

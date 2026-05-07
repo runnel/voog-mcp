@@ -8,7 +8,7 @@ from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
 
 VALID_REDIRECT_TYPES = [301, 302, 307, 410]
-REDIRECT_FIELDS = ("source", "destination", "redirect_type", "active")
+REDIRECT_FIELDS = ("source", "destination", "redirect_type", "active", "regexp")
 
 
 def get_tools() -> list[Tool]:
@@ -92,7 +92,7 @@ def get_tools() -> list[Tool]:
             name="redirect_update",
             description=(
                 "Update an existing redirect rule. At least one of source, "
-                "destination, redirect_type, active must be supplied. "
+                "destination, redirect_type, active, regexp must be supplied. "
                 "redirect_type ∈ {301, 302, 307, 410}. Reversible by "
                 "calling again with previous values.\n\n"
                 "Voog's PUT /redirect_rules/{id} is full-replace — missing "
@@ -112,6 +112,10 @@ def get_tools() -> list[Tool]:
                         "enum": VALID_REDIRECT_TYPES,
                     },
                     "active": {"type": "boolean"},
+                    "regexp": {
+                        "type": "boolean",
+                        "description": "Treat source as a regex pattern.",
+                    },
                 },
                 "required": ["site", "redirect_id"],
             },
