@@ -1,6 +1,7 @@
 """Unit tests for VoogClient."""
 
 import unittest
+import urllib.error
 from unittest.mock import MagicMock, patch
 
 from voog.client import VoogClient
@@ -239,3 +240,115 @@ class TestGetAllPagination(unittest.TestCase):
             client.get_all("/pages", params={"per_page": 250})
         _, kwargs = mock_get.call_args
         self.assertEqual(kwargs["params"]["per_page"], 250)
+
+
+class TestRequestRetry(unittest.TestCase):
+    """Audit I9 — retry on transient failures (5xx, OSError)."""
+
+    def test_5xx_is_retried_then_succeeds(self):
+        client = VoogClient(host="example.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b'{"ok": true}'
+        err_503 = urllib.error.HTTPError(
+            url="x", code=503, msg="Service Unavailable", hdrs=None, fp=None
+        )
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            cm = MagicMock()
+            cm.__enter__.return_value = fake_resp
+            cm.__exit__.return_value = False
+            mock_urlopen.side_effect = [err_503, cm]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                result = client.get("/pages")
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(mock_urlopen.call_count, 2)
+        # Backoff: 0.5 * 2^0 = 0.5 on the first retry.
+        mock_sleep.assert_called_once_with(0.5)
+
+    def test_500_then_500_then_success(self):
+        client = VoogClient(host="example.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        err_500 = urllib.error.HTTPError(
+            url="x", code=500, msg="Internal", hdrs=None, fp=None
+        )
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            cm = MagicMock()
+            cm.__enter__.return_value = fake_resp
+            cm.__exit__.return_value = False
+            mock_urlopen.side_effect = [err_500, err_500, cm]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                client.get("/pages")
+        self.assertEqual(mock_urlopen.call_count, 3)
+        # Backoff escalates: 0.5, 1.0
+        self.assertEqual(
+            [c.args[0] for c in mock_sleep.call_args_list],
+            [0.5, 1.0],
+        )
+
+    def test_5xx_exhausted_raises(self):
+        client = VoogClient(host="example.com", api_token="t")
+        err_502 = urllib.error.HTTPError(
+            url="x", code=502, msg="Bad Gateway", hdrs=None, fp=None
+        )
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_502, err_502, err_502]
+            with patch("voog.client.time.sleep"):
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    client.get("/pages")
+        self.assertEqual(ctx.exception.code, 502)
+        # 3 total attempts: 1 initial + 2 retries.
+        self.assertEqual(mock_urlopen.call_count, 3)
+
+    def test_4xx_not_retried(self):
+        # 422 (validation) is a caller error — retrying spams Voog.
+        client = VoogClient(host="example.com", api_token="t")
+        err_422 = urllib.error.HTTPError(
+            url="x", code=422, msg="Unprocessable", hdrs=None, fp=None
+        )
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_422]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                with self.assertRaises(urllib.error.HTTPError):
+                    client.get("/pages")
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    def test_oserror_is_retried(self):
+        client = VoogClient(host="example.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            cm = MagicMock()
+            cm.__enter__.return_value = fake_resp
+            cm.__exit__.return_value = False
+            mock_urlopen.side_effect = [
+                OSError("connection reset by peer"),
+                cm,
+            ]
+            with patch("voog.client.time.sleep"):
+                client.get("/pages")
+        self.assertEqual(mock_urlopen.call_count, 2)
+
+    def test_oserror_exhausted_raises(self):
+        client = VoogClient(host="example.com", api_token="t")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = OSError("permanent disconnect")
+            with patch("voog.client.time.sleep"):
+                with self.assertRaises(OSError):
+                    client.get("/pages")
+        self.assertEqual(mock_urlopen.call_count, 3)
+
+    def test_successful_first_try_no_retry(self):
+        # Regression guard: happy path makes exactly one HTTP call.
+        client = VoogClient(host="example.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            cm = MagicMock()
+            cm.__enter__.return_value = fake_resp
+            cm.__exit__.return_value = False
+            mock_urlopen.return_value = cm
+            with patch("voog.client.time.sleep") as mock_sleep:
+                client.get("/pages")
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
