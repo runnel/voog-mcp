@@ -104,16 +104,31 @@ Now `voog pull` / `voog push` from that directory always target the right site, 
 
 ```bash
 voog --help                      # all commands
+voog list-sites                  # show configured sites
 voog --site mysite products      # list products on mysite
 voog pull                        # download templates (uses cwd-level voog.json)
 voog push layouts/Front\ page.tpl
 voog redirects
 voog config check                # verify all configured tokens
+voog snapshot --output backup/   # full-site snapshot for diff/audit
 ```
 
 ## Use as MCP server
 
-Add to your Claude Code config (or any MCP client):
+Add to your Claude Code config (or any MCP client). The simplest setup uses the published PyPI package:
+
+```json
+{
+  "mcpServers": {
+    "voog": {
+      "command": "uvx",
+      "args": ["voog-mcp"]
+    }
+  }
+}
+```
+
+If you'd rather track unreleased main (e.g. for a fix that hasn't shipped yet), point `uvx` at the GitHub repo instead:
 
 ```json
 {
@@ -159,14 +174,15 @@ Full endpoint coverage reference: [docs/voog-mcp-endpoint-coverage.md](docs/voog
 
 ## What's NOT supported
 
-voog-mcp covers the surface area needed to manage content and a small ecommerce catalog. The following Voog API areas are intentionally out of scope for now:
+voog-mcp covers the surface area needed to manage content and a small ecommerce catalog. The following Voog API areas are intentionally out of scope for now — drop down to the generic `voog_admin_api_call` / `voog_ecommerce_api_call` passthrough tools when you need them:
 
-- Order management, cart, and discount data — only via generic passthrough
-- Form definitions and form responses — only via generic passthrough
-- People / site_user admin — only via generic passthrough
+- Order management, cart, and discount data
+- Form definitions and form responses
+- People / site_user admin
 - Comments and visitor data
-- Multipart uploads (favicons, product bulk imports) — only via generic passthrough
-- Bulk operations (product update/delete, page batch operations) — only via generic passthrough
+- Site favicons and bulk file imports — product image galleries are first-class via `product_set_images`, but other multipart uploads still go via passthrough
+- Bulk product update / delete — bulk page show/hide is first-class via `page_set_hidden(ids=[...])`; product batch ops aren't covered yet
+- Single-product deletion — `product_delete` is not yet wrapped (a v1.4 candidate); use passthrough in the meantime
 - Site creation (voog-mcp targets existing sites)
 
 If you need any of these, open an [issue](https://github.com/runnel/voog-mcp/issues) — or a PR.
