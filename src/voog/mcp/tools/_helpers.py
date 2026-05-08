@@ -210,10 +210,7 @@ def require_int(name: str, value, *, tool_name: str) -> str | None:
     """
     # bool is an int subclass; check first to short-circuit before the int check
     if isinstance(value, bool) or not isinstance(value, int):
-        return (
-            f"{tool_name}: {name} must be an integer"
-            f" (got {type(value).__name__}: {value!r})"
-        )
+        return f"{tool_name}: {name} must be an integer (got {type(value).__name__}: {value!r})"
     return None
 
 

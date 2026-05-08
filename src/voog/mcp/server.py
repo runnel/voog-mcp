@@ -60,16 +60,18 @@ logger = logging.getLogger("voog")
 # may include PII, and is rarely useful in raw form when troubleshooting tool
 # dispatch. Long string values under any OTHER key are length-capped via the
 # second pass — see _STRING_CAP and _redact_arguments.
-_REDACTED_KEYS = frozenset({
-    "body",          # article/page/content_partial body, layout source
-    "data",          # arbitrary kv data on pages/articles/site
-    "value",         # element value in element_create/update
-    "values",        # element value-map (plural form on elements list/get)
-    "source",        # webhook event source, layout source
-    "translations",  # per-language string maps on products / variants
-    "attributes",    # product create/update attributes dict (price, stock, etc.)
-    "fields",        # legacy product fields
-})
+_REDACTED_KEYS = frozenset(
+    {
+        "body",  # article/page/content_partial body, layout source
+        "data",  # arbitrary kv data on pages/articles/site
+        "value",  # element value in element_create/update
+        "values",  # element value-map (plural form on elements list/get)
+        "source",  # webhook event source, layout source
+        "translations",  # per-language string maps on products / variants
+        "attributes",  # product create/update attributes dict (price, stock, etc.)
+        "fields",  # legacy product fields
+    }
+)
 _STRING_CAP = 500  # characters; any single string value longer than this is truncated
 
 

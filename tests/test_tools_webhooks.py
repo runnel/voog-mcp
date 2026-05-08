@@ -279,7 +279,12 @@ class TestWebhookCreateTargetIdValidation(unittest.TestCase):
         client = MagicMock()
         result = wt.call_tool(
             "webhook_create",
-            {"target": "order", "event": "paid", "url": "https://example.com/hook", "target_id": True},
+            {
+                "target": "order",
+                "event": "paid",
+                "url": "https://example.com/hook",
+                "target_id": True,
+            },
             client,
         )
         client.post.assert_not_called()
@@ -291,7 +296,12 @@ class TestWebhookCreateTargetIdValidation(unittest.TestCase):
         client = MagicMock()
         result = wt.call_tool(
             "webhook_create",
-            {"target": "order", "event": "paid", "url": "https://example.com/hook", "target_id": False},
+            {
+                "target": "order",
+                "event": "paid",
+                "url": "https://example.com/hook",
+                "target_id": False,
+            },
             client,
         )
         client.post.assert_not_called()
@@ -326,7 +336,12 @@ class TestWebhookCreateTargetIdValidation(unittest.TestCase):
         client.post.return_value = {"id": 1}
         wt.call_tool(
             "webhook_create",
-            {"target": "order", "event": "paid", "url": "https://example.com/hook", "target_id": None},
+            {
+                "target": "order",
+                "event": "paid",
+                "url": "https://example.com/hook",
+                "target_id": None,
+            },
             client,
         )
         client.post.assert_called_once()

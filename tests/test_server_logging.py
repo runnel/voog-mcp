@@ -135,11 +135,11 @@ class TestRedactArgumentsMixed(unittest.TestCase):
 
     def test_mixed_dict(self):
         args = {
-            "site": "mysite",        # passthrough (identifier)
-            "page_id": 7,            # passthrough (int)
-            "body": "some html",     # redacted key
-            "title": "t" * 800,     # long string → capped
-            "force": True,           # passthrough (bool)
+            "site": "mysite",  # passthrough (identifier)
+            "page_id": 7,  # passthrough (int)
+            "body": "some html",  # redacted key
+            "title": "t" * 800,  # long string → capped
+            "force": True,  # passthrough (bool)
         }
         result = _redact_arguments(args)
         self.assertEqual(result["site"], "mysite")
@@ -218,7 +218,9 @@ class TestCallToolDebugLogDoesNotLeakBody(unittest.TestCase):
                 def _wrap(fn):
                     captured[slot] = fn
                     return fn
+
                 return _wrap
+
             return _decorator
 
         fake_server.list_tools = _decorator_factory("list_tools")
@@ -229,11 +231,14 @@ class TestCallToolDebugLogDoesNotLeakBody(unittest.TestCase):
         class _StdioCancel:
             async def __aenter__(self):
                 raise asyncio.CancelledError("stop here")
+
             async def __aexit__(self, *exc):
                 return False
 
         global_cfg = GlobalConfig(
-            sites={"test": SiteConfig(name="test", host="example.com", api_key_env="TEST_API_TOKEN")},
+            sites={
+                "test": SiteConfig(name="test", host="example.com", api_key_env="TEST_API_TOKEN")
+            },
             default_site="test",
         )
         env = {"TEST_API_TOKEN": "dummy-token"}

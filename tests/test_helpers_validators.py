@@ -136,9 +136,7 @@ class TestRequireForce(unittest.TestCase):
         )
 
     def test_force_nonzero_int_returns_none(self):
-        self.assertIsNone(
-            require_force({"force": 1}, tool_name="tool_x", target_desc="item 5")
-        )
+        self.assertIsNone(require_force({"force": 1}, tool_name="tool_x", target_desc="item 5"))
 
     # --- force absent or falsy → error string ---
 

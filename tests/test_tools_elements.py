@@ -460,7 +460,9 @@ class TestElementsListBoolReject(unittest.TestCase):
     def test_valid_int_still_works(self):
         client = MagicMock()
         client.get_all.return_value = []
-        et.call_tool("elements_list", {"page_id": 7, "language_id": 2, "element_definition_id": 3}, client)
+        et.call_tool(
+            "elements_list", {"page_id": 7, "language_id": 2, "element_definition_id": 3}, client
+        )
         client.get_all.assert_called_once()
         params = client.get_all.call_args.kwargs["params"]
         self.assertEqual(params["page_id"], 7)

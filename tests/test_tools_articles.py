@@ -424,9 +424,7 @@ class TestArticlePublish(unittest.TestCase):
 
     def test_article_id_bool_rejected(self):
         client = MagicMock()
-        result = articles_tools.call_tool(
-            "article_publish", {"article_id": False}, client
-        )
+        result = articles_tools.call_tool("article_publish", {"article_id": False}, client)
         self.assertTrue(result.isError)
         client.get.assert_not_called()
         client.put.assert_not_called()
