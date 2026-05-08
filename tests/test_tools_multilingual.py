@@ -8,7 +8,7 @@ from voog.mcp.tools import multilingual as mt
 
 
 class TestGetTools(unittest.TestCase):
-    def test_seven_tools_registered(self):
+    def test_eight_tools_registered(self):
         names = sorted(t.name for t in mt.get_tools())
         self.assertEqual(
             names,
@@ -18,6 +18,7 @@ class TestGetTools(unittest.TestCase):
                 "languages_list",
                 "node_get",
                 "node_move",
+                "node_relocate",
                 "node_update",
                 "nodes_list",
             ],
@@ -327,6 +328,84 @@ class TestNodeMove(unittest.TestCase):
         ann = tools["node_move"].annotations
         # Re-issuing the same move yields the same tree state — idempotent.
         # No data loss — not destructive.
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, True)
+
+
+class TestNodeRelocate(unittest.TestCase):
+    def test_relocate_in_get_tools(self):
+        names = {t.name for t in mt.get_tools()}
+        self.assertIn("node_relocate", names)
+
+    def test_relocate_with_before(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 3}
+        mt.call_tool(
+            "node_relocate",
+            {"node_id": 3, "before": 2},
+            client,
+        )
+        client.put.assert_called_once_with("/nodes/3/relocate", {"before": 2})
+
+    def test_relocate_with_after(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 3}
+        mt.call_tool(
+            "node_relocate",
+            {"node_id": 3, "after": 5},
+            client,
+        )
+        client.put.assert_called_once_with("/nodes/3/relocate", {"after": 5})
+
+    def test_relocate_with_parent_node_id(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 3}
+        mt.call_tool(
+            "node_relocate",
+            {"node_id": 3, "parent_node_id": 7},
+            client,
+        )
+        client.put.assert_called_once_with("/nodes/3/relocate", {"parent_node_id": 7})
+
+    def test_relocate_requires_at_least_one_field(self):
+        client = MagicMock()
+        result = mt.call_tool(
+            "node_relocate",
+            {"node_id": 3},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_relocate_rejects_multiple_fields(self):
+        # Voog's docs are silent on what happens when more than one is
+        # supplied; defensive rejection keeps the contract clean and
+        # forces the caller to be explicit.
+        client = MagicMock()
+        result = mt.call_tool(
+            "node_relocate",
+            {"node_id": 3, "before": 2, "after": 5},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_relocate_no_envelope_wrapper(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 3}
+        mt.call_tool(
+            "node_relocate",
+            {"node_id": 3, "before": 2},
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertNotIn("node", sent_body)
+        self.assertIn("before", sent_body)
+
+    def test_relocate_annotations(self):
+        tools = {t.name: t for t in mt.get_tools()}
+        ann = tools["node_relocate"].annotations
         self.assertIs(ann.readOnlyHint, False)
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, True)

@@ -1,6 +1,6 @@
 """MCP tools for Voog multilingual primitives — languages and nodes.
 
-Seven tools:
+Eight tools:
 
   - ``language_create`` — POST /languages, add a new site language.
   - ``language_delete`` — DELETE /languages/{id}, remove a language (force gate).
@@ -15,6 +15,10 @@ Seven tools:
   - ``node_update``     — PUT /nodes/{id}, update a node's title.
   - ``node_move``       — PUT /nodes/{id}/move, move/reorder a node
                            within the tree via query-string params.
+  - ``node_relocate``   — PUT /nodes/{id}/relocate, place a node at a
+                           precise position relative to a sibling or
+                           under a new parent (flat body, exactly one
+                           of before/after/parent_node_id).
 """
 
 from mcp.types import CallToolResult, TextContent, Tool
@@ -248,6 +252,46 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": True,
             },
         ),
+        Tool(
+            name="node_relocate",
+            description=(
+                "Relocate a node to a precise position relative to a "
+                "sibling, or to the first slot under a new parent (PUT "
+                "/nodes/{id}/relocate). Body is FLAT. Supply EXACTLY ONE "
+                "of: before (place this node before the given sibling "
+                "id), after (place after sibling id), or parent_node_id "
+                "(move to first position under new parent). Mutually "
+                "exclusive — handler rejects multiple."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "node_id": {
+                        "type": "integer",
+                        "description": "Voog node id to relocate",
+                    },
+                    "before": {
+                        "type": "integer",
+                        "description": "Sibling node id; place this node before it",
+                    },
+                    "after": {
+                        "type": "integer",
+                        "description": "Sibling node id; place this node after it",
+                    },
+                    "parent_node_id": {
+                        "type": "integer",
+                        "description": "New parent node id (moves to first position)",
+                    },
+                },
+                "required": ["site", "node_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
     ]
 
 
@@ -291,6 +335,9 @@ def call_tool(
 
     if name == "node_move":
         return _node_move(arguments, client)
+
+    if name == "node_relocate":
+        return _node_relocate(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 
@@ -388,3 +435,28 @@ def _node_move(arguments: dict, client: VoogClient) -> list[TextContent] | CallT
         )
     except Exception as e:
         return error_response(f"node_move id={node_id} failed: {e}")
+
+
+_NODE_RELOCATE_FIELDS = ("before", "after", "parent_node_id")
+
+
+def _node_relocate(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    node_id = arguments.get("node_id")
+    supplied = [k for k in _NODE_RELOCATE_FIELDS if arguments.get(k) is not None]
+    if not supplied:
+        return error_response("node_relocate: supply exactly one of before, after, parent_node_id")
+    if len(supplied) > 1:
+        return error_response(
+            f"node_relocate: supplied {supplied}; the three positional "
+            "fields are mutually exclusive — pick one"
+        )
+    key = supplied[0]
+    body = {key: arguments[key]}
+    try:
+        result = client.put(f"/nodes/{node_id}/relocate", body)
+        return success_response(
+            result,
+            summary=f"🌳 node {node_id} relocated: {key}={arguments[key]}",
+        )
+    except Exception as e:
+        return error_response(f"node_relocate id={node_id} failed: {e}")
