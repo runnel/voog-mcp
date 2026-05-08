@@ -19,6 +19,20 @@ class TestGetTools(unittest.TestCase):
         self.assertIs(ann.idempotentHint, True)
 
 
+class TestContentPartialsBoolReject(unittest.TestCase):
+    """T4b: require_int guards — bools must not reach Voog as ids."""
+
+    def test_content_partial_update_id_bool_rejected(self):
+        client = MagicMock()
+        result = content_partials_tools.call_tool(
+            "content_partial_update",
+            {"content_partial_id": True, "body": "<p>x</p>"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+
 class TestContentPartialUpdate(unittest.TestCase):
     def test_update_body_only(self):
         client = MagicMock()

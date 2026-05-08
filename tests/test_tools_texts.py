@@ -16,6 +16,31 @@ class TestGetTools(unittest.TestCase):
         )
 
 
+class TestTextsBoolReject(unittest.TestCase):
+    """T4b: require_int guards — bools must not reach Voog as ids."""
+
+    def test_text_get_text_id_bool_rejected(self):
+        client = MagicMock()
+        result = texts_tools.call_tool("text_get", {"text_id": True}, client)
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
+
+    def test_text_update_text_id_bool_rejected(self):
+        client = MagicMock()
+        result = texts_tools.call_tool(
+            "text_update", {"text_id": False, "body": "<p>x</p>"}, client
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_page_add_content_page_id_bool_rejected(self):
+        client = MagicMock()
+        result = texts_tools.call_tool("page_add_content", {"page_id": True}, client)
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()
+        client.post.assert_not_called()
+
+
 class TestTextGet(unittest.TestCase):
     def test_get_returns_full_text_object(self):
         client = MagicMock()

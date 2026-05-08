@@ -22,7 +22,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import require_int, strip_site
 
 VALID_CONTENT_TYPES = (
     "text",
@@ -151,6 +151,9 @@ def call_tool(
 
     if name == "text_get":
         text_id = arguments.get("text_id")
+        err = require_int("text_id", text_id, tool_name="text_get")
+        if err:
+            return error_response(err)
         try:
             return success_response(client.get(f"/texts/{text_id}"))
         except Exception as e:
@@ -158,6 +161,9 @@ def call_tool(
 
     if name == "text_update":
         text_id = arguments.get("text_id")
+        err = require_int("text_id", text_id, tool_name="text_update")
+        if err:
+            return error_response(err)
         body = arguments.get("body")
         if body is None:
             return error_response("text_update: body is required")
@@ -172,6 +178,9 @@ def call_tool(
 
     if name == "page_add_content":
         page_id = arguments.get("page_id")
+        err = require_int("page_id", page_id, tool_name="page_add_content")
+        if err:
+            return error_response(err)
         area_name = arguments.get("name") or "body"
         content_type = arguments.get("content_type") or "text"
         force = bool(arguments.get("force"))

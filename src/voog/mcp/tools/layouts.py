@@ -26,7 +26,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import require_int, strip_site
 
 
 def get_tools() -> list[Tool]:
@@ -318,6 +318,9 @@ def _validate_voog_name(value: str, field: str) -> str | None:
 
 def _layout_rename(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     layout_id = arguments.get("layout_id")
+    err = require_int("layout_id", layout_id, tool_name="layout_rename")
+    if err:
+        return error_response(err)
     new_title = arguments.get("new_title", "")
     err = _validate_voog_name(new_title, "new_title")
     if err:
@@ -374,6 +377,9 @@ def _layout_create(arguments: dict, client: VoogClient) -> list[TextContent] | C
 
 def _asset_replace(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     asset_id = arguments.get("asset_id")
+    err = require_int("asset_id", asset_id, tool_name="asset_replace")
+    if err:
+        return error_response(err)
     new_filename = arguments.get("new_filename", "")
     err = _validate_voog_name(new_filename, "new_filename")
     if err:
@@ -431,6 +437,9 @@ def _asset_replace(arguments: dict, client: VoogClient) -> list[TextContent] | C
 
 def _layout_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     layout_id = arguments.get("layout_id")
+    err = require_int("layout_id", layout_id, tool_name="layout_update")
+    if err:
+        return error_response(err)
     body: dict = {}
     if arguments.get("title") is not None:
         title = arguments["title"]
@@ -457,6 +466,9 @@ def _layout_update(arguments: dict, client: VoogClient) -> list[TextContent] | C
 
 def _layout_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     layout_id = arguments.get("layout_id")
+    err = require_int("layout_id", layout_id, tool_name="layout_delete")
+    if err:
+        return error_response(err)
     if not arguments.get("force"):
         return error_response(
             f"layout_delete: refusing to delete layout {layout_id} without force=true. "
@@ -500,6 +512,9 @@ def _layout_asset_create(arguments: dict, client: VoogClient) -> list[TextConten
 
 def _layout_asset_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     asset_id = arguments.get("asset_id")
+    err = require_int("asset_id", asset_id, tool_name="layout_asset_update")
+    if err:
+        return error_response(err)
     if "filename" in arguments and arguments["filename"]:
         return error_response(
             "layout_asset_update: filename is read-only on PUT (Voog "
@@ -523,6 +538,9 @@ def _layout_asset_update(arguments: dict, client: VoogClient) -> list[TextConten
 
 def _layout_asset_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     asset_id = arguments.get("asset_id")
+    err = require_int("asset_id", asset_id, tool_name="layout_asset_delete")
+    if err:
+        return error_response(err)
     if not arguments.get("force"):
         return error_response(
             f"layout_asset_delete: refusing to delete asset {asset_id} "

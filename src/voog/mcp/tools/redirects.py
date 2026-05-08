@@ -5,7 +5,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._payloads import build_redirect_envelope, build_redirect_payload
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import require_int, strip_site
 
 VALID_REDIRECT_TYPES = [301, 302, 307, 410]
 REDIRECT_FIELDS = ("source", "destination", "redirect_type", "active", "regexp")
@@ -163,6 +163,10 @@ def _redirect_add(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
     rtype = arguments.get("redirect_type", 301)
     active = arguments.get("active", True)
     regexp = arguments.get("regexp", False)
+    if arguments.get("redirect_type") is not None:
+        err = require_int("redirect_type", rtype, tool_name="redirect_add")
+        if err:
+            return error_response(err)
     try:
         result = client.post(
             "/redirect_rules",
@@ -189,7 +193,14 @@ def _redirect_add(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
 
 def _redirect_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     redirect_id = arguments.get("redirect_id")
+    err = require_int("redirect_id", redirect_id, tool_name="redirect_update")
+    if err:
+        return error_response(err)
     rtype = arguments.get("redirect_type")
+    if rtype is not None:
+        err = require_int("redirect_type", rtype, tool_name="redirect_update")
+        if err:
+            return error_response(err)
     if rtype is not None and rtype not in VALID_REDIRECT_TYPES:
         return error_response(
             f"redirect_update: invalid redirect_type {rtype!r}; allowed: {VALID_REDIRECT_TYPES}"
@@ -226,6 +237,9 @@ def _redirect_update(arguments: dict, client: VoogClient) -> list[TextContent] |
 
 def _redirect_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     redirect_id = arguments.get("redirect_id")
+    err = require_int("redirect_id", redirect_id, tool_name="redirect_delete")
+    if err:
+        return error_response(err)
     if not arguments.get("force"):
         return error_response(
             f"redirect_delete: refusing to delete rule {redirect_id} without force=true"

@@ -4,7 +4,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import require_int, strip_site
 from voog.projections import simplify_pages
 
 # q.* filters (object.attribute on the resource).
@@ -133,6 +133,12 @@ def call_tool(
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
     if name == "pages_list":
+        for int_field in ("node_id", "parent_id", "language_id"):
+            val = arguments.get(int_field)
+            if val is not None:
+                err = require_int(int_field, val, tool_name="pages_list")
+                if err:
+                    return error_response(err)
         params = _build_pages_list_params(arguments)
         try:
             if params:
@@ -146,6 +152,9 @@ def call_tool(
 
     if name == "page_get":
         page_id = arguments.get("page_id")
+        err = require_int("page_id", page_id, tool_name="page_get")
+        if err:
+            return error_response(err)
         params: dict = {}
         if arguments.get("include_seo"):
             params["include_seo"] = "true"

@@ -29,7 +29,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._concurrency import parallel_map
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import _validate_data_key, strip_site
+from voog.mcp.tools._helpers import _validate_data_key, require_int, strip_site
 
 
 def get_tools() -> list[Tool]:
@@ -291,6 +291,10 @@ def _page_set_hidden(arguments: dict, client: VoogClient) -> list[TextContent] |
     hidden = bool(arguments.get("hidden"))
     if not ids:
         return error_response("page_set_hidden: ids must be a non-empty list")
+    for pid in ids:
+        err = require_int("ids[]", pid, tool_name="page_set_hidden")
+        if err:
+            return error_response(err)
 
     def _put_one(pid):
         return client.put(f"/pages/{pid}", {"hidden": hidden})
@@ -320,6 +324,12 @@ def _page_set_hidden(arguments: dict, client: VoogClient) -> list[TextContent] |
 def _page_set_layout(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     page_id = arguments.get("page_id")
     layout_id = arguments.get("layout_id")
+    err = require_int("page_id", page_id, tool_name="page_set_layout")
+    if err:
+        return error_response(err)
+    err = require_int("layout_id", layout_id, tool_name="page_set_layout")
+    if err:
+        return error_response(err)
     try:
         result = client.put(f"/pages/{page_id}", {"layout_id": layout_id})
         return success_response(
@@ -332,6 +342,9 @@ def _page_set_layout(arguments: dict, client: VoogClient) -> list[TextContent] |
 
 def _page_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     page_id = arguments.get("page_id")
+    err = require_int("page_id", page_id, tool_name="page_delete")
+    if err:
+        return error_response(err)
     force = bool(arguments.get("force"))
     if not force:
         return error_response(
@@ -381,6 +394,16 @@ VALID_PAGE_CONTENT_TYPES = frozenset(
 
 
 def _page_create(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    language_id = arguments.get("language_id")
+    err = require_int("language_id", language_id, tool_name="page_create")
+    if err:
+        return error_response(err)
+    for opt_field in ("parent_id", "node_id", "layout_id", "image_id"):
+        val = arguments.get(opt_field)
+        if val is not None:
+            err = require_int(opt_field, val, tool_name="page_create")
+            if err:
+                return error_response(err)
     if arguments.get("node_id") is not None and arguments.get("parent_id") is not None:
         return error_response(
             "page_create: node_id and parent_id are mutually exclusive — "
@@ -424,6 +447,15 @@ def _page_create(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
 
 def _page_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     page_id = arguments.get("page_id")
+    err = require_int("page_id", page_id, tool_name="page_update")
+    if err:
+        return error_response(err)
+    for opt_field in ("layout_id", "image_id", "parent_id"):
+        val = arguments.get(opt_field)
+        if val is not None:
+            err = require_int(opt_field, val, tool_name="page_update")
+            if err:
+                return error_response(err)
     # Self-parent cycle guard: parent_id == page_id would create a self-
     # referential parent. Mirrors the mutex pattern in _page_create.
     parent_id = arguments.get("parent_id")
@@ -450,6 +482,9 @@ def _page_update(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
 
 def _page_set_data(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     page_id = arguments.get("page_id")
+    err = require_int("page_id", page_id, tool_name="page_set_data")
+    if err:
+        return error_response(err)
     key = arguments.get("key") or ""
     value = arguments.get("value")
 
@@ -468,6 +503,9 @@ def _page_set_data(arguments: dict, client: VoogClient) -> list[TextContent] | C
 
 def _page_delete_data(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     page_id = arguments.get("page_id")
+    err = require_int("page_id", page_id, tool_name="page_delete_data")
+    if err:
+        return error_response(err)
     key = arguments.get("key") or ""
     force = bool(arguments.get("force"))
 
@@ -491,6 +529,9 @@ def _page_delete_data(arguments: dict, client: VoogClient) -> list[TextContent] 
 
 def _page_duplicate(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     page_id = arguments.get("page_id")
+    err = require_int("page_id", page_id, tool_name="page_duplicate")
+    if err:
+        return error_response(err)
     try:
         result = client.post(f"/pages/{page_id}/duplicate", {})
         new_id = result.get("id")
