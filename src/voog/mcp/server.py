@@ -163,6 +163,7 @@ async def run_server(global_cfg: GlobalConfig, env: dict[str, str]):
     @server.call_tool()
     async def handle_call_tool(name: str, arguments: dict | None):
         arguments = arguments or {}
+        logger.debug("call_tool %s args=%s", name, arguments)
         if name == "voog_list_sites":
             sites = factory.list_sites()
             return [{"type": "text", "text": str(sites)}]
@@ -179,7 +180,11 @@ async def run_server(global_cfg: GlobalConfig, env: dict[str, str]):
             client = factory.for_site(site_name)
         except ConfigError as exc:
             return error_response(str(exc))
-        return await asyncio.to_thread(group.call_tool, name, arguments, client)
+        try:
+            return await asyncio.to_thread(group.call_tool, name, arguments, client)
+        except Exception:
+            logger.exception("tool %r raised an unhandled exception", name)
+            raise
 
     @server.list_resources()
     async def handle_list_resources():

@@ -31,6 +31,7 @@ Four small primitives:
 """
 
 import json
+import re
 import urllib.parse
 from pathlib import Path
 
@@ -108,6 +109,14 @@ def validate_translations_shape(field: str, langs, *, tool_name: str) -> str | N
     return None
 
 
+# URL-path-safe allowlist for data keys. Same character class as the
+# config-time site-name regex, but with a longer length cap (data keys
+# may be longer identifiers than short site names). Rejects spaces,
+# unicode, +, @, and other characters that would surface as confusing
+# urlopen errors instead of clean validation messages (PR #109 review).
+_DATA_KEY_RE = re.compile(r"^[A-Za-z0-9_\-.]{1,128}$")
+
+
 def _validate_data_key(key: str, *, tool_name: str) -> str | None:
     """Validate a user-supplied data key that will be interpolated into a URL path.
 
@@ -126,6 +135,9 @@ def _validate_data_key(key: str, *, tool_name: str) -> str | None:
       ``foo%2Fbar``, ``foo%23x``, ``foo%3Fx`` slip past).
     - keys that contain ``..`` after percent-decoding (defence-in-depth,
       same hygiene as ``raw.py``'s path validator)
+    - keys with characters outside ``[A-Za-z0-9_\\-.]`` or longer than
+      128 chars (PR #109 review follow-up — was leaking spaces/unicode/@
+      to ``urlopen`` with confusing errors).
     """
     if not key or not key.strip():
         return f"{tool_name}: key must be non-empty"
@@ -140,4 +152,17 @@ def _validate_data_key(key: str, *, tool_name: str) -> str | None:
             return f"{tool_name}: key must not contain {forbidden_char!r} (got {key!r})"
     if ".." in decoded.split("/"):
         return f"{tool_name}: key must not contain '..' segments (got {key!r})"
+    if not _DATA_KEY_RE.fullmatch(decoded):
+        # Echo the decoded form alongside the raw key when they differ
+        # (e.g. ``hex%20color`` decodes to ``hex color``) so the caller
+        # can see the actual offending character without re-decoding.
+        if decoded != key:
+            return (
+                f"{tool_name}: key must be URL-path-safe — letters/digits/_/-/. "
+                f"only, 1-128 chars (got {key!r}, decodes to {decoded!r})"
+            )
+        return (
+            f"{tool_name}: key must be URL-path-safe — letters/digits/_/-/. "
+            f"only, 1-128 chars (got {key!r})"
+        )
     return None

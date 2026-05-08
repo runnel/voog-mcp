@@ -39,10 +39,14 @@ takes ``site=`` explicitly on every tool call.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger("voog.config")
 
 REPO_POINTER_FILENAME = "voog-site.json"
 CWD_CONFIG_FILENAME = "voog.json"
@@ -88,6 +92,23 @@ def default_global_config_path() -> Path:
     return Path(base) / "voog" / "voog.json"
 
 
+_SITE_NAME_RE = re.compile(r"^[A-Za-z0-9_\-.]{1,64}$")
+
+
+def _validate_site_name(name: str) -> None:
+    """Reject site names that would break ``voog://{site}/...`` URI parsing.
+
+    Allowed: alphanumeric, underscore, hyphen, dot. 1-64 chars.
+    Reject: empty, whitespace, slashes, ``#``/``?``, unicode, very long names.
+    """
+    if not _SITE_NAME_RE.fullmatch(name):
+        raise ConfigError(
+            f"site name {name!r} is invalid — must match {_SITE_NAME_RE.pattern} "
+            f"(letters/digits/_/-/. only, 1-64 chars). Site names are interpolated "
+            f"into voog://{{site}}/... resource URIs and must be URL-safe."
+        )
+
+
 def load_global_config(
     path: Path | None = None,
     *,
@@ -113,6 +134,7 @@ def load_global_config(
     sites_raw = raw.get("sites", {}) or {}
     sites: dict[str, SiteConfig] = {}
     for name, entry in sites_raw.items():
+        _validate_site_name(name)
         if not isinstance(entry, dict):
             raise ConfigError(f"site '{name}' must be an object")
         host = entry.get("host")
@@ -140,6 +162,11 @@ def load_global_config(
         raise ConfigError(f"default_site '{default_site}' is not in sites: {sorted(sites)}")
 
     env_file = raw.get("env_file")
+    logger.info(
+        "loaded config: %d site(s) configured, default_site=%r",
+        len(sites),
+        default_site,
+    )
     return GlobalConfig(sites=sites, default_site=default_site, env_file=env_file)
 
 
@@ -160,6 +187,11 @@ def resolve_site_token(site: SiteConfig, env: dict[str, str]) -> str:
         if token:
             return token
     if site.api_key:
+        if not site.api_key_env:
+            logger.warning(
+                "site %r uses inline api_key (no api_key_env) — env-var token resolution preferred for security",
+                site.name,
+            )
         return site.api_key
     if site.api_key_env:
         raise ConfigError(

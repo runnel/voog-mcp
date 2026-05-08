@@ -504,5 +504,112 @@ class TestLoadEnvFile(unittest.TestCase):
             self.assertEqual(env, {"KEY": "value"})
 
 
+class TestSiteNameValidation(unittest.TestCase):
+    """Audit I18 — reject site names that would break URI construction."""
+
+    def _write_config(self, tmp: Path, sites: dict, default_site: str | None = None):
+        """Helper: write a voog.json with the given sites dict."""
+        cfg = {"sites": sites}
+        if default_site:
+            cfg["default_site"] = default_site
+        cfg_path = tmp / "voog.json"
+        cfg_path.write_text(json.dumps(cfg))
+        return cfg_path
+
+    def test_valid_site_names_accepted(self):
+        # Each of these should load without error.
+        for name in ("stella", "stella-id", "stella_2024", "site.dev", "AB-123"):
+            with TemporaryDirectory() as tmp:
+                cfg_path = self._write_config(
+                    Path(tmp),
+                    {name: {"host": "example.com", "api_key_env": "X"}},
+                )
+                config = load_global_config(cfg_path)
+                self.assertIn(name, config.sites)
+
+    def test_slash_in_name_rejected(self):
+        with TemporaryDirectory() as tmp:
+            cfg_path = self._write_config(
+                Path(tmp),
+                {"foo/bar": {"host": "x.com", "api_key_env": "X"}},
+            )
+            with self.assertRaises(ConfigError) as ctx:
+                load_global_config(cfg_path)
+            self.assertIn("foo/bar", str(ctx.exception))
+
+    def test_space_in_name_rejected(self):
+        with TemporaryDirectory() as tmp:
+            cfg_path = self._write_config(
+                Path(tmp),
+                {"foo bar": {"host": "x.com", "api_key_env": "X"}},
+            )
+            with self.assertRaises(ConfigError):
+                load_global_config(cfg_path)
+
+    def test_hash_in_name_rejected(self):
+        with TemporaryDirectory() as tmp:
+            cfg_path = self._write_config(
+                Path(tmp),
+                {"foo#hash": {"host": "x.com", "api_key_env": "X"}},
+            )
+            with self.assertRaises(ConfigError):
+                load_global_config(cfg_path)
+
+    def test_question_in_name_rejected(self):
+        with TemporaryDirectory() as tmp:
+            cfg_path = self._write_config(
+                Path(tmp),
+                {"foo?query": {"host": "x.com", "api_key_env": "X"}},
+            )
+            with self.assertRaises(ConfigError):
+                load_global_config(cfg_path)
+
+    def test_colon_in_name_rejected(self):
+        with TemporaryDirectory() as tmp:
+            cfg_path = self._write_config(
+                Path(tmp),
+                {"foo:port": {"host": "x.com", "api_key_env": "X"}},
+            )
+            with self.assertRaises(ConfigError):
+                load_global_config(cfg_path)
+
+    def test_empty_name_rejected(self):
+        with TemporaryDirectory() as tmp:
+            cfg_path = self._write_config(
+                Path(tmp),
+                {"": {"host": "x.com", "api_key_env": "X"}},
+            )
+            with self.assertRaises(ConfigError):
+                load_global_config(cfg_path)
+
+    def test_long_name_rejected(self):
+        long_name = "a" * 65
+        with TemporaryDirectory() as tmp:
+            cfg_path = self._write_config(
+                Path(tmp),
+                {long_name: {"host": "x.com", "api_key_env": "X"}},
+            )
+            with self.assertRaises(ConfigError):
+                load_global_config(cfg_path)
+
+    def test_validation_error_includes_pattern(self):
+        # The error message should mention the regex pattern so callers
+        # know what's allowed.
+        with TemporaryDirectory() as tmp:
+            cfg_path = self._write_config(
+                Path(tmp),
+                {"bad name": {"host": "x.com", "api_key_env": "X"}},
+            )
+            with self.assertRaises(ConfigError) as ctx:
+                load_global_config(cfg_path)
+            self.assertIn("bad name", str(ctx.exception))
+            # message should reference URL-safety or the allowed chars
+            err = str(ctx.exception).lower()
+            self.assertTrue(
+                "url" in err or "allowed" in err or "letters" in err or "match" in err,
+                f"error message should explain allowed characters: {ctx.exception}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
