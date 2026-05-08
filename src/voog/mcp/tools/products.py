@@ -1,6 +1,6 @@
-"""MCP tools for Voog ecommerce products (list, get, update).
+"""MCP tools for Voog ecommerce products (list, get, update, create).
 
-Three tools — all use ``client.ecommerce_url`` as base:
+Four tools — all use ``client.ecommerce_url`` as base:
 
   - ``products_list``   — read-only, returns simplified projection of all
                            products (id, name, slug, sku, status, prices,
@@ -14,6 +14,10 @@ Three tools — all use ``client.ecommerce_url`` as base:
                            and ``fields`` (legacy v1.1 flat shape kept for
                            back-compat). Reversible by calling again with
                            previous values; idempotent.
+  - ``product_create``  — mutating, creates a new product via POST /products.
+                           Requires name, slug, price. Same three argument
+                           shapes as product_update. Uses POST's ``asset_ids``
+                           envelope (not PUT's ``assets:[{id}]``).
 
 Mirrors :mod:`voog.mcp.tools.layouts` pattern: explicit MCP annotation
 triples on every tool, defensive validation, ``success_response``/``error_response``.
@@ -75,6 +79,21 @@ TRANSLATABLE_FIELDS = frozenset(["name", "slug", "description"])
 
 # product.status enum per Voog (HTTP 422 otherwise — see project memory).
 VALID_STATUS = frozenset(["draft", "live"])
+
+# POST /products allowed root-level attributes. Differs from ATTR_KEYS
+# (PUT-only) — POST permits direct `name`/`slug`/`price` (PUT prefers
+# translations for name/slug). `asset_ids` is POST's image envelope; on
+# PUT it's `assets:[{id}]`.
+CREATE_ATTR_KEYS = frozenset({
+    "name", "slug", "price", "sale_price", "status", "description",
+    "sku", "stock", "reserved_quantity", "category_ids", "image_id",
+    "asset_ids", "physical_properties", "uses_variants", "variant_types",
+})
+
+# Required by the Voog API on POST. Validation rejects payloads missing
+# any of these (pre-empts a 422 round-trip). `name` and `slug` may also
+# be supplied via translations/legacy fields; `price` only via attributes.
+CREATE_REQUIRED_KEYS = ("name", "slug", "price")
 
 
 def get_tools() -> list[Tool]:
@@ -203,6 +222,61 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": True,
             },
         ),
+        Tool(
+            name="product_create",
+            description=(
+                "Create a new product (POST /products on ecommerce v1). "
+                "Required: name, slug, price (Voog rejects POST without "
+                "these). Three argument shapes (combinable):\n"
+                "  - `attributes`: flat object of root-level product "
+                "fields. Allowed keys: name, slug, price, sale_price, "
+                "status, description, sku, stock, reserved_quantity, "
+                "category_ids, image_id, asset_ids, physical_properties, "
+                "uses_variants, variant_types. Note: POST uses `asset_ids` "
+                "(list of int), unlike PUT which uses `assets:[{id}]`.\n"
+                "  - `translations`: nested {field: {lang: value}} for "
+                "translatable fields (name, slug, description). Each "
+                "field-language pair must be non-empty.\n"
+                "  - `fields` (legacy v1.1 shape): flat 'name-et', "
+                "'slug-en' keys — auto-routed to translations.\n"
+                "Validates status enum {'draft', 'live'} and rejects "
+                "unknown attribute keys. The POST result includes the "
+                "newly assigned product id."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "attributes": {
+                        "type": "object",
+                        "description": (
+                            "Root-level product fields. Required (in this "
+                            "or in `translations`/`fields`): name, slug, price."
+                        ),
+                    },
+                    "translations": {
+                        "type": "object",
+                        "description": (
+                            "Nested {field: {lang: value}}. Allowed fields: "
+                            "name, slug, description."
+                        ),
+                    },
+                    "fields": {
+                        "type": "object",
+                        "description": (
+                            "Legacy v1.1 shape: 'name-et', 'slug-en' "
+                            "keys. Auto-routed to translations."
+                        ),
+                    },
+                },
+                "required": ["site"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": False,
+            },
+        ),
     ]
 
 
@@ -219,6 +293,9 @@ def call_tool(
 
     if name == "product_update":
         return _product_update(arguments, client)
+
+    if name == "product_create":
+        return _product_create(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 
@@ -374,3 +451,116 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
         )
     except Exception as e:
         return error_response(f"product_update id={product_id} failed: {e}")
+
+
+def _product_create(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    attributes = arguments.get("attributes") or {}
+    translations = arguments.get("translations") or {}
+    legacy_fields = arguments.get("fields") or {}
+
+    if not (attributes or translations or legacy_fields):
+        return error_response(
+            "product_create: at least one of `attributes`, `translations`, "
+            "or `fields` must be a non-empty object"
+        )
+
+    # Whitelist + status enum (mirror product_update validation surface).
+    for key in attributes:
+        if key not in CREATE_ATTR_KEYS:
+            return error_response(
+                f"product_create: attribute {key!r} not supported. Allowed: {sorted(CREATE_ATTR_KEYS)}"
+            )
+    if "status" in attributes and attributes["status"] not in VALID_STATUS:
+        return error_response(
+            f"product_create: status must be one of "
+            f"{sorted(VALID_STATUS)} (got {attributes['status']!r})"
+        )
+
+    # Validate explicit translations.
+    merged_translations: dict = {}
+    for field, langs in translations.items():
+        if field not in TRANSLATABLE_FIELDS:
+            return error_response(
+                f"product_create: translations field {field!r} not supported. "
+                f"Allowed: {sorted(TRANSLATABLE_FIELDS)}"
+            )
+        shape_err = validate_translations_shape(field, langs, tool_name="product_create")
+        if shape_err:
+            return error_response(shape_err)
+        for lang, value in langs.items():
+            merged_translations.setdefault(field, {})[lang] = value
+
+    # Fold legacy `fields` (e.g. 'name-et').
+    for key, value in legacy_fields.items():
+        if "-" not in key:
+            return error_response(
+                f"product_create: legacy field {key!r} must use 'field-lang' "
+                "format (e.g. 'name-et', 'slug-en')"
+            )
+        field, lang = key.split("-", 1)
+        if field not in TRANSLATABLE_FIELDS:
+            return error_response(
+                f"product_create: legacy field {field!r} not supported. "
+                f"Allowed: {sorted(TRANSLATABLE_FIELDS)}"
+            )
+        if not lang or lang.startswith("-"):
+            return error_response(f"product_create: lang segment in {key!r} is empty or malformed")
+        if not value:
+            return error_response(
+                f"product_create: empty value for {key!r} (Voog rejects empty translations)"
+            )
+        merged_translations.setdefault(field, {})[lang] = value
+
+    # Required-fields check (POST contract). A required key may live
+    # in `attributes` directly OR in `translations` (since name/slug
+    # are translatable). For `price` only `attributes` is valid.
+    for req in CREATE_REQUIRED_KEYS:
+        if req == "price":
+            if req not in attributes:
+                return error_response(
+                    f"product_create: required attribute {req!r} missing. "
+                    "Voog requires `price` on POST."
+                )
+        else:
+            if req in attributes:
+                continue
+            if req in merged_translations and merged_translations[req]:
+                continue
+            return error_response(
+                f"product_create: required attribute {req!r} missing. "
+                "Provide it via `attributes` or `translations`/`fields`."
+            )
+
+    product_body: dict = dict(attributes)
+
+    # POST-specific: asset_ids stays as `asset_ids` (list of int).
+    # No envelope translation — that's PUT's job.
+    if "asset_ids" in product_body:
+        if not isinstance(product_body["asset_ids"], list):
+            return error_response(
+                f"product_create: asset_ids must be a list of integers "
+                f"(got {type(product_body['asset_ids']).__name__})"
+            )
+        try:
+            product_body["asset_ids"] = [int(n) for n in product_body["asset_ids"]]
+        except (TypeError, ValueError) as e:
+            return error_response(f"product_create: asset_ids items must be integers ({e})")
+
+    if merged_translations:
+        product_body["translations"] = merged_translations
+
+    payload = {"product": product_body}
+
+    try:
+        result = client.post(
+            "/products",
+            payload,
+            base=client.ecommerce_url,
+        )
+        new_id = result.get("id") if isinstance(result, dict) else None
+        return success_response(
+            result,
+            summary=f"product created (id={new_id})" if new_id else "product created",
+        )
+    except Exception as e:
+        return error_response(f"product_create failed: {e}")

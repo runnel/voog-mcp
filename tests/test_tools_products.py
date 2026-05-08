@@ -10,10 +10,10 @@ from voog.mcp.tools import products as products_tools
 
 
 class TestGetTools(unittest.TestCase):
-    def test_get_tools_returns_three(self):
+    def test_get_tools_returns_four(self):
         tools = products_tools.get_tools()
         names = [t.name for t in tools]
-        self.assertEqual(names, ["products_list", "product_get", "product_update"])
+        self.assertEqual(names, ["products_list", "product_get", "product_update", "product_create"])
 
     def test_products_list_schema(self):
         tools = {t.name: t for t in products_tools.get_tools()}
@@ -789,6 +789,141 @@ class TestProductUpdateDestructiveDefaults(unittest.TestCase):
         payload = json.loads(result.content[0].text)
         self.assertIn("asset_ids", payload["error"])
         client.put.assert_not_called()
+
+
+class TestProductCreate(unittest.TestCase):
+    def test_create_in_get_tools(self):
+        names = {t.name for t in products_tools.get_tools()}
+        self.assertIn("product_create", names)
+
+    def test_create_annotations(self):
+        tools = {t.name: t for t in products_tools.get_tools()}
+        ann = tools["product_create"].annotations
+        # POST is additive; not idempotent (every call creates a new product).
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, False)
+
+    def test_create_minimum_payload(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 99, "name": "Cap", "slug": "cap", "price": 21}
+        products_tools.call_tool(
+            "product_create",
+            {
+                "attributes": {
+                    "name": "Cap",
+                    "slug": "cap",
+                    "price": 21,
+                }
+            },
+            client,
+        )
+        client.post.assert_called_once_with(
+            "/products",
+            {"product": {"name": "Cap", "slug": "cap", "price": 21}},
+            base=client.ecommerce_url,
+        )
+
+    def test_create_rejects_empty_arguments(self):
+        client = MagicMock()
+        result = products_tools.call_tool("product_create", {}, client)
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_create_rejects_missing_required_post_fields(self):
+        # Voog requires name, slug, price on POST. Reject before round-tripping
+        # to a 422.
+        client = MagicMock()
+        result = products_tools.call_tool(
+            "product_create",
+            {"attributes": {"sku": "ABC123"}},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_create_with_translations(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 99}
+        products_tools.call_tool(
+            "product_create",
+            {
+                "attributes": {"name": "Cap", "slug": "cap", "price": 21},
+                "translations": {"name": {"et": "Müts"}},
+            },
+            client,
+        )
+        sent_body = client.post.call_args[0][1]
+        self.assertEqual(sent_body["product"]["translations"], {"name": {"et": "Müts"}})
+
+    def test_create_with_legacy_fields(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 99}
+        products_tools.call_tool(
+            "product_create",
+            {
+                "attributes": {"name": "Cap", "slug": "cap", "price": 21},
+                "fields": {"name-et": "Müts", "slug-et": "muts"},
+            },
+            client,
+        )
+        sent_body = client.post.call_args[0][1]
+        # Legacy fields fold into translations
+        self.assertEqual(
+            sent_body["product"]["translations"]["name"],
+            {"et": "Müts"},
+        )
+        self.assertEqual(
+            sent_body["product"]["translations"]["slug"],
+            {"et": "muts"},
+        )
+
+    def test_create_validates_status_enum(self):
+        client = MagicMock()
+        result = products_tools.call_tool(
+            "product_create",
+            {
+                "attributes": {
+                    "name": "X", "slug": "x", "price": 1, "status": "active"
+                }
+            },
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_create_uses_asset_ids_envelope_not_assets(self):
+        # POST uses `asset_ids` (list of int). PUT uses `assets:[{id}]`.
+        # Different from product_update — verify we send the POST shape.
+        client = MagicMock()
+        client.post.return_value = {"id": 99}
+        products_tools.call_tool(
+            "product_create",
+            {
+                "attributes": {
+                    "name": "Cap", "slug": "cap", "price": 21,
+                    "asset_ids": [101, 102],
+                }
+            },
+            client,
+        )
+        sent_body = client.post.call_args[0][1]
+        self.assertEqual(sent_body["product"]["asset_ids"], [101, 102])
+        self.assertNotIn("assets", sent_body["product"])
+
+    def test_create_rejects_unknown_attribute(self):
+        client = MagicMock()
+        result = products_tools.call_tool(
+            "product_create",
+            {
+                "attributes": {
+                    "name": "X", "slug": "x", "price": 1, "bogus": "y"
+                }
+            },
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
 
 
 if __name__ == "__main__":
