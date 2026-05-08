@@ -131,5 +131,80 @@ class TestValidateDataKey(unittest.TestCase):
         self.assertIn("..", err)
 
 
+class TestValidateDataKeyURLSafety(unittest.TestCase):
+    """PR #109 follow-up: reject keys that would surface as urlopen errors."""
+
+    def test_space_in_key_rejected(self):
+        err = _validate_data_key("hex color", tool_name="t")
+        self.assertIsNotNone(err)
+        self.assertIn("hex color", err)
+
+    def test_unicode_key_rejected(self):
+        err = _validate_data_key("πood", tool_name="t")
+        self.assertIsNotNone(err)
+        self.assertIn("πood", err)
+
+    def test_at_sign_rejected(self):
+        # @ is URL-safe in some contexts but ambiguous in path segments.
+        err = _validate_data_key("user@home", tool_name="t")
+        self.assertIsNotNone(err)
+
+    def test_plus_rejected(self):
+        # + means " " in form-encoded bodies; ambiguous in path.
+        err = _validate_data_key("a+b", tool_name="t")
+        self.assertIsNotNone(err)
+
+    def test_long_key_rejected(self):
+        long_key = "a" * 129
+        err = _validate_data_key(long_key, tool_name="t")
+        self.assertIsNotNone(err)
+
+    def test_safe_keys_still_accepted(self):
+        for k in (
+            "color",
+            "hex_color",
+            "menu-position",
+            "x.y",
+            "v1.2.3",
+            "Item123",
+            "a" * 128,  # exactly 128 chars allowed
+        ):
+            self.assertIsNone(
+                _validate_data_key(k, tool_name="t"),
+                f"{k!r} unexpectedly rejected",
+            )
+
+    def test_pre_existing_rejections_still_work(self):
+        # Pre-PR-#109 rejection rules must still trigger with their
+        # specific error messages (not the new generic URL-safety message).
+        cases = [
+            ("", "non-empty"),
+            ("internal_x", "server-protected"),
+            ("../escape", None),  # path traversal — checked but message text varies
+            ("foo/bar", "not contain"),
+            ("foo?q", "not contain"),
+            ("foo#h", "not contain"),
+        ]
+        for bad, expected_substr in cases:
+            err = _validate_data_key(bad, tool_name="t")
+            self.assertIsNotNone(err, f"{bad!r} should still be rejected")
+            if expected_substr:
+                self.assertIn(
+                    expected_substr,
+                    err,
+                    f"{bad!r} expected to mention {expected_substr!r}, got: {err}",
+                )
+
+    def test_url_safety_message_includes_pattern_hint(self):
+        err = _validate_data_key("hex color", tool_name="my_tool")
+        self.assertIsNotNone(err)
+        self.assertIn("my_tool", err)
+        # Message should hint at allowed characters or URL-safety
+        self.assertTrue(
+            any(s in err.lower() for s in ("url", "letters", "allowed", "safe", "match")),
+            f"error message should explain allowed characters: {err}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
