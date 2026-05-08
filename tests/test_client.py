@@ -1,10 +1,12 @@
 """Unit tests for VoogClient."""
 
+import socket
 import unittest
 import urllib.error
+from http.client import HTTPMessage
 from unittest.mock import MagicMock, patch
 
-from voog.client import VoogClient
+from voog.client import VoogClient, _parse_retry_after
 
 
 class TestVoogClient(unittest.TestCase):
@@ -537,3 +539,217 @@ class TestPutPostParams(unittest.TestCase):
             client.post("/products", data={"product": {"name": "x"}})
         url = mock_urlopen.call_args.args[0].full_url
         self.assertNotIn("?", url)
+
+
+def _make_http_error(code: int, msg: str, retry_after: str | None = None):
+    """Build a urllib.error.HTTPError with an optional Retry-After header."""
+    if retry_after is not None:
+        hdrs = HTTPMessage()
+        hdrs["Retry-After"] = retry_after
+    else:
+        hdrs = None
+    return urllib.error.HTTPError(url="x", code=code, msg=msg, hdrs=hdrs, fp=None)
+
+
+def _make_success_cm(body: bytes = b'{"ok": true}'):
+    """Return a context-manager mock that simulates a successful response."""
+    fake_resp = MagicMock()
+    fake_resp.read.return_value = body
+    cm = MagicMock()
+    cm.__enter__.return_value = fake_resp
+    cm.__exit__.return_value = False
+    return cm
+
+
+class TestParseRetryAfter(unittest.TestCase):
+    """Unit tests for the _parse_retry_after helper."""
+
+    def test_integer_seconds_returned_as_float(self):
+        self.assertEqual(_parse_retry_after("30", fallback=0.5), 30.0)
+
+    def test_cap_applied_to_large_values(self):
+        self.assertEqual(_parse_retry_after("600", fallback=0.5), 60.0)
+
+    def test_zero_clamped_to_minimum_one(self):
+        self.assertEqual(_parse_retry_after("0", fallback=0.5), 1.0)
+
+    def test_negative_clamped_to_minimum_one(self):
+        self.assertEqual(_parse_retry_after("-5", fallback=0.5), 1.0)
+
+    def test_invalid_string_returns_fallback(self):
+        self.assertEqual(_parse_retry_after("not-a-number", fallback=2.5), 2.5)
+
+    def test_http_date_falls_back(self):
+        # HTTP-date format is not parsed — fallback is used.
+        self.assertEqual(
+            _parse_retry_after("Wed, 21 Oct 2026 07:28:00 GMT", fallback=1.0),
+            1.0,
+        )
+
+    def test_whitespace_stripped(self):
+        self.assertEqual(_parse_retry_after("  15  ", fallback=0.5), 15.0)
+
+
+class TestRateLimitRetry(unittest.TestCase):
+    """T6 — 429 Too Many Requests retry + Retry-After header honoring."""
+
+    def test_429_retried_then_succeeds(self):
+        # 429 is now in _RETRYABLE_STATUS; a single 429 followed by 200 OK
+        # should succeed without raising.
+        client = VoogClient(host="example.com", api_token="t")
+        err_429 = _make_http_error(429, "Too Many Requests")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_429, _make_success_cm()]
+            with patch("voog.client.time.sleep"):
+                result = client.get("/pages")
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(mock_urlopen.call_count, 2)
+
+    def test_429_exhausted_raises(self):
+        # If we exhaust all retries on 429, the exception propagates.
+        client = VoogClient(host="example.com", api_token="t", max_retries=2)
+        err_429 = _make_http_error(429, "Too Many Requests")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_429, err_429, err_429]
+            with patch("voog.client.time.sleep"):
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    client.get("/pages")
+        self.assertEqual(ctx.exception.code, 429)
+        self.assertEqual(mock_urlopen.call_count, 3)
+
+    def test_503_still_retried(self):
+        # Regression: 503 must continue to retry after the refactor to
+        # _RETRYABLE_STATUS.
+        client = VoogClient(host="example.com", api_token="t")
+        err_503 = _make_http_error(503, "Service Unavailable")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_503, _make_success_cm()]
+            with patch("voog.client.time.sleep"):
+                result = client.get("/pages")
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(mock_urlopen.call_count, 2)
+
+    def test_retry_after_integer_honored_on_429(self):
+        # When 429 has Retry-After: 5, sleep must be called with 5.0.
+        client = VoogClient(host="example.com", api_token="t")
+        err_429 = _make_http_error(429, "Too Many Requests", retry_after="5")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_429, _make_success_cm()]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                client.get("/pages")
+        mock_sleep.assert_called_once_with(5.0)
+
+    def test_retry_after_honored_on_503(self):
+        # 503 also honors Retry-After (Cloudflare can emit it on either).
+        client = VoogClient(host="example.com", api_token="t")
+        err_503 = _make_http_error(503, "Service Unavailable", retry_after="10")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_503, _make_success_cm()]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                client.get("/pages")
+        mock_sleep.assert_called_once_with(10.0)
+
+    def test_retry_after_cap_at_60(self):
+        # Retry-After: 600 must be capped at 60, not 600.
+        client = VoogClient(host="example.com", api_token="t")
+        err_503 = _make_http_error(503, "Service Unavailable", retry_after="600")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_503, _make_success_cm()]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                client.get("/pages")
+        mock_sleep.assert_called_once_with(60.0)
+
+    def test_retry_after_invalid_uses_exponential_backoff(self):
+        # Unparseable Retry-After falls back to 0.5 * 2^0 = 0.5 on attempt 0.
+        client = VoogClient(host="example.com", api_token="t")
+        err_429 = _make_http_error(429, "Too Many Requests", retry_after="not-a-number")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_429, _make_success_cm()]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                client.get("/pages")
+        mock_sleep.assert_called_once_with(0.5)
+
+    def test_no_retry_after_uses_exponential_backoff_for_429(self):
+        # No Retry-After header → standard exponential backoff.
+        client = VoogClient(host="example.com", api_token="t")
+        err_429 = _make_http_error(429, "Too Many Requests")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_429, _make_success_cm()]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                client.get("/pages")
+        mock_sleep.assert_called_once_with(0.5)
+
+    def test_5xx_no_retry_after_still_uses_exponential_backoff(self):
+        # 500 (no Retry-After logic) should use exponential backoff unchanged.
+        client = VoogClient(host="example.com", api_token="t")
+        err_500 = _make_http_error(500, "Internal Server Error")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_500, _make_success_cm()]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                client.get("/pages")
+        mock_sleep.assert_called_once_with(0.5)
+
+    def test_post_429_not_retried(self):
+        # POST must NOT retry even on 429 — duplicate-resource risk.
+        client = VoogClient(host="example.com", api_token="t")
+        err_429 = _make_http_error(429, "Too Many Requests")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_429]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    client.post("/products", {"product": {}})
+        self.assertEqual(ctx.exception.code, 429)
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
+
+
+class TestTimeoutNotRetried(unittest.TestCase):
+    """T6 — socket.timeout must propagate immediately; no retry, no sleep."""
+
+    def test_socket_timeout_not_retried(self):
+        client = VoogClient(host="example.com", api_token="t")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = socket.timeout("timed out")
+            with patch("voog.client.time.sleep") as mock_sleep:
+                with self.assertRaises(socket.timeout):
+                    client.get("/pages")
+        # Only one attempt — no retry on timeout.
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    def test_builtin_timeout_error_not_retried(self):
+        # In Python 3.10+, TimeoutError is an alias for socket.timeout.
+        # Ensure the bare built-in form is also caught and not retried.
+        client = VoogClient(host="example.com", api_token="t")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = TimeoutError("timed out")
+            with patch("voog.client.time.sleep") as mock_sleep:
+                with self.assertRaises(TimeoutError):
+                    client.get("/pages")
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    def test_timeout_not_retried_on_put(self):
+        # PUT is in _RETRYABLE_METHODS but timeouts must still not retry.
+        client = VoogClient(host="example.com", api_token="t")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = socket.timeout("timed out")
+            with patch("voog.client.time.sleep") as mock_sleep:
+                with self.assertRaises(socket.timeout):
+                    client.put("/resource", {"x": 1})
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    def test_non_timeout_oserror_still_retries(self):
+        # A non-timeout OSError (connection refused, DNS failure, TCP reset)
+        # must still retry as before.
+        client = VoogClient(host="example.com", api_token="t")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [
+                OSError("Connection refused"),
+                _make_success_cm(),
+            ]
+            with patch("voog.client.time.sleep"):
+                result = client.get("/pages")
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(mock_urlopen.call_count, 2)

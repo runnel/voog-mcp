@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import time
 import urllib.error
 import urllib.parse
@@ -22,6 +23,31 @@ logger = logging.getLogger("voog.client")
 # state); DELETE on a missing resource returns 404 which the caller can
 # tolerate (resource is gone either way).
 _RETRYABLE_METHODS = frozenset({"GET", "PUT", "DELETE"})
+
+# HTTP status codes that are safe to retry (server-side transient errors
+# and rate-limiting). 429 is added in v1.3 — Cloudflare rate-limits
+# return 429 with an optional Retry-After header that we now honor.
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+
+# Maximum seconds to honor from a Retry-After header. Prevents a
+# misbehaving server from pinning the client for a very long time.
+_RETRY_AFTER_CAP = 60
+
+
+def _parse_retry_after(header_value: str, fallback: float) -> float:
+    """Parse a Retry-After header value (integer seconds only).
+
+    Per RFC 7231, Retry-After is either an integer number of seconds or
+    an HTTP-date. We implement integer-seconds parsing and fall back to
+    ``fallback`` for anything unparseable (including HTTP-dates). The
+    result is clamped to [1, _RETRY_AFTER_CAP] so a zero or very large
+    value doesn't cause immediate retry or excessive waiting.
+    """
+    try:
+        seconds = int(header_value.strip())
+        return float(max(1, min(seconds, _RETRY_AFTER_CAP)))
+    except (ValueError, AttributeError):
+        return fallback
 
 
 class VoogClient:
@@ -55,10 +81,14 @@ class VoogClient:
         """Execute a single HTTP request, retrying on transient failures.
 
         Retries up to ``self.max_retries`` times on:
-          - ``urllib.error.HTTPError`` with status code >= 500 (server errors)
-          - ``OSError`` (network connectivity — DNS, TCP reset, etc.)
+          - ``urllib.error.HTTPError`` with status in ``_RETRYABLE_STATUS``
+            (429 rate limit + 5xx server errors)
+          - ``OSError`` (network connectivity — DNS, TCP reset, etc.) EXCEPT
+            ``socket.timeout`` / ``TimeoutError``, which propagate immediately
 
-        Does NOT retry on 4xx (caller errors — same payload would fail again).
+        Does NOT retry on other 4xx (caller errors — same payload would fail
+        again) or on timeouts (a hung Voog endpoint should surface, not wedge
+        the caller for ~3× the timeout).
 
         **Retries are restricted to GET / PUT / DELETE** (see
         ``_RETRYABLE_METHODS``). POST and PATCH always run a single
@@ -67,8 +97,9 @@ class VoogClient:
         resource (e.g. a second product, redirect rule). The caller is
         responsible for deciding how to handle a transient POST failure.
 
-        Backoff is exponential: ``0.5 * 2^attempt`` seconds between attempts
-        (0.5s before the first retry, 1.0s before the second).
+        Backoff: on 429/503 with a parseable ``Retry-After`` header, honor
+        the header (clamped to ``[1, _RETRY_AFTER_CAP]`` seconds). Otherwise
+        exponential: ``0.5 * 2^attempt`` seconds between attempts.
         """
         url = f"{base or self.base_url}{path}"
         if params:
@@ -80,41 +111,49 @@ class VoogClient:
         # POST / PATCH are not safe to retry — see _RETRYABLE_METHODS comment.
         retries = self.max_retries if method in _RETRYABLE_METHODS else 0
 
-        last_exc: Exception | None = None
         for attempt in range(retries + 1):
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     body = resp.read()
                     return json.loads(body) if body else None
             except urllib.error.HTTPError as e:
-                if e.code < 500 or attempt == retries:
+                if e.code not in _RETRYABLE_STATUS or attempt == retries:
                     raise
+                backoff = 0.5 * (2**attempt)
+                # 429 and 503 may carry Retry-After from Cloudflare/Voog.
+                if e.code in (429, 503) and e.headers:
+                    retry_after = e.headers.get("Retry-After")
+                    if retry_after:
+                        backoff = _parse_retry_after(retry_after, backoff)
                 logger.warning(
                     "HTTP %s on %s %s — retrying in %.1fs (attempt %d/%d)",
                     e.code,
                     method,
                     url,
-                    0.5 * (2**attempt),
+                    backoff,
                     attempt + 1,
                     retries,
                 )
-                last_exc = e
+                time.sleep(backoff)
+            except (socket.timeout, TimeoutError):
+                # Timeouts are NOT retried — a hung endpoint should surface
+                # immediately so the caller knows the request timed out rather
+                # than silently burning retries (each retry × timeout seconds).
+                raise
             except OSError as e:
                 if attempt == retries:
                     raise
+                backoff = 0.5 * (2**attempt)
                 logger.warning(
                     "Network error on %s %s — retrying in %.1fs (attempt %d/%d): %s",
                     method,
                     url,
-                    0.5 * (2**attempt),
+                    backoff,
                     attempt + 1,
                     retries,
                     e,
                 )
-                last_exc = e
-            time.sleep(0.5 * (2**attempt))
-        # Unreachable — the loop either returns or re-raises before exit.
-        raise last_exc  # type: ignore[misc]
+                time.sleep(backoff)
 
     def get(self, path: str, *, base: str | None = None, params: dict | None = None):
         return self._request("GET", path, base=base, params=params)
