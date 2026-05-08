@@ -85,9 +85,7 @@ class TestForceFlagSchemaDefaults(unittest.TestCase):
         # Verify the handler refuses without force=true (drift would let
         # destructive ops fire silently).
         client = MagicMock()
-        result = redirects_tools.call_tool(
-            "redirect_delete", {"redirect_id": 1}, client
-        )
+        result = redirects_tools.call_tool("redirect_delete", {"redirect_id": 1}, client)
         client.delete.assert_not_called()
         self.assertTrue(result.isError)
 
@@ -97,9 +95,7 @@ class TestForceFlagSchemaDefaults(unittest.TestCase):
         tools = {t.name: t for t in layouts_tools.get_tools()}
         self.assertIs(_schema_default(tools["layout_delete"], "force"), False)
         client = MagicMock()
-        result = layouts_tools.call_tool(
-            "layout_delete", {"layout_id": 1}, client
-        )
+        result = layouts_tools.call_tool("layout_delete", {"layout_id": 1}, client)
         client.delete.assert_not_called()
         self.assertTrue(result.isError)
 
@@ -109,9 +105,7 @@ class TestForceFlagSchemaDefaults(unittest.TestCase):
         tools = {t.name: t for t in pages_mutate_tools.get_tools()}
         self.assertIs(_schema_default(tools["page_delete"], "force"), False)
         client = MagicMock()
-        result = pages_mutate_tools.call_tool(
-            "page_delete", {"page_id": 1}, client
-        )
+        result = pages_mutate_tools.call_tool("page_delete", {"page_id": 1}, client)
         client.delete.assert_not_called()
         self.assertTrue(result.isError)
 
@@ -121,9 +115,7 @@ class TestForceFlagSchemaDefaults(unittest.TestCase):
         tools = {t.name: t for t in articles_tools.get_tools()}
         self.assertIs(_schema_default(tools["article_delete"], "force"), False)
         client = MagicMock()
-        result = articles_tools.call_tool(
-            "article_delete", {"article_id": 1}, client
-        )
+        result = articles_tools.call_tool("article_delete", {"article_id": 1}, client)
         client.delete.assert_not_called()
         self.assertTrue(result.isError)
 

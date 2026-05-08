@@ -84,9 +84,7 @@ class TestBuildProductPayload(unittest.TestCase):
         self.assertEqual(payload, {"product": {}})
 
     def test_translations_passed_through(self):
-        payload = build_product_payload(
-            {"name": "Cap", "translations": {"name": {"et": "Müts"}}}
-        )
+        payload = build_product_payload({"name": "Cap", "translations": {"name": {"et": "Müts"}}})
         self.assertEqual(
             payload["product"]["translations"],
             {"name": {"et": "Müts"}},
