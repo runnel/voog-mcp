@@ -283,8 +283,8 @@ class TestSiteSnapshot(unittest.TestCase):
             self.assertIn("error", payload)
             self.assertIn("exists", payload["error"])
 
-    def test_force_allows_existing_directory(self):
-        # I15: force=true bypasses the refuse-existing check for
+    def test_overwrite_allows_existing_directory(self):
+        # I15: overwrite=true bypasses the refuse-existing check for
         # automation/cron use cases. The handler proceeds with the
         # snapshot, files are written into the existing dir.
         client = _make_client()
@@ -295,7 +295,7 @@ class TestSiteSnapshot(unittest.TestCase):
             out.mkdir(parents=True)  # already exists
             result = snapshot_tools.call_tool(
                 "site_snapshot",
-                {"output_dir": str(out), "force": True},
+                {"output_dir": str(out), "overwrite": True},
                 client,
             )
             # Should NOT error on the dir-exists path; should proceed
@@ -303,14 +303,14 @@ class TestSiteSnapshot(unittest.TestCase):
             self.assertFalse(getattr(result, "isError", False))
             client.get_all.assert_called()  # at least one list endpoint hit
 
-    def test_force_default_false_in_schema(self):
+    def test_overwrite_default_false_in_schema(self):
         # Drift guard: schema "default": False must match handler fallback
-        # ``arguments.get("force")`` (None → falsy → refuse). Mirrors the
+        # ``arguments.get("overwrite")`` (None → falsy → refuse). Mirrors the
         # `tests/test_schema_defaults.py` pattern for destructive force gates,
-        # but kept local since site_snapshot.force is non-destructive.
+        # but kept local since site_snapshot.overwrite is non-destructive.
         tools = {t.name: t for t in snapshot_tools.get_tools()}
-        force_schema = tools["site_snapshot"].inputSchema["properties"]["force"]
-        self.assertIs(force_schema["default"], False)
+        overwrite_schema = tools["site_snapshot"].inputSchema["properties"]["overwrite"]
+        self.assertIs(overwrite_schema["default"], False)
 
     def test_writes_list_endpoints_singletons_and_per_page_contents(self):
         client = _make_client()
