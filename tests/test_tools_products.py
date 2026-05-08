@@ -845,26 +845,31 @@ class TestProductCreate(unittest.TestCase):
         self.assertTrue(result.isError)
 
     def test_create_with_translations(self):
+        # name comes only from translations; slug + price from attributes.
+        # The overlap rejection (added per PR #109 review) forbids name in
+        # both attributes AND translations.
         client = MagicMock()
         client.post.return_value = {"id": 99}
         products_tools.call_tool(
             "product_create",
             {
-                "attributes": {"name": "Cap", "slug": "cap", "price": 21},
+                "attributes": {"slug": "cap", "price": 21},
                 "translations": {"name": {"et": "Müts"}},
             },
             client,
         )
         sent_body = client.post.call_args[0][1]
         self.assertEqual(sent_body["product"]["translations"], {"name": {"et": "Müts"}})
+        self.assertNotIn("name", sent_body["product"])
 
     def test_create_with_legacy_fields(self):
+        # name + slug come only from legacy fields; price from attributes.
         client = MagicMock()
         client.post.return_value = {"id": 99}
         products_tools.call_tool(
             "product_create",
             {
-                "attributes": {"name": "Cap", "slug": "cap", "price": 21},
+                "attributes": {"price": 21},
                 "fields": {"name-et": "Müts", "slug-et": "muts"},
             },
             client,
@@ -879,6 +884,39 @@ class TestProductCreate(unittest.TestCase):
             sent_body["product"]["translations"]["slug"],
             {"et": "muts"},
         )
+
+    def test_create_rejects_attributes_translations_overlap(self):
+        # PR #109 review fix: passing the same field via attributes AND
+        # translations is ambiguous on POST (Voog API doc does not
+        # specify which wins). Reject pre-flight, mirroring product_update.
+        client = MagicMock()
+        result = products_tools.call_tool(
+            "product_create",
+            {
+                "attributes": {"name": "Cap", "slug": "cap", "price": 21},
+                "translations": {"name": {"et": "Müts"}},
+            },
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+        self.assertIn("name", result.content[0].text)
+
+    def test_create_rejects_legacy_fields_overlap(self):
+        # Same overlap rejection applies via the legacy `fields` shape
+        # (which folds into merged_translations).
+        client = MagicMock()
+        result = products_tools.call_tool(
+            "product_create",
+            {
+                "attributes": {"name": "Cap", "slug": "cap", "price": 21},
+                "fields": {"slug-et": "muts"},
+            },
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+        self.assertIn("slug", result.content[0].text)
 
     def test_create_validates_status_enum(self):
         client = MagicMock()

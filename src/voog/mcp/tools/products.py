@@ -545,6 +545,22 @@ def _product_create(arguments: dict, client: VoogClient) -> list[TextContent] | 
                 "Provide it via `attributes` or `translations`/`fields`."
             )
 
+    # Reject `attributes` ∩ translations field overlap (mirrors the
+    # `_product_update` guard). Sending the same field via two surfaces
+    # in one POST envelope is ambiguous — Voog's API doc does not
+    # specify which surface wins or whether they merge, so per-language
+    # values can be silently clobbered. Pick one: set `name` directly
+    # in attributes (treated as the default-language value alongside
+    # `language_code`) OR via translations[name][lang], not both.
+    overlap = sorted(set(attributes) & TRANSLATABLE_FIELDS & set(merged_translations))
+    if overlap:
+        return error_response(
+            f"product_create: field(s) {overlap} given in both `attributes` "
+            "and translations (`translations` or legacy `fields`) — Voog's "
+            "POST envelope is undefined when both are sent together. Pick "
+            "one surface per field."
+        )
+
     product_body: dict = dict(attributes)
 
     # POST-specific: asset_ids stays as `asset_ids` (list of int).

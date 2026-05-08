@@ -294,6 +294,12 @@ def get_tools() -> list[Tool]:
                     "key": {"type": "string"},
                     "value": {
                         "type": ["string", "number", "boolean", "object", "array"],
+                        "description": (
+                            "New value for article.data.<key>. Any JSON value "
+                            "EXCEPT null — to remove a key, use "
+                            "article_delete_data instead. Nested objects and "
+                            "arrays are stored as-is and round-tripped on read."
+                        ),
                     },
                 },
                 "required": ["site", "article_id", "key", "value"],
