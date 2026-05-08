@@ -25,7 +25,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import require_int, strip_site
 from voog.projections import simplify_languages, simplify_nodes
 
 
@@ -315,6 +315,9 @@ def _nodes_list(arguments: dict, client: VoogClient) -> list[TextContent] | Call
 
 def _node_get(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     node_id = arguments.get("node_id")
+    err = require_int("node_id", node_id, tool_name="node_get")
+    if err:
+        return error_response(err)
     try:
         node = client.get(f"/nodes/{node_id}")
         return success_response(node)
@@ -341,6 +344,11 @@ def _language_create(arguments: dict, client: VoogClient) -> list[TextContent] |
         return error_response("language_create: code is required")
     if not title.strip():
         return error_response("language_create: title is required")
+    content_origin_id = arguments.get("content_origin_id")
+    if content_origin_id is not None:
+        err = require_int("content_origin_id", content_origin_id, tool_name="language_create")
+        if err:
+            return error_response(err)
 
     # Flat body — no {"language": {...}} wrapper per Voog docs.
     body: dict = {}
@@ -365,6 +373,9 @@ def _language_create(arguments: dict, client: VoogClient) -> list[TextContent] |
 
 def _language_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     language_id = arguments.get("language_id")
+    err = require_int("language_id", language_id, tool_name="language_delete")
+    if err:
+        return error_response(err)
     if not arguments.get("force"):
         return error_response(
             f"language_delete: refusing to delete language {language_id} without force=true. "
@@ -383,6 +394,9 @@ def _language_delete(arguments: dict, client: VoogClient) -> list[TextContent] |
 
 def _node_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     node_id = arguments.get("node_id")
+    err = require_int("node_id", node_id, tool_name="node_update")
+    if err:
+        return error_response(err)
     title = arguments.get("title") or ""
     if not title.strip():
         return error_response("node_update: title must be non-empty")
@@ -398,16 +412,19 @@ def _node_update(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
 
 def _node_move(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     node_id = arguments.get("node_id")
+    err = require_int("node_id", node_id, tool_name="node_move")
+    if err:
+        return error_response(err)
     parent_id = arguments.get("parent_id")
-    # `bool` is a subclass of int — reject it explicitly so True/False
-    # don't slip through as 1/0 and confuse Voog. PR #113 review.
-    if not isinstance(parent_id, int) or isinstance(parent_id, bool):
-        return error_response("node_move: parent_id is required (integer)")
+    err = require_int("parent_id", parent_id, tool_name="node_move")
+    if err:
+        return error_response(err)
     params: dict = {"parent_id": parent_id}
     position = arguments.get("position")
     if position is not None:
-        if not isinstance(position, int) or isinstance(position, bool):
-            return error_response("node_move: position must be an integer")
+        err = require_int("position", position, tool_name="node_move")
+        if err:
+            return error_response(err)
         params["position"] = position
     try:
         result = client.put(f"/nodes/{node_id}/move", params=params)
@@ -427,6 +444,9 @@ _NODE_RELOCATE_FIELDS = ("before", "after", "parent_node_id")
 
 def _node_relocate(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     node_id = arguments.get("node_id")
+    err = require_int("node_id", node_id, tool_name="node_relocate")
+    if err:
+        return error_response(err)
     supplied = [k for k in _NODE_RELOCATE_FIELDS if arguments.get(k) is not None]
     if not supplied:
         return error_response("node_relocate: supply exactly one of before, after, parent_node_id")
@@ -436,6 +456,9 @@ def _node_relocate(arguments: dict, client: VoogClient) -> list[TextContent] | C
             "fields are mutually exclusive — pick one"
         )
     key = supplied[0]
+    err = require_int(key, arguments[key], tool_name="node_relocate")
+    if err:
+        return error_response(err)
     body = {key: arguments[key]}
     try:
         result = client.put(f"/nodes/{node_id}/relocate", body)

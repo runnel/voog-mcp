@@ -84,6 +84,14 @@ class TestNodeGet(unittest.TestCase):
         self.assertEqual(len(body["pages"]), 2)
 
 
+class TestNodeGetBoolReject(unittest.TestCase):
+    def test_node_id_bool_rejected(self):
+        client = MagicMock()
+        result = mt.call_tool("node_get", {"node_id": True}, client)
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
+
+
 class TestLanguageCreate(unittest.TestCase):
     def test_create_in_get_tools(self):
         names = {t.name for t in mt.get_tools()}
@@ -166,6 +174,16 @@ class TestLanguageCreate(unittest.TestCase):
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, False)
 
+    def test_content_origin_id_bool_rejected(self):
+        client = MagicMock()
+        result = mt.call_tool(
+            "language_create",
+            {"code": "en", "title": "English", "content_origin_id": True},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
     def test_code_schema_locks_to_two_chars(self):
         # Voog stores region separately — `code` must be exactly 2 chars
         # (ISO 639-1). PR #112 review: regression guard against drift back
@@ -203,6 +221,12 @@ class TestLanguageDelete(unittest.TestCase):
         self.assertIs(ann.readOnlyHint, False)
         self.assertIs(ann.destructiveHint, True)
         self.assertIs(ann.idempotentHint, False)
+
+    def test_language_id_bool_rejected(self):
+        client = MagicMock()
+        result = mt.call_tool("language_delete", {"language_id": True, "force": True}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
 
 
 class TestNodeUpdate(unittest.TestCase):
@@ -258,6 +282,12 @@ class TestNodeUpdate(unittest.TestCase):
         self.assertIs(ann.readOnlyHint, False)
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, True)
+
+    def test_node_id_bool_rejected(self):
+        client = MagicMock()
+        result = mt.call_tool("node_update", {"node_id": False, "title": "X"}, client)
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
 
 
 class TestNodeMove(unittest.TestCase):
@@ -334,7 +364,8 @@ class TestNodeMove(unittest.TestCase):
 
     def test_move_rejects_bool_parent_id(self):
         # `bool` is a subclass of int in Python — explicit reject so
-        # True/False don't slip through as 1/0. PR #113 review.
+        # True/False don't slip through as 1/0. PR #113 review; T4 migrated
+        # to require_int (same behavior, consistent error format).
         client = MagicMock()
         result = mt.call_tool(
             "node_move",
@@ -349,6 +380,16 @@ class TestNodeMove(unittest.TestCase):
         result = mt.call_tool(
             "node_move",
             {"node_id": 3, "parent_id": 2, "position": False},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_node_id_bool_rejected(self):
+        client = MagicMock()
+        result = mt.call_tool(
+            "node_move",
+            {"node_id": True, "parent_id": 2},
             client,
         )
         client.put.assert_not_called()
@@ -431,3 +472,21 @@ class TestNodeRelocate(unittest.TestCase):
         self.assertIs(ann.readOnlyHint, False)
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, True)
+
+    def test_node_id_bool_rejected(self):
+        client = MagicMock()
+        result = mt.call_tool("node_relocate", {"node_id": True, "before": 2}, client)
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_before_bool_rejected(self):
+        client = MagicMock()
+        result = mt.call_tool("node_relocate", {"node_id": 3, "before": False}, client)
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_parent_node_id_bool_rejected(self):
+        client = MagicMock()
+        result = mt.call_tool("node_relocate", {"node_id": 3, "parent_node_id": True}, client)
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)

@@ -40,6 +40,20 @@ class TestGetTools(unittest.TestCase):
         self.assertIs(ann.idempotentHint, False)
 
 
+class TestArticlesListBoolReject(unittest.TestCase):
+    def test_page_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool("articles_list", {"page_id": True}, client)
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()
+
+    def test_language_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool("articles_list", {"language_id": False}, client)
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()
+
+
 class TestArticlesList(unittest.TestCase):
     def test_list_returns_simplified(self):
         client = MagicMock()
@@ -121,6 +135,14 @@ class TestArticlesList(unittest.TestCase):
                 "s": "article.created_at.$desc",
             },
         )
+
+
+class TestArticleGetBoolReject(unittest.TestCase):
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool("article_get", {"article_id": True}, client)
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
 
 
 class TestArticleGet(unittest.TestCase):
@@ -223,6 +245,17 @@ class TestArticleCreate(unittest.TestCase):
         self.assertNotIn("data", body)
         self.assertNotIn("publishing", body)
 
+    def test_page_id_bool_rejected(self):
+        # bool is int subclass — True/False must not slip through as 1/0
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_create",
+            {"page_id": True, "title": "T"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.post.assert_not_called()
+
 
 class TestArticleUpdate(unittest.TestCase):
     def test_update_uses_autosaved_fields(self):
@@ -275,6 +308,14 @@ class TestArticleUpdate(unittest.TestCase):
     def test_update_rejects_empty(self):
         client = MagicMock()
         result = articles_tools.call_tool("article_update", {"article_id": 99}, client)
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_update", {"article_id": True, "title": "X"}, client
+        )
         self.assertTrue(result.isError)
         client.put.assert_not_called()
 
@@ -381,6 +422,15 @@ class TestArticlePublish(unittest.TestCase):
         client.get.assert_not_called()
         client.put.assert_not_called()
 
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_publish", {"article_id": False}, client
+        )
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
+        client.put.assert_not_called()
+
 
 class TestArticleDelete(unittest.TestCase):
     def test_requires_force(self):
@@ -397,6 +447,14 @@ class TestArticleDelete(unittest.TestCase):
             client,
         )
         client.delete.assert_called_once_with("/articles/99")
+
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_delete", {"article_id": True, "force": True}, client
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
 
 
 class TestArticlesListSchema(unittest.TestCase):
@@ -479,6 +537,16 @@ class TestArticleSetData(unittest.TestCase):
         names = {t.name for t in articles_tools.get_tools()}
         self.assertIn("article_set_data", names)
 
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_set_data",
+            {"article_id": True, "key": "color", "value": "red"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
 
 class TestArticleDeleteData(unittest.TestCase):
     def test_delete_data_requires_force(self):
@@ -514,6 +582,16 @@ class TestArticleDeleteData(unittest.TestCase):
     def test_delete_data_in_get_tools(self):
         names = {t.name for t in articles_tools.get_tools()}
         self.assertIn("article_delete_data", names)
+
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_delete_data",
+            {"article_id": False, "key": "color", "force": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
 
     def test_delete_data_destructive_annotation(self):
         tools = {t.name: t for t in articles_tools.get_tools()}

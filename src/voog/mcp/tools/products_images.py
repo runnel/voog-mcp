@@ -46,7 +46,7 @@ from voog._concurrency import parallel_map
 from voog._upload_validation import _validate_upload_url
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import require_int, strip_site
 
 CONTENT_TYPES = {
     ".jpg": "image/jpeg",
@@ -128,8 +128,9 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
     files = arguments.get("files") or []
     force = bool(arguments.get("force", False))
 
-    if not isinstance(product_id, int):
-        return error_response("product_set_images: product_id must be an integer")
+    err = require_int("product_id", product_id, tool_name="product_set_images")
+    if err:
+        return error_response(err)
     if not files:
         return error_response(
             "product_set_images: files must be a non-empty array of absolute paths"
