@@ -210,6 +210,19 @@ def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | 
 
 
 def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    # Defensive: catch v1.2.x callers whose MCP client doesn't enforce
+    # ``additionalProperties: false``. Schema-level rejection alone isn't
+    # enough — some MCP clients silently drop unknown args. Without this
+    # check, ``force=true`` from a legacy caller would be ignored, the
+    # missing ``overwrite`` would default to false, and the snapshot would
+    # refuse to overwrite the dir — leaving the caller wondering why their
+    # ``force=true`` did nothing. Loud explicit error wins.
+    if "force" in arguments:
+        return error_response(
+            "site_snapshot: 'force' was renamed to 'overwrite' in v1.3. "
+            "Pass overwrite=true instead. See CHANGELOG."
+        )
+
     output_dir = arguments.get("output_dir") or ""
     err = validate_output_dir(output_dir, tool_name="site_snapshot", param_name="output_dir")
     if err:

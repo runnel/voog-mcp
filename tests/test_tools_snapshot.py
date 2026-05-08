@@ -312,6 +312,29 @@ class TestSiteSnapshot(unittest.TestCase):
         overwrite_schema = tools["site_snapshot"].inputSchema["properties"]["overwrite"]
         self.assertIs(overwrite_schema["default"], False)
 
+    def test_legacy_force_arg_returns_explicit_error(self):
+        # Belt + suspenders for the v1.2.x → v1.3 rename. Schema has
+        # ``additionalProperties: false``, but not every MCP client
+        # enforces it. If a legacy caller passes ``force=true`` against a
+        # lenient client, the handler-level reject ensures they get a
+        # clear migration error instead of silent ignore (overwrite would
+        # default to false, snapshot would refuse the dir, and the user
+        # would wonder why their force=true did nothing).
+        client = _make_client()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            result = snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out), "force": True},
+                client,
+            )
+            client.get_all.assert_not_called()
+            self.assertTrue(result.isError)
+            payload = json.loads(result.content[0].text)
+            self.assertIn("force", payload["error"])
+            self.assertIn("overwrite", payload["error"])
+            self.assertIn("v1.3", payload["error"])
+
     def test_writes_list_endpoints_singletons_and_per_page_contents(self):
         client = _make_client()
         # get_all called for each list endpoint and /products on ecommerce base

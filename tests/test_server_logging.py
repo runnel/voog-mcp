@@ -251,7 +251,6 @@ class TestCallToolDebugLogDoesNotLeakBody(unittest.TestCase):
 
     def test_debug_log_does_not_contain_body_content(self):
         """The DEBUG log message must not expose the raw body string."""
-        from voog.mcp import server as server_module
         from voog.mcp.tools import pages as pages_tools
 
         handlers = self._capture_handlers()

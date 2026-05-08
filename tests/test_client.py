@@ -709,7 +709,7 @@ class TestTimeoutNotRetried(unittest.TestCase):
     def test_socket_timeout_not_retried(self):
         client = VoogClient(host="example.com", api_token="t")
         with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
-            mock_urlopen.side_effect = socket.timeout("timed out")
+            mock_urlopen.side_effect = TimeoutError("timed out")
             with patch("voog.client.time.sleep") as mock_sleep:
                 with self.assertRaises(socket.timeout):
                     client.get("/pages")
@@ -733,7 +733,7 @@ class TestTimeoutNotRetried(unittest.TestCase):
         # PUT is in _RETRYABLE_METHODS but timeouts must still not retry.
         client = VoogClient(host="example.com", api_token="t")
         with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
-            mock_urlopen.side_effect = socket.timeout("timed out")
+            mock_urlopen.side_effect = TimeoutError("timed out")
             with patch("voog.client.time.sleep") as mock_sleep:
                 with self.assertRaises(socket.timeout):
                     client.put("/resource", {"x": 1})

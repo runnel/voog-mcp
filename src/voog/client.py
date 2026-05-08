@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import json
 import logging
-import socket
 import time
 import urllib.error
 import urllib.parse
@@ -135,7 +134,7 @@ class VoogClient:
                     retries,
                 )
                 time.sleep(backoff)
-            except (socket.timeout, TimeoutError):
+            except TimeoutError:
                 # Timeouts are NOT retried — a hung endpoint should surface
                 # immediately so the caller knows the request timed out rather
                 # than silently burning retries (each retry × timeout seconds).
