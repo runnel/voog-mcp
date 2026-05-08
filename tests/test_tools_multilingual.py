@@ -8,7 +8,7 @@ from voog.mcp.tools import multilingual as mt
 
 
 class TestGetTools(unittest.TestCase):
-    def test_six_tools_registered(self):
+    def test_seven_tools_registered(self):
         names = sorted(t.name for t in mt.get_tools())
         self.assertEqual(
             names,
@@ -17,6 +17,7 @@ class TestGetTools(unittest.TestCase):
                 "language_delete",
                 "languages_list",
                 "node_get",
+                "node_move",
                 "node_update",
                 "nodes_list",
             ],
@@ -253,6 +254,79 @@ class TestNodeUpdate(unittest.TestCase):
     def test_update_annotations(self):
         tools = {t.name: t for t in mt.get_tools()}
         ann = tools["node_update"].annotations
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, True)
+
+
+class TestNodeMove(unittest.TestCase):
+    def test_move_in_get_tools(self):
+        names = {t.name for t in mt.get_tools()}
+        self.assertIn("node_move", names)
+
+    def test_move_uses_query_params(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 3, "parent_id": 2, "position": 1}
+        mt.call_tool(
+            "node_move",
+            {"node_id": 3, "parent_id": 2, "position": 1},
+            client,
+        )
+        call = client.put.call_args
+        self.assertEqual(call[0][0], "/nodes/3/move")
+        # params= is keyword-only on VoogClient.put
+        self.assertEqual(call.kwargs["params"], {"parent_id": 2, "position": 1})
+
+    def test_move_position_optional(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 3}
+        mt.call_tool(
+            "node_move",
+            {"node_id": 3, "parent_id": 2},
+            client,
+        )
+        # When position is omitted, do NOT inject a default — let Voog
+        # apply its server-side default (1). This way the schema's
+        # documentation of "default 1" stays a server contract, not an
+        # MCP client contract.
+        params = client.put.call_args.kwargs["params"]
+        self.assertEqual(params, {"parent_id": 2})
+        self.assertNotIn("position", params)
+
+    def test_move_requires_parent_id(self):
+        client = MagicMock()
+        result = mt.call_tool(
+            "node_move",
+            {"node_id": 3},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_move_no_body(self):
+        # Voog's move endpoint takes inputs in the query string. The PUT
+        # body should be None/empty — sending an unrelated body could
+        # confuse the server.
+        client = MagicMock()
+        client.put.return_value = {}
+        mt.call_tool(
+            "node_move",
+            {"node_id": 3, "parent_id": 2},
+            client,
+        )
+        call = client.put.call_args
+        # data is the second positional or the `data=` kwarg, or omitted
+        if len(call[0]) >= 2:
+            self.assertIn(call[0][1], (None, {}))
+        else:
+            data_kwarg = call.kwargs.get("data")
+            self.assertIn(data_kwarg, (None, {}))
+
+    def test_move_annotations(self):
+        tools = {t.name: t for t in mt.get_tools()}
+        ann = tools["node_move"].annotations
+        # Re-issuing the same move yields the same tree state — idempotent.
+        # No data loss — not destructive.
         self.assertIs(ann.readOnlyHint, False)
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, True)

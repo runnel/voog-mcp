@@ -1,6 +1,6 @@
 """MCP tools for Voog multilingual primitives — languages and nodes.
 
-Six tools:
+Seven tools:
 
   - ``language_create`` — POST /languages, add a new site language.
   - ``language_delete`` — DELETE /languages/{id}, remove a language (force gate).
@@ -13,6 +13,8 @@ Six tools:
                            preparing page_create(node_id=...) for a
                            parallel translation.
   - ``node_update``     — PUT /nodes/{id}, update a node's title.
+  - ``node_move``       — PUT /nodes/{id}/move, move/reorder a node
+                           within the tree via query-string params.
 """
 
 from mcp.types import CallToolResult, TextContent, Tool
@@ -211,6 +213,41 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": True,
             },
         ),
+        Tool(
+            name="node_move",
+            description=(
+                "Move/reorder a node within the page tree (PUT "
+                "/nodes/{id}/move). Inputs travel as query-string "
+                "params per Voog docs. Required: parent_id (current "
+                "or new parent — pass current to just reorder). "
+                "Optional: position (1-indexed, Voog default 1)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "node_id": {
+                        "type": "integer",
+                        "description": "Voog node id to move",
+                    },
+                    "parent_id": {
+                        "type": "integer",
+                        "description": "Current or new parent node id",
+                    },
+                    "position": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "New position under parent (1-indexed). Omit to let Voog default to 1.",
+                    },
+                },
+                "required": ["site", "node_id", "parent_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
     ]
 
 
@@ -251,6 +288,9 @@ def call_tool(
 
     if name == "node_update":
         return _node_update(arguments, client)
+
+    if name == "node_move":
+        return _node_move(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 
@@ -327,3 +367,24 @@ def _node_update(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
         )
     except Exception as e:
         return error_response(f"node_update id={node_id} failed: {e}")
+
+
+def _node_move(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    node_id = arguments.get("node_id")
+    parent_id = arguments.get("parent_id")
+    if not isinstance(parent_id, int):
+        return error_response("node_move: parent_id is required (integer)")
+    params: dict = {"parent_id": parent_id}
+    if arguments.get("position") is not None:
+        params["position"] = arguments["position"]
+    try:
+        result = client.put(f"/nodes/{node_id}/move", params=params)
+        return success_response(
+            result,
+            summary=(
+                f"🌳 node {node_id} moved → parent={parent_id}, "
+                f"position={params.get('position', 'default')}"
+            ),
+        )
+    except Exception as e:
+        return error_response(f"node_move id={node_id} failed: {e}")
