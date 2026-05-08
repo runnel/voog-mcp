@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import urllib.parse
 import urllib.request
+
+logger = logging.getLogger("voog.client")
 
 
 class VoogClient:
@@ -54,6 +57,7 @@ class VoogClient:
             url += f"?{urllib.parse.urlencode(params)}"
         payload = json.dumps(data).encode() if data is not None else None
         req = urllib.request.Request(url, data=payload, headers=self.headers, method=method)
+        logger.debug("%s %s", method, url)
 
         last_exc: Exception | None = None
         for attempt in range(self.max_retries + 1):
@@ -64,10 +68,18 @@ class VoogClient:
             except urllib.error.HTTPError as e:
                 if e.code < 500 or attempt == self.max_retries:
                     raise
+                logger.warning(
+                    "HTTP %s on %s %s — retrying in %.1fs (attempt %d/%d)",
+                    e.code, method, url, 0.5 * (2 ** attempt), attempt + 1, self.max_retries,
+                )
                 last_exc = e
             except OSError as e:
                 if attempt == self.max_retries:
                     raise
+                logger.warning(
+                    "Network error on %s %s — retrying in %.1fs (attempt %d/%d): %s",
+                    method, url, 0.5 * (2 ** attempt), attempt + 1, self.max_retries, e,
+                )
                 last_exc = e
             time.sleep(0.5 * (2 ** attempt))
         # Unreachable — the loop either returns or re-raises before exit.

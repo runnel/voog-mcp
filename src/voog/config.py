@@ -39,10 +39,13 @@ takes ``site=`` explicitly on every tool call.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger("voog.config")
 
 REPO_POINTER_FILENAME = "voog-site.json"
 CWD_CONFIG_FILENAME = "voog.json"
@@ -140,6 +143,10 @@ def load_global_config(
         raise ConfigError(f"default_site '{default_site}' is not in sites: {sorted(sites)}")
 
     env_file = raw.get("env_file")
+    logger.info(
+        "loaded config: %d site(s) configured, default_site=%r",
+        len(sites), default_site,
+    )
     return GlobalConfig(sites=sites, default_site=default_site, env_file=env_file)
 
 
@@ -160,6 +167,11 @@ def resolve_site_token(site: SiteConfig, env: dict[str, str]) -> str:
         if token:
             return token
     if site.api_key:
+        if not site.api_key_env:
+            logger.warning(
+                "site %r uses inline api_key (no api_key_env) — env-var token resolution preferred for security",
+                site.name,
+            )
         return site.api_key
     if site.api_key_env:
         raise ConfigError(

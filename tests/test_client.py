@@ -352,3 +352,67 @@ class TestRequestRetry(unittest.TestCase):
                 client.get("/pages")
         mock_urlopen.assert_called_once()
         mock_sleep.assert_not_called()
+
+
+class TestRequestLogging(unittest.TestCase):
+    """Audit I17 — _request emits debug logs for traceability."""
+
+    def test_request_debug_logs_method_and_url(self):
+        client = VoogClient(host="example.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            cm = MagicMock()
+            cm.__enter__.return_value = fake_resp
+            cm.__exit__.return_value = False
+            mock_urlopen.return_value = cm
+            with self.assertLogs("voog.client", level="DEBUG") as ctx:
+                client.get("/pages")
+        # At least one debug record contains the method + path.
+        debug_msgs = [r.getMessage() for r in ctx.records if r.levelname == "DEBUG"]
+        self.assertTrue(
+            any("GET" in m and "/pages" in m for m in debug_msgs),
+            f"Expected GET /pages in debug logs, got: {debug_msgs}",
+        )
+
+    def test_5xx_retry_emits_warning(self):
+        client = VoogClient(host="example.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        err_503 = urllib.error.HTTPError(
+            url="x", code=503, msg="Service Unavailable", hdrs=None, fp=None
+        )
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            cm = MagicMock()
+            cm.__enter__.return_value = fake_resp
+            cm.__exit__.return_value = False
+            mock_urlopen.side_effect = [err_503, cm]
+            with patch("voog.client.time.sleep"):
+                with self.assertLogs("voog.client", level="WARNING") as ctx:
+                    client.get("/pages")
+        warning_msgs = [r.getMessage() for r in ctx.records if r.levelname == "WARNING"]
+        self.assertTrue(
+            any("503" in m for m in warning_msgs),
+            f"Expected 503 retry warning, got: {warning_msgs}",
+        )
+
+    def test_oserror_retry_emits_warning(self):
+        client = VoogClient(host="example.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            cm = MagicMock()
+            cm.__enter__.return_value = fake_resp
+            cm.__exit__.return_value = False
+            mock_urlopen.side_effect = [
+                OSError("connection reset"),
+                cm,
+            ]
+            with patch("voog.client.time.sleep"):
+                with self.assertLogs("voog.client", level="WARNING") as ctx:
+                    client.get("/pages")
+        warning_msgs = [r.getMessage() for r in ctx.records if r.levelname == "WARNING"]
+        self.assertTrue(
+            any("connection reset" in m or "Network" in m for m in warning_msgs),
+            f"Expected network error warning, got: {warning_msgs}",
+        )
