@@ -100,6 +100,61 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": False,
             },
         ),
+        Tool(
+            name="webhook_update",
+            description=(
+                "Update a webhook (PUT /webhooks/{id}). Partial — supply "
+                "ONLY the fields to change. Body is FLAT. At least one "
+                "updatable field besides webhook_id is required."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "webhook_id": {
+                        "type": "integer",
+                        "description": "Voog webhook id (from webhooks_list)",
+                    },
+                    "target": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "ticket | form | order",
+                    },
+                    "event": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Event name; depends on target",
+                    },
+                    "url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "HTTP(S) endpoint",
+                    },
+                    "enabled": {
+                        "type": "boolean",
+                        "description": "Whether the webhook fires",
+                    },
+                    "target_id": {
+                        "type": "integer",
+                        "description": "Optional id of the specific target object",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Origin marker — 'api' or 'user'",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Free-text description",
+                    },
+                },
+                "required": ["site", "webhook_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
     ]
 
 
@@ -153,9 +208,32 @@ def _webhook_create(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response(f"webhook_create failed: {e}")
 
 
+def _webhook_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    webhook_id = arguments.get("webhook_id")
+    body: dict = {}
+    # Reuse the create field set — same surface, just partial.
+    for key in _WEBHOOK_CREATE_FIELDS:
+        if arguments.get(key) is not None:
+            body[key] = arguments[key]
+    if not body:
+        return error_response(
+            "webhook_update: supply at least one of "
+            f"{list(_WEBHOOK_CREATE_FIELDS)} besides webhook_id"
+        )
+    try:
+        result = client.put(f"/webhooks/{webhook_id}", body)
+        return success_response(
+            result,
+            summary=f"webhook {webhook_id} updated: {sorted(body.keys())}",
+        )
+    except Exception as e:
+        return error_response(f"webhook_update id={webhook_id} failed: {e}")
+
+
 _DISPATCH = {
     "webhooks_list": _webhooks_list,
     "webhook_create": _webhook_create,
+    "webhook_update": _webhook_update,
 }
 
 

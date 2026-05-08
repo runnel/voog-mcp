@@ -8,9 +8,9 @@ from voog.mcp.tools import webhooks as wt
 
 
 class TestGetTools(unittest.TestCase):
-    def test_two_tools_registered(self):
+    def test_three_tools_registered(self):
         names = sorted(t.name for t in wt.get_tools())
-        self.assertEqual(names, ["webhook_create", "webhooks_list"])
+        self.assertEqual(names, ["webhook_create", "webhook_update", "webhooks_list"])
 
 
 class TestWebhooksList(unittest.TestCase):
@@ -157,6 +157,87 @@ class TestWebhookCreate(unittest.TestCase):
         self.assertIs(ann.readOnlyHint, False)
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, False)
+
+
+class TestWebhookUpdate(unittest.TestCase):
+    def test_in_get_tools(self):
+        names = {t.name for t in wt.get_tools()}
+        self.assertIn("webhook_update", names)
+
+    def test_partial_update_url(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+        wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "url": "https://new.example.com/hook"},
+            client,
+        )
+        client.put.assert_called_once_with(
+            "/webhooks/7",
+            {"url": "https://new.example.com/hook"},
+        )
+
+    def test_disable_webhook(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+        wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "enabled": False},
+            client,
+        )
+        # `False is not None` → field IS sent (legitimate disable).
+        client.put.assert_called_once_with("/webhooks/7", {"enabled": False})
+
+    def test_full_payload(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+        wt.call_tool(
+            "webhook_update",
+            {
+                "webhook_id": 7,
+                "target": "order",
+                "event": "shipped",
+                "url": "https://x",
+                "enabled": True,
+                "target_id": 99,
+                "source": "user",
+                "description": "operations alert",
+            },
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertNotIn("webhook", sent_body)
+        self.assertNotIn("webhook_id", sent_body)
+        self.assertEqual(sent_body["target"], "order")
+        self.assertEqual(sent_body["target_id"], 99)
+
+    def test_requires_at_least_one_field(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_no_envelope_wrapper(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 1}
+        wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 1, "enabled": True},
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertNotIn("webhook", sent_body)
+
+    def test_annotations(self):
+        tools = {t.name: t for t in wt.get_tools()}
+        ann = tools["webhook_update"].annotations
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, True)
 
 
 class TestServerToolRegistry(unittest.TestCase):
