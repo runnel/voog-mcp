@@ -268,6 +268,9 @@ def _webhook_create(arguments: dict, client: VoogClient) -> list[TextContent] | 
 
 def _webhook_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     webhook_id = arguments.get("webhook_id")
+    err = require_int("webhook_id", webhook_id, tool_name="webhook_update")
+    if err:
+        return error_response(err)
     url = arguments.get("url")
     if url is not None:
         err = _validate_webhook_url(url, tool_name="webhook_update")
@@ -300,6 +303,9 @@ def _webhook_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
 
 def _webhook_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     webhook_id = arguments.get("webhook_id")
+    err = require_int("webhook_id", webhook_id, tool_name="webhook_delete")
+    if err:
+        return error_response(err)
     err = require_force(
         arguments,
         tool_name="webhook_delete",

@@ -555,6 +555,33 @@ class TestWebhookUpdateUrlValidation(unittest.TestCase):
         client.put.assert_called_once()
 
 
+class TestWebhookIdValidation(unittest.TestCase):
+    """webhook_id path-param int/bool reject in update + delete (consistency with other modules)."""
+
+    def test_webhook_update_rejects_bool_webhook_id(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_update",
+            {"webhook_id": True, "enabled": False},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+        self.assertIn("bool", result.content[0].text)
+        self.assertIn("integer", result.content[0].text)
+
+    def test_webhook_delete_rejects_bool_webhook_id(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_delete",
+            {"webhook_id": True, "force": True},
+            client,
+        )
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+        self.assertIn("bool", result.content[0].text)
+
+
 class TestServerToolRegistry(unittest.TestCase):
     def test_webhooks_in_tool_groups(self):
         from voog.mcp import server

@@ -8,6 +8,8 @@ __pycache__/
 *.swo
 .vscode/
 .idea/
+.venv/
+venv/
 .pytest_cache/
 htmlcov/
 .coverage
