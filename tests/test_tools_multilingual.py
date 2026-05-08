@@ -332,6 +332,28 @@ class TestNodeMove(unittest.TestCase):
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, True)
 
+    def test_move_rejects_bool_parent_id(self):
+        # `bool` is a subclass of int in Python — explicit reject so
+        # True/False don't slip through as 1/0. PR #113 review.
+        client = MagicMock()
+        result = mt.call_tool(
+            "node_move",
+            {"node_id": 3, "parent_id": True},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_move_rejects_bool_position(self):
+        client = MagicMock()
+        result = mt.call_tool(
+            "node_move",
+            {"node_id": 3, "parent_id": 2, "position": False},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
 
 class TestNodeRelocate(unittest.TestCase):
     def test_relocate_in_get_tools(self):

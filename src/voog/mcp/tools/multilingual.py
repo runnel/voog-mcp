@@ -399,11 +399,16 @@ def _node_update(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
 def _node_move(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     node_id = arguments.get("node_id")
     parent_id = arguments.get("parent_id")
-    if not isinstance(parent_id, int):
+    # `bool` is a subclass of int — reject it explicitly so True/False
+    # don't slip through as 1/0 and confuse Voog. PR #113 review.
+    if not isinstance(parent_id, int) or isinstance(parent_id, bool):
         return error_response("node_move: parent_id is required (integer)")
     params: dict = {"parent_id": parent_id}
-    if arguments.get("position") is not None:
-        params["position"] = arguments["position"]
+    position = arguments.get("position")
+    if position is not None:
+        if not isinstance(position, int) or isinstance(position, bool):
+            return error_response("node_move: position must be an integer")
+        params["position"] = position
     try:
         result = client.put(f"/nodes/{node_id}/move", params=params)
         return success_response(
