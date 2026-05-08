@@ -54,9 +54,22 @@ from voog.mcp.tools import webhooks as webhooks_tools
 
 logger = logging.getLogger("voog")
 
-# Conservative redaction — covers the common content-bearing fields.
-# Long string values of any other key are length-capped via the second pass.
-_REDACTED_KEYS = frozenset({"body", "data", "value", "source"})
+# Content-bearing keys whose values are replaced with "<redacted>" in the
+# DEBUG log regardless of size. These commonly carry HTML, page content,
+# product attributes, or translation maps — material that is high-cardinality,
+# may include PII, and is rarely useful in raw form when troubleshooting tool
+# dispatch. Long string values under any OTHER key are length-capped via the
+# second pass — see _STRING_CAP and _redact_arguments.
+_REDACTED_KEYS = frozenset({
+    "body",          # article/page/content_partial body, layout source
+    "data",          # arbitrary kv data on pages/articles/site
+    "value",         # element value in element_create/update
+    "values",        # element value-map (plural form on elements list/get)
+    "source",        # webhook event source, layout source
+    "translations",  # per-language string maps on products / variants
+    "attributes",    # product create/update attributes dict (price, stock, etc.)
+    "fields",        # legacy product fields
+})
 _STRING_CAP = 500  # characters; any single string value longer than this is truncated
 
 
@@ -166,7 +179,7 @@ def _validate_resource_uri_patterns(groups) -> None:
 
 async def run_server(global_cfg: GlobalConfig, env: dict[str, str]):
     factory = ClientFactory(global_cfg, env)
-    server = Server(name="voog-mcp", version="1.2.0")
+    server = Server(name="voog-mcp", version="1.3.0")
 
     tool_dispatch: dict = {}
     for group in TOOL_GROUPS:

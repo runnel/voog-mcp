@@ -6,6 +6,10 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+(no changes yet)
+
+## [1.3.0] — 2026-05-08
+
 ### Breaking changes
 - `site_snapshot.force` renamed to `site_snapshot.overwrite`. The `force` flag on delete tools means "authorize destruction"; on `site_snapshot` it means "allow writing into an existing directory" — a different concept that deserves a distinct name. Passing `force=true` to `site_snapshot` now falls through as an unknown property (schema has `additionalProperties: false`) and will be rejected by a conforming MCP validator. Update callers to use `overwrite=true`.
 
@@ -43,9 +47,27 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 - `voog.mcp.tools.multilingual` refactored from linear `if name == "x":` dispatch to a `_DISPATCH` dict, completing the Phase 4 sweep (which had skipped multilingual when it had only 3 tools — Phase 5+6 brought it to 8). Pre-existing inline handlers (`languages_list`, `nodes_list`, `node_get`) extracted into named functions for dispatch-dict registration. `_DISPATCH` placed BEFORE `call_tool` (the codebase's two pre-existing styles split 3-vs-3 on placement; standardising forward). Pure refactor — no wire-behaviour changes. Audit I12 follow-up.
 - Tool dispatch in `articles`, `layouts`, `pages_mutate`, `products`, `redirects`, `site` switched from linear `if name == "x":` chains to a module-level `_DISPATCH` dict. No wire behaviour change — the lookup is structural, slightly faster, and forces `get_tools()`/`call_tool` to share a single source of names (a missing entry in either now fails the unknown-tool branch deterministically). Side effects: `_products_list` signature normalised from `(client)` to `(arguments, client)`; `redirects.py` and `site.py` had their inline `call_tool` branches extracted into named handlers (`_redirect_*`, `_site_*`) for the dispatch dict. Closes audit I12.
 - `VoogClient.get_all` default `per_page` raised from 100 to 200 (Voog supports up to 250). Halves the round-trip count on large-list endpoints. Caller overrides via `params={"per_page": N}` continue to work. Closes audit I10/P2.
-- `User-Agent` bumped to `voog-mcp/1.3.0-dev` (will roll to `voog-mcp/1.3.0` at release).
+- `User-Agent` bumped to `voog-mcp/1.3.0`.
 - `voog site-snapshot` (CLI) and `site_snapshot` (MCP tool) now fetch product details with the same `PRODUCTS_DETAIL_INCLUDE` constant the live tools use, so backups inherit per-variant inventory automatically. Previously each surface hardcoded `"variant_types,translations"`, drifting from the source of truth. (#104)
 - `layout_update` and `layout_asset_update` now hard-fail when the PUT response echoes back the resource with the content field cleared (the original #96 silent-no-op symptom). Defense-in-depth only — the MCP tools already send the correct flat payload form, so this can't reproduce on current code paths, but a future regression (envelope re-introduction, server-side rate-limit anomaly, etc.) would otherwise read back as `✓` while the content sat unchanged on Voog. Voog's slim PUT responses normally omit the content field entirely, so the detector falls through on every real response shape. (#99)
+
+### Reliability
+- 429 / `Retry-After` honoring on retry — `VoogClient._request` now parses Cloudflare's `Retry-After` header and sleeps for the server-specified interval (clamped to `[1, _RETRY_AFTER_CAP]` seconds) before retrying a 429 response, rather than using the fixed exponential backoff. (T6)
+- Timeouts no longer retried — `socket.timeout` / `TimeoutError` propagate immediately instead of being retried up to `max_retries` times; previously a hung Voog endpoint could wedge a tool call for up to ~3× the configured timeout. (T6)
+- DEBUG log argument redaction — `_redact_arguments` strips content-bearing / PII keys (`body`, `data`, `value`, `values`, `source`, `translations`, `attributes`, `fields`) from `call_tool` DEBUG logs, and length-caps any other string value over 500 characters. Prevents large content fields from bloating log output and avoids accidental PII capture when developers raise the log level. (T7)
+- `bool`-vs-`int` validation hardened across all integer-typed tool parameters — `*_id` path params (`page_id`, `article_id`, `product_id`, `element_id`, `layout_id`, `language_id`, `node_id`, `text_id`, `webhook_id`, `content_partial_id`, etc.) and integer body / filter fields (`target_id`, `redirect_type`, `position`, `before`, `after`, `parent_id`, `parent_node_id`, `content_origin_id`, `element_definition_id`, `asset_ids[]`, `category_ids[]`) all reject Python `True`/`False` with a descriptive error rather than silently forwarding `1`/`0` to Voog. (T1–T5)
+- Shared `require_int` and `require_force` validators in `voog.mcp.tools._helpers`, deduplicating the bool-rejection idiom and 11 inline force-gate copies that had drifted in wording. Force-gate message is now uniform across `webhook_delete`, `element_delete`, `redirect_delete`, `article_delete`, `article_delete_data`, `page_delete`, `page_delete_data`, `language_delete`, `site_delete_data`, `layout_delete`, `layout_asset_delete`. Two non-delete force gates (`product_set_images` replace, `product_update` destructive-default) intentionally remain inline because the helper hardcodes "refusing to delete" — those are not deletions. (T5)
+
+### Internal
+- `build_list_params` helper extracted in `voog.mcp.tools._helpers`; `pages_list`, `articles_list`, and `elements_list` list-filter arguments migrated from inline `params` dicts to the shared builder. (T9)
+- `_article_publish` body shape is now regression-tested against `build_article_payload` — the `TestArticlePublishBodyShapeMatchesPayload` class in `tests/test_tools_articles.py` derives expected `autosaved_*` keys from the helper at test-time and asserts `_article_publish` produces the same shape, preventing silent divergence between the two code paths if the helper's mapping is ever extended. (T10)
+
+### Known unverified
+- The following Voog API contracts ship in v1.3 without a captured live-tenant fixture; they have unit-test coverage against synthetic payloads but no recorded round-trip against a real Voog tenant. Behaviour matches the documented contract; flag here so anyone diagnosing a contract mismatch knows where to look first:
+  - `content_partial_update` PUT semantics — whether Voog merges or replaces partial `metainfo` body keys is documented but not empirically pinned.
+  - `PUT /nodes/{id}/move` accepting a body-less request (handler sends only query-string params).
+  - `simplify_webhooks` and `simplify_elements` projections — the synthetic test fixtures match the documented response shapes but were not captured from a live `GET /webhooks` / `GET /elements` round-trip.
+  These are recommended captures for an early v1.3.x patch; none are correctness blockers for typical use.
 
 ## [1.2.2] — 2026-05-01
 
@@ -171,6 +193,7 @@ Initial public release. Refactored from internal personal tooling.
 - `voog.py` legacy script (replaced by `voog` CLI binary)
 - `voog_mcp/` package layout (replaced by `src/voog/mcp/`)
 
+[1.3.0]: https://github.com/runnel/voog-mcp/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/runnel/voog-mcp/releases/tag/v1.2.2
 [1.2.1]: https://github.com/runnel/voog-mcp/releases/tag/v1.2.1
 [1.2.0]: https://github.com/runnel/voog-mcp/releases/tag/v1.2.0

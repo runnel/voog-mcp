@@ -66,6 +66,26 @@ class TestRedactArgumentsSensitiveKeys(unittest.TestCase):
         result = _redact_arguments({"source": "<html>...</html>"})
         self.assertEqual(result["source"], "<redacted>")
 
+    def test_values_redacted(self):
+        # element value-map (plural) — element values can be HTML/rich text
+        result = _redact_arguments({"values": {"intro": "<p>...</p>", "image": "url"}})
+        self.assertEqual(result["values"], "<redacted>")
+
+    def test_translations_redacted(self):
+        # per-language string maps on products / variants
+        result = _redact_arguments({"translations": {"et": {"name": "Argilia"}}})
+        self.assertEqual(result["translations"], "<redacted>")
+
+    def test_attributes_redacted(self):
+        # product create/update attributes dict (price, description, …)
+        result = _redact_arguments({"attributes": {"price": "39.00", "description": "..."}})
+        self.assertEqual(result["attributes"], "<redacted>")
+
+    def test_fields_redacted(self):
+        # legacy product fields
+        result = _redact_arguments({"fields": [{"name": "size", "value": "L"}]})
+        self.assertEqual(result["fields"], "<redacted>")
+
     def test_all_redacted_keys_covered(self):
         """Every key in _REDACTED_KEYS must produce '<redacted>'."""
         for key in _REDACTED_KEYS:

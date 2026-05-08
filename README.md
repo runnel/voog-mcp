@@ -132,7 +132,7 @@ Every tool requires a `site` parameter. Start with `voog_list_sites` to discover
 voog_list_sites()
 → [{"name": "mysite", "host": "mysite.com"}, ...]
 
-voog_get_page(site="mysite", page_id=42)
+page_get(site="mysite", page_id=42)
 → {...}
 ```
 
@@ -144,14 +144,16 @@ Full endpoint coverage reference: [docs/voog-mcp-endpoint-coverage.md](docs/voog
 |---|---|
 | Sites | `voog_list_sites` |
 | Pages | `pages_list`, `page_get`, `page_create`, `page_update`, `page_set_hidden`, `page_set_layout`, `page_set_data`, `page_delete_data`, `page_duplicate`, `page_delete` |
-| Articles | `articles_list`, `article_get`, `article_create`, `article_update`, `article_publish`, `article_delete` |
+| Articles | `articles_list`, `article_get`, `article_create`, `article_update`, `article_publish`, `article_set_data`, `article_delete_data`, `article_delete` |
 | Layouts | `layouts_pull`, `layouts_push`, `layout_create`, `layout_update`, `layout_rename`, `layout_delete`, `layout_asset_create`, `layout_asset_update`, `layout_asset_delete`, `asset_replace` |
-| Texts / contents | `text_get`, `text_update`, `page_add_content` |
-| Products | `products_list`, `product_get`, `product_update`, `product_set_images` |
+| Texts / contents | `text_get`, `text_update`, `page_add_content`, `content_partial_update` |
+| Elements | `elements_list`, `element_get`, `element_definitions_list`, `element_create`, `element_update`, `element_delete` |
+| Products | `products_list`, `product_get`, `product_create`, `product_update`, `product_set_images` |
 | Ecommerce | `ecommerce_settings_get`, `ecommerce_settings_update` |
-| Multilingual | `languages_list`, `nodes_list`, `node_get` |
+| Multilingual | `languages_list`, `language_create`, `language_delete`, `nodes_list`, `node_get`, `node_update`, `node_move`, `node_relocate` |
 | Redirects | `redirects_list`, `redirect_add`, `redirect_update`, `redirect_delete` |
 | Site | `site_get`, `site_update`, `site_set_data`, `site_delete_data` |
+| Webhooks | `webhooks_list`, `webhook_create`, `webhook_update`, `webhook_delete` |
 | Snapshot | `pages_snapshot`, `site_snapshot` |
 | **Generic passthrough** | `voog_admin_api_call`, `voog_ecommerce_api_call` |
 
