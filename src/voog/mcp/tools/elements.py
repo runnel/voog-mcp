@@ -194,6 +194,45 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": False,
             },
         ),
+        Tool(
+            name="element_update",
+            description=(
+                "Update an element (PUT /elements/{id}). Partial — supply "
+                "ONLY the fields to change. Body is FLAT. Updatable: "
+                "title, path, values. At least one besides element_id is "
+                "required."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "element_id": {
+                        "type": "integer",
+                        "description": "Voog element id (from elements_list)",
+                    },
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "New title",
+                    },
+                    "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "New URL slug",
+                    },
+                    "values": {
+                        "type": "object",
+                        "description": "Replacement values hash",
+                    },
+                },
+                "required": ["site", "element_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
     ]
 
 
@@ -280,11 +319,36 @@ def _element_create(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response(f"element_create failed: {e}")
 
 
+_ELEMENT_UPDATE_FIELDS = ("title", "path", "values")
+
+
+def _element_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    element_id = arguments.get("element_id")
+    body: dict = {}
+    for key in _ELEMENT_UPDATE_FIELDS:
+        if arguments.get(key) is not None:
+            body[key] = arguments[key]
+    if not body:
+        return error_response(
+            "element_update: supply at least one of "
+            f"{list(_ELEMENT_UPDATE_FIELDS)} besides element_id"
+        )
+    try:
+        result = client.put(f"/elements/{element_id}", body)
+        return success_response(
+            result,
+            summary=f"🧩 element {element_id} updated: {sorted(body.keys())}",
+        )
+    except Exception as e:
+        return error_response(f"element_update id={element_id} failed: {e}")
+
+
 _DISPATCH = {
     "elements_list": _elements_list,
     "element_get": _element_get,
     "element_definitions_list": _element_definitions_list,
     "element_create": _element_create,
+    "element_update": _element_update,
 }
 
 

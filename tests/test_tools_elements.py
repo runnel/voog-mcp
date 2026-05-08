@@ -8,11 +8,17 @@ from voog.mcp.tools import elements as et
 
 
 class TestGetTools(unittest.TestCase):
-    def test_four_tools_registered(self):
+    def test_five_tools_registered(self):
         names = sorted(t.name for t in et.get_tools())
         self.assertEqual(
             names,
-            ["element_create", "element_definitions_list", "element_get", "elements_list"],
+            [
+                "element_create",
+                "element_definitions_list",
+                "element_get",
+                "element_update",
+                "elements_list",
+            ],
         )
 
 
@@ -260,6 +266,80 @@ class TestElementCreate(unittest.TestCase):
         self.assertIs(ann.readOnlyHint, False)
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, False)
+
+
+class TestElementUpdate(unittest.TestCase):
+    def test_in_get_tools(self):
+        names = {t.name for t in et.get_tools()}
+        self.assertIn("element_update", names)
+
+    def test_partial_title(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        et.call_tool(
+            "element_update",
+            {"element_id": 5, "title": "New title"},
+            client,
+        )
+        client.put.assert_called_once_with("/elements/5", {"title": "New title"})
+
+    def test_partial_values(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        et.call_tool(
+            "element_update",
+            {"element_id": 5, "values": {"caption": "updated"}},
+            client,
+        )
+        client.put.assert_called_once_with("/elements/5", {"values": {"caption": "updated"}})
+
+    def test_full_payload(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        et.call_tool(
+            "element_update",
+            {
+                "element_id": 5,
+                "title": "T",
+                "path": "p",
+                "values": {"k": "v"},
+            },
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertNotIn("element", sent_body)
+        self.assertNotIn("element_id", sent_body)
+        self.assertEqual(sent_body["title"], "T")
+        self.assertEqual(sent_body["path"], "p")
+        self.assertEqual(sent_body["values"], {"k": "v"})
+
+    def test_requires_at_least_one_field(self):
+        client = MagicMock()
+        result = et.call_tool(
+            "element_update",
+            {"element_id": 5},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_no_envelope_wrapper(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 1}
+        et.call_tool(
+            "element_update",
+            {"element_id": 1, "title": "X"},
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertNotIn("element", sent_body)
+
+    def test_annotations(self):
+        tools = {t.name: t for t in et.get_tools()}
+        ann = tools["element_update"].annotations
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, True)
 
 
 class TestServerToolRegistry(unittest.TestCase):
