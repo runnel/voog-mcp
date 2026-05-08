@@ -96,10 +96,13 @@ def get_tools() -> list[Tool]:
                 "media_sets, assets, webhooks, site, me, products (with "
                 "translations + variant_types), per-page contents, per-article "
                 "details, per-product details, and rendered HTML samples for "
-                "VoogStyle capture. REFUSES to overwrite an existing directory — "
-                "pick a fresh location. REQUIRED pre-flight before any risky "
-                "operation: layout rename, mass push, layout swap, VoogStyle "
-                "template push, page_delete."
+                "VoogStyle capture. By default REFUSES to overwrite an existing "
+                "directory — pick a fresh location. Pass force=true to write "
+                "into an existing directory (automation/cron use case); files "
+                "from a prior snapshot may persist alongside new files if the "
+                "underlying Voog state has shrunk. REQUIRED pre-flight before "
+                "any risky operation: layout rename, mass push, layout swap, "
+                "VoogStyle template push, page_delete."
             ),
             inputSchema={
                 "type": "object",
@@ -107,7 +110,15 @@ def get_tools() -> list[Tool]:
                     "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "output_dir": {
                         "type": "string",
-                        "description": "Absolute path to a fresh (non-existing) directory for the snapshot",
+                        "description": "Absolute path. Fresh (non-existing) by default; pass force=true to allow existing.",
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": (
+                            "Allow writing into an existing output_dir "
+                            "(automation/cron). Defaults to false (defensive)."
+                        ),
+                        "default": False,
                     },
                 },
                 "required": ["site", "output_dir"],
@@ -202,14 +213,16 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         return error_response(err)
 
     out = Path(output_dir)
-    if out.exists():
+    force = bool(arguments.get("force"))
+    if out.exists() and not force:
         return error_response(
             f"site_snapshot: output_dir {output_dir!r} already exists. "
-            "Pick a fresh location to prevent mixing old/new state."
+            "Pick a fresh location, or pass force=true to write into it "
+            "(automation/cron use case)."
         )
 
     try:
-        out.mkdir(parents=True, exist_ok=False)
+        out.mkdir(parents=True, exist_ok=force)
     except Exception as e:
         return error_response(f"site_snapshot: cannot create {output_dir!r}: {e}")
 
