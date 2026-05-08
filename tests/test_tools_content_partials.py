@@ -70,6 +70,7 @@ class TestContentPartialUpdate(unittest.TestCase):
         )
         client.put.assert_not_called()
         self.assertTrue(result.isError)
+        self.assertIn("at least one", result.content[0].text)
 
     def test_update_no_envelope_wrapper(self):
         # Per the Voog content_partials doc, PUT body is bare {body,

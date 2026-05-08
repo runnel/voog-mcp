@@ -96,7 +96,7 @@ def _content_partial_update(
         fields_changed = sorted(payload.keys())
         return success_response(
             result,
-            summary=f"content_partial {cp_id} updated: {fields_changed}",
+            summary=f"📄 content_partial {cp_id} updated: {fields_changed}",
         )
     except Exception as e:
         return error_response(
