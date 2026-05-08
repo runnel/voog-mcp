@@ -295,27 +295,7 @@ def get_tools() -> list[Tool]:
     ]
 
 
-def call_tool(
-    name: str, arguments: dict | None, client: VoogClient
-) -> list[TextContent] | CallToolResult:
-    arguments = strip_site(arguments or {})
-
-    if name == "products_list":
-        return _products_list(client)
-
-    if name == "product_get":
-        return _product_get(arguments, client)
-
-    if name == "product_update":
-        return _product_update(arguments, client)
-
-    if name == "product_create":
-        return _product_create(arguments, client)
-
-    return error_response(f"Unknown tool: {name}")
-
-
-def _products_list(client: VoogClient) -> list[TextContent] | CallToolResult:
+def _products_list(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     try:
         products = client.get_all(
             "/products",
@@ -595,3 +575,21 @@ def _product_create(arguments: dict, client: VoogClient) -> list[TextContent] | 
         )
     except Exception as e:
         return error_response(f"product_create failed: {e}")
+
+
+_DISPATCH = {
+    "products_list": _products_list,
+    "product_get": _product_get,
+    "product_update": _product_update,
+    "product_create": _product_create,
+}
+
+
+def call_tool(
+    name: str, arguments: dict | None, client: VoogClient
+) -> list[TextContent] | CallToolResult:
+    arguments = strip_site(arguments or {})
+    handler = _DISPATCH.get(name)
+    if handler is None:
+        return error_response(f"Unknown tool: {name}")
+    return handler(arguments, client)

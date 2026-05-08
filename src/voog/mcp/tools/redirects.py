@@ -149,96 +149,110 @@ def get_tools() -> list[Tool]:
     ]
 
 
+def _redirects_list(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    try:
+        rules = client.get_all("/redirect_rules")
+        return success_response(rules, summary=f"↪️  {len(rules)} redirect rules")
+    except Exception as e:
+        return error_response(f"redirects_list failed: {e}")
+
+
+def _redirect_add(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    source = arguments.get("source")
+    destination = arguments.get("destination")
+    rtype = arguments.get("redirect_type", 301)
+    active = arguments.get("active", True)
+    regexp = arguments.get("regexp", False)
+    try:
+        result = client.post(
+            "/redirect_rules",
+            build_redirect_payload(
+                source,
+                destination,
+                redirect_type=rtype,
+                active=active,
+                regexp=regexp,
+            ),
+        )
+        summary_extras = ""
+        if regexp:
+            summary_extras += ", regex"
+        if not active:
+            summary_extras += ", inactive"
+        return success_response(
+            result,
+            summary=f"✅ {source} → {destination} ({rtype}{summary_extras})",
+        )
+    except Exception as e:
+        return error_response(f"redirect_add failed: {e}")
+
+
+def _redirect_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    redirect_id = arguments.get("redirect_id")
+    rtype = arguments.get("redirect_type")
+    if rtype is not None and rtype not in VALID_REDIRECT_TYPES:
+        return error_response(
+            f"redirect_update: invalid redirect_type {rtype!r}; allowed: {VALID_REDIRECT_TYPES}"
+        )
+    updates: dict = {key: arguments[key] for key in REDIRECT_FIELDS if key in arguments}
+    if not updates:
+        return error_response(
+            f"redirect_update: at least one of {'/'.join(REDIRECT_FIELDS)} must be supplied"
+        )
+
+    # Voog's PUT is full-replace; GET first, merge, then PUT the
+    # complete envelope so unspecified fields don't get coerced to
+    # defaults (e.g. active=False silently flipping to True).
+    try:
+        current = client.get(f"/redirect_rules/{redirect_id}")
+    except Exception as e:
+        return error_response(f"redirect_update id={redirect_id} GET failed: {e}")
+
+    rule_body = {f: current.get(f) for f in REDIRECT_FIELDS}
+    rule_body.update(updates)
+
+    try:
+        result = client.put(
+            f"/redirect_rules/{redirect_id}",
+            {"redirect_rule": rule_body},
+        )
+        return success_response(
+            result,
+            summary=f"↪️  redirect {redirect_id} updated: {sorted(updates.keys())}",
+        )
+    except Exception as e:
+        return error_response(f"redirect_update id={redirect_id} failed: {e}")
+
+
+def _redirect_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    redirect_id = arguments.get("redirect_id")
+    if not arguments.get("force"):
+        return error_response(
+            f"redirect_delete: refusing to delete rule {redirect_id} without force=true"
+        )
+    try:
+        client.delete(f"/redirect_rules/{redirect_id}")
+        return success_response(
+            {"deleted": redirect_id},
+            summary=f"🗑️  redirect {redirect_id} deleted",
+        )
+    except Exception as e:
+        return error_response(f"redirect_delete id={redirect_id} failed: {e}")
+
+
+_DISPATCH = {
+    "redirects_list": _redirects_list,
+    "redirect_add": _redirect_add,
+    "redirect_update": _redirect_update,
+    "redirect_delete": _redirect_delete,
+}
+
+
 def call_tool(
     name: str, arguments: dict | None, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
-
-    if name == "redirects_list":
-        try:
-            rules = client.get_all("/redirect_rules")
-            return success_response(rules, summary=f"↪️  {len(rules)} redirect rules")
-        except Exception as e:
-            return error_response(f"redirects_list failed: {e}")
-
-    if name == "redirect_add":
-        source = arguments.get("source")
-        destination = arguments.get("destination")
-        rtype = arguments.get("redirect_type", 301)
-        active = arguments.get("active", True)
-        regexp = arguments.get("regexp", False)
-        try:
-            result = client.post(
-                "/redirect_rules",
-                build_redirect_payload(
-                    source,
-                    destination,
-                    redirect_type=rtype,
-                    active=active,
-                    regexp=regexp,
-                ),
-            )
-            summary_extras = ""
-            if regexp:
-                summary_extras += ", regex"
-            if not active:
-                summary_extras += ", inactive"
-            return success_response(
-                result,
-                summary=f"✅ {source} → {destination} ({rtype}{summary_extras})",
-            )
-        except Exception as e:
-            return error_response(f"redirect_add failed: {e}")
-
-    if name == "redirect_update":
-        redirect_id = arguments.get("redirect_id")
-        rtype = arguments.get("redirect_type")
-        if rtype is not None and rtype not in VALID_REDIRECT_TYPES:
-            return error_response(
-                f"redirect_update: invalid redirect_type {rtype!r}; allowed: {VALID_REDIRECT_TYPES}"
-            )
-        updates: dict = {key: arguments[key] for key in REDIRECT_FIELDS if key in arguments}
-        if not updates:
-            return error_response(
-                f"redirect_update: at least one of {'/'.join(REDIRECT_FIELDS)} must be supplied"
-            )
-
-        # Voog's PUT is full-replace; GET first, merge, then PUT the
-        # complete envelope so unspecified fields don't get coerced to
-        # defaults (e.g. active=False silently flipping to True).
-        try:
-            current = client.get(f"/redirect_rules/{redirect_id}")
-        except Exception as e:
-            return error_response(f"redirect_update id={redirect_id} GET failed: {e}")
-
-        rule_body = {f: current.get(f) for f in REDIRECT_FIELDS}
-        rule_body.update(updates)
-
-        try:
-            result = client.put(
-                f"/redirect_rules/{redirect_id}",
-                {"redirect_rule": rule_body},
-            )
-            return success_response(
-                result,
-                summary=f"↪️  redirect {redirect_id} updated: {sorted(updates.keys())}",
-            )
-        except Exception as e:
-            return error_response(f"redirect_update id={redirect_id} failed: {e}")
-
-    if name == "redirect_delete":
-        redirect_id = arguments.get("redirect_id")
-        if not arguments.get("force"):
-            return error_response(
-                f"redirect_delete: refusing to delete rule {redirect_id} without force=true"
-            )
-        try:
-            client.delete(f"/redirect_rules/{redirect_id}")
-            return success_response(
-                {"deleted": redirect_id},
-                summary=f"🗑️  redirect {redirect_id} deleted",
-            )
-        except Exception as e:
-            return error_response(f"redirect_delete id={redirect_id} failed: {e}")
-
-    return error_response(f"Unknown tool: {name}")
+    handler = _DISPATCH.get(name)
+    if handler is None:
+        return error_response(f"Unknown tool: {name}")
+    return handler(arguments, client)

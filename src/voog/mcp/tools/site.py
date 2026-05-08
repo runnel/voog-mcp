@@ -119,64 +119,78 @@ def get_tools() -> list[Tool]:
     ]
 
 
+def _site_get(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    try:
+        return success_response(client.get("/site"))
+    except Exception as e:
+        return error_response(f"site_get failed: {e}")
+
+
+def _site_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    attributes = arguments.get("attributes") or {}
+    if not attributes:
+        return error_response("site_update: attributes must be non-empty")
+    forbidden = set(attributes) & IMMUTABLE_SITE_FIELDS
+    if forbidden:
+        return error_response(f"site_update: fields {sorted(forbidden)} are immutable")
+    try:
+        return success_response(
+            client.put("/site", attributes),
+            summary=f"site updated: {sorted(attributes.keys())}",
+        )
+    except Exception as e:
+        return error_response(f"site_update failed: {e}")
+
+
+def _site_set_data(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    key = arguments.get("key") or ""
+    value = arguments.get("value")
+    err = _validate_data_key(key, tool_name="site_set_data")
+    if err:
+        return error_response(err)
+    try:
+        return success_response(
+            client.put(f"/site/data/{key}", {"value": value}),
+            summary=f"site.data.{key} set",
+        )
+    except Exception as e:
+        return error_response(f"site_set_data key={key!r} failed: {e}")
+
+
+def _site_delete_data(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    key = arguments.get("key") or ""
+    force = bool(arguments.get("force"))
+    err = _validate_data_key(key, tool_name="site_delete_data")
+    if err:
+        return error_response(err)
+    if not force:
+        return error_response(
+            f"site_delete_data: refusing to delete site.data.{key!r} without force=true. "
+            "Set force=true after confirming the deletion is intentional."
+        )
+    try:
+        client.delete(f"/site/data/{key}")
+        return success_response(
+            {"deleted": {"key": key}},
+            summary=f"site.data.{key} deleted",
+        )
+    except Exception as e:
+        return error_response(f"site_delete_data key={key!r} failed: {e}")
+
+
+_DISPATCH = {
+    "site_get": _site_get,
+    "site_update": _site_update,
+    "site_set_data": _site_set_data,
+    "site_delete_data": _site_delete_data,
+}
+
+
 def call_tool(
     name: str, arguments: dict | None, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
-
-    if name == "site_get":
-        try:
-            return success_response(client.get("/site"))
-        except Exception as e:
-            return error_response(f"site_get failed: {e}")
-
-    if name == "site_update":
-        attributes = arguments.get("attributes") or {}
-        if not attributes:
-            return error_response("site_update: attributes must be non-empty")
-        forbidden = set(attributes) & IMMUTABLE_SITE_FIELDS
-        if forbidden:
-            return error_response(f"site_update: fields {sorted(forbidden)} are immutable")
-        try:
-            return success_response(
-                client.put("/site", attributes),
-                summary=f"site updated: {sorted(attributes.keys())}",
-            )
-        except Exception as e:
-            return error_response(f"site_update failed: {e}")
-
-    if name == "site_set_data":
-        key = arguments.get("key") or ""
-        value = arguments.get("value")
-        err = _validate_data_key(key, tool_name="site_set_data")
-        if err:
-            return error_response(err)
-        try:
-            return success_response(
-                client.put(f"/site/data/{key}", {"value": value}),
-                summary=f"site.data.{key} set",
-            )
-        except Exception as e:
-            return error_response(f"site_set_data key={key!r} failed: {e}")
-
-    if name == "site_delete_data":
-        key = arguments.get("key") or ""
-        force = bool(arguments.get("force"))
-        err = _validate_data_key(key, tool_name="site_delete_data")
-        if err:
-            return error_response(err)
-        if not force:
-            return error_response(
-                f"site_delete_data: refusing to delete site.data.{key!r} without force=true. "
-                "Set force=true after confirming the deletion is intentional."
-            )
-        try:
-            client.delete(f"/site/data/{key}")
-            return success_response(
-                {"deleted": {"key": key}},
-                summary=f"site.data.{key} deleted",
-            )
-        except Exception as e:
-            return error_response(f"site_delete_data key={key!r} failed: {e}")
-
-    return error_response(f"Unknown tool: {name}")
+    handler = _DISPATCH.get(name)
+    if handler is None:
+        return error_response(f"Unknown tool: {name}")
+    return handler(arguments, client)
