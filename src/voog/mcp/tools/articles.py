@@ -24,23 +24,16 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._payloads import build_article_payload
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import _validate_data_key, require_force, require_int, strip_site
+from voog.mcp.tools._helpers import (
+    _validate_data_key,
+    build_list_params,
+    require_force,
+    require_int,
+    strip_site,
+)
 from voog.projections import simplify_articles
 
 _ARTICLES_PLAIN_PARAMS = ("page_id", "language_code", "language_id", "tag")
-
-
-def _build_articles_list_params(arguments: dict) -> dict | None:
-    """Translate tool args to Voog query params. Returns None when no
-    filters are set, so the caller falls through to the unparameterised
-    `client.get_all("/articles")` shape."""
-    params: dict = {}
-    for arg_key in _ARTICLES_PLAIN_PARAMS:
-        if arg_key in arguments:
-            params[arg_key] = arguments[arg_key]
-    if "sort" in arguments:
-        params["s"] = arguments["sort"]
-    return params or None
 
 
 def get_tools() -> list[Tool]:
@@ -360,7 +353,11 @@ def _articles_list(arguments: dict, client: VoogClient):
             err = require_int(int_field, val, tool_name="articles_list")
             if err:
                 return error_response(err)
-    params = _build_articles_list_params(arguments)
+    params = build_list_params(
+        arguments,
+        plain=_ARTICLES_PLAIN_PARAMS,
+        sort_target="s",
+    )
     try:
         if params:
             articles = client.get_all("/articles", params=params)

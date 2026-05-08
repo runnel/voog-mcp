@@ -1,6 +1,6 @@
 """Shared helpers for filesystem-touching tool modules.
 
-Six small primitives:
+Seven small primitives:
 
   - :func:`validate_output_dir`        — non-empty + absolute path check;
                                           returns an error string or ``None``.
@@ -39,6 +39,14 @@ Six small primitives:
                                           destructive operations. Used by T5
                                           to replace the 9 inline copies of
                                           ``if not arguments.get("force")``.
+  - :func:`build_list_params`          — translate MCP tool arguments into a
+                                          Voog query-params dict for list-style
+                                          endpoints. Added in T9 (v1.3 polish)
+                                          to replace the near-duplicate
+                                          ``_build_pages_list_params``,
+                                          ``_build_articles_list_params``, and
+                                          the inline filter loop in
+                                          ``elements._elements_list``.
 """
 
 import json
@@ -251,3 +259,82 @@ def require_force(
     if hint:
         msg = f"{msg} {hint}"
     return msg
+
+
+def build_list_params(
+    arguments: dict,
+    *,
+    plain: tuple[str, ...] = (),
+    q_map: dict[str, str] | None = None,
+    sort_key: str = "sort",
+    sort_target: str | None = None,
+) -> dict:
+    """Build a query-params dict from MCP tool arguments for list-style endpoints.
+
+    - ``plain``: tuple of arg names forwarded as-is (key and value unchanged).
+      ``None`` values are skipped.
+    - ``q_map``: dict mapping arg name → Voog filter key
+      (e.g. ``{"title": "q.page.title"}``).  ``None`` values are skipped.
+      Values are forwarded as-is (no stringification — Voog serialises them
+      via urllib when the request is built).
+    - ``sort_key``: the input arg name for sort (default ``"sort"``).
+    - ``sort_target``: the Voog query-param name for sort (default ``None``
+      means no sort handling at all — the sort arg is ignored even if present).
+      When set and ``arguments[sort_key]`` is non-None, the output dict gets
+      ``{sort_target: <value>}``.
+
+    Returns a NEW dict. The original ``arguments`` dict is not mutated.
+
+    Caller patterns::
+
+        # pages_list — q-prefix filters + plain params + sort:
+        params = build_list_params(
+            arguments,
+            plain=("path_prefix", "search", "parent_id", "language_id"),
+            q_map={
+                "language_code": "q.page.language_code",
+                "content_type": "q.page.content_type",
+                "node_id": "q.page.node_id",
+            },
+            sort_target="s",
+        )
+
+        # articles_list — plain params only + sort:
+        params = build_list_params(
+            arguments,
+            plain=("page_id", "language_code", "language_id", "tag"),
+            sort_target="s",
+        )
+
+        # elements_list — plain params only, no sort:
+        params = build_list_params(
+            arguments,
+            plain=("page_id", "language_id", "language_code", ...),
+        )
+
+    Added in T9 (v1.3 pre-release polish) to replace the three near-duplicate
+    per-module list-filter builders (PR #111 centralised payloads; T9 does the
+    same for list-filter helpers).
+    """
+    params: dict = {}
+
+    # Plain forwarding: arg name == Voog query-param name.
+    for key in plain:
+        val = arguments.get(key)
+        if val is not None:
+            params[key] = val
+
+    # q_map forwarding: arg name → Voog filter key (q.<resource>.<field>).
+    if q_map:
+        for arg_key, voog_key in q_map.items():
+            val = arguments.get(arg_key)
+            if val is not None:
+                params[voog_key] = val
+
+    # Sort handling: only when sort_target is set.
+    if sort_target is not None:
+        sort_val = arguments.get(sort_key)
+        if sort_val is not None:
+            params[sort_target] = sort_val
+
+    return params

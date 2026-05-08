@@ -23,7 +23,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import require_force, require_int, strip_site
+from voog.mcp.tools._helpers import build_list_params, require_force, require_int, strip_site
 from voog.projections import simplify_element_definitions, simplify_elements
 
 # elements_list filter args forwarded as Voog query-string params.
@@ -281,10 +281,7 @@ def _elements_list(arguments: dict, client: VoogClient) -> list[TextContent] | C
             err = require_int(int_field, val, tool_name="elements_list")
             if err:
                 return error_response(err)
-    params: dict = {}
-    for key in _ELEMENTS_LIST_FILTERS:
-        if arguments.get(key) is not None:
-            params[key] = arguments[key]
+    params = build_list_params(arguments, plain=_ELEMENTS_LIST_FILTERS)
     try:
         elements = client.get_all("/elements", params=params or None)
         # PR #116 review: thread include_values through to the projection
