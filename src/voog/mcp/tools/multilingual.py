@@ -295,51 +295,31 @@ def get_tools() -> list[Tool]:
     ]
 
 
-def call_tool(
-    name: str, arguments: dict | None, client: VoogClient
-) -> list[TextContent] | CallToolResult:
-    arguments = strip_site(arguments or {})
+def _languages_list(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    try:
+        langs = client.get_all("/languages")
+        simplified = simplify_languages(langs)
+        return success_response(simplified, summary=f"🌐 {len(simplified)} languages")
+    except Exception as e:
+        return error_response(f"languages_list failed: {e}")
 
-    if name == "language_create":
-        return _language_create(arguments, client)
 
-    if name == "language_delete":
-        return _language_delete(arguments, client)
+def _nodes_list(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    try:
+        nodes = client.get_all("/nodes")
+        simplified = simplify_nodes(nodes)
+        return success_response(simplified, summary=f"🌳 {len(simplified)} nodes")
+    except Exception as e:
+        return error_response(f"nodes_list failed: {e}")
 
-    if name == "languages_list":
-        try:
-            langs = client.get_all("/languages")
-            simplified = simplify_languages(langs)
-            return success_response(simplified, summary=f"🌐 {len(simplified)} languages")
-        except Exception as e:
-            return error_response(f"languages_list failed: {e}")
 
-    if name == "nodes_list":
-        try:
-            nodes = client.get_all("/nodes")
-            simplified = simplify_nodes(nodes)
-            return success_response(simplified, summary=f"🌳 {len(simplified)} nodes")
-        except Exception as e:
-            return error_response(f"nodes_list failed: {e}")
-
-    if name == "node_get":
-        node_id = arguments.get("node_id")
-        try:
-            node = client.get(f"/nodes/{node_id}")
-            return success_response(node)
-        except Exception as e:
-            return error_response(f"node_get id={node_id} failed: {e}")
-
-    if name == "node_update":
-        return _node_update(arguments, client)
-
-    if name == "node_move":
-        return _node_move(arguments, client)
-
-    if name == "node_relocate":
-        return _node_relocate(arguments, client)
-
-    return error_response(f"Unknown tool: {name}")
+def _node_get(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    node_id = arguments.get("node_id")
+    try:
+        node = client.get(f"/nodes/{node_id}")
+        return success_response(node)
+    except Exception as e:
+        return error_response(f"node_get id={node_id} failed: {e}")
 
 
 _LANGUAGE_CREATE_FIELDS = (
@@ -460,3 +440,25 @@ def _node_relocate(arguments: dict, client: VoogClient) -> list[TextContent] | C
         )
     except Exception as e:
         return error_response(f"node_relocate id={node_id} failed: {e}")
+
+
+_DISPATCH = {
+    "language_create": _language_create,
+    "language_delete": _language_delete,
+    "languages_list": _languages_list,
+    "node_get": _node_get,
+    "node_move": _node_move,
+    "node_relocate": _node_relocate,
+    "node_update": _node_update,
+    "nodes_list": _nodes_list,
+}
+
+
+def call_tool(
+    name: str, arguments: dict | None, client: VoogClient
+) -> list[TextContent] | CallToolResult:
+    arguments = strip_site(arguments or {})
+    handler = _DISPATCH.get(name)
+    if handler is None:
+        return error_response(f"Unknown tool: {name}")
+    return handler(arguments, client)
