@@ -108,6 +108,14 @@ def get_tools() -> list[Tool]:
                 "properties": {
                     "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "page_id": {"type": "integer", "description": "Voog page id"},
+                    "include_seo": {
+                        "type": "boolean",
+                        "description": "Include SEO fields (description, keywords) in the response.",
+                    },
+                    "include_children": {
+                        "type": "boolean",
+                        "description": "Include the children array (subpages) in the response.",
+                    },
                 },
                 "required": ["site", "page_id"],
             },
@@ -138,8 +146,16 @@ def call_tool(
 
     if name == "page_get":
         page_id = arguments.get("page_id")
+        params: dict = {}
+        if arguments.get("include_seo"):
+            params["include_seo"] = "true"
+        if arguments.get("include_children"):
+            params["include_children"] = "true"
         try:
-            p = client.get(f"/pages/{page_id}")
+            if params:
+                p = client.get(f"/pages/{page_id}", params=params)
+            else:
+                p = client.get(f"/pages/{page_id}")
             return success_response(p)
         except Exception as e:
             return error_response(f"page_get id={page_id} failed: {e}")

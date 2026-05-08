@@ -8,15 +8,17 @@ from voog.mcp.tools import articles as articles_tools
 
 
 class TestGetTools(unittest.TestCase):
-    def test_six_tools_registered(self):
+    def test_eight_tools_registered(self):
         names = sorted(t.name for t in articles_tools.get_tools())
         self.assertEqual(
             names,
             [
                 "article_create",
                 "article_delete",
+                "article_delete_data",
                 "article_get",
                 "article_publish",
+                "article_set_data",
                 "article_update",
                 "articles_list",
             ],
@@ -419,3 +421,103 @@ class TestArticlesListSchema(unittest.TestCase):
                 1,
                 f"articles_list schema {arg!r} missing minLength:1",
             )
+
+
+class TestArticleSetData(unittest.TestCase):
+    def test_set_data_calls_client(self):
+        client = MagicMock()
+        client.put.return_value = {"key": "color", "value": "red"}
+        articles_tools.call_tool(
+            "article_set_data",
+            {"article_id": 7, "key": "color", "value": "red"},
+            client,
+        )
+        client.put.assert_called_once_with("/articles/7/data/color", {"value": "red"})
+
+    def test_set_data_rejects_internal_key(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_set_data",
+            {"article_id": 7, "key": "internal_admin", "value": "x"},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_set_data_rejects_empty_key(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_set_data",
+            {"article_id": 7, "key": "", "value": "x"},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_set_data_rejects_traversal_key(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_set_data",
+            {"article_id": 7, "key": "../escape", "value": "x"},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_set_data_accepts_complex_values(self):
+        # value can be string|number|boolean|object|array per schema
+        client = MagicMock()
+        client.put.return_value = {"key": "tags", "value": ["a", "b"]}
+        articles_tools.call_tool(
+            "article_set_data",
+            {"article_id": 7, "key": "tags", "value": ["a", "b"]},
+            client,
+        )
+        client.put.assert_called_once_with("/articles/7/data/tags", {"value": ["a", "b"]})
+
+    def test_set_data_in_get_tools(self):
+        names = {t.name for t in articles_tools.get_tools()}
+        self.assertIn("article_set_data", names)
+
+
+class TestArticleDeleteData(unittest.TestCase):
+    def test_delete_data_requires_force(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_delete_data",
+            {"article_id": 7, "key": "color"},
+            client,
+        )
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_delete_data_with_force_calls_client(self):
+        client = MagicMock()
+        client.delete.return_value = None
+        articles_tools.call_tool(
+            "article_delete_data",
+            {"article_id": 7, "key": "color", "force": True},
+            client,
+        )
+        client.delete.assert_called_once_with("/articles/7/data/color")
+
+    def test_delete_data_rejects_internal_key_even_with_force(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_delete_data",
+            {"article_id": 7, "key": "internal_admin", "force": True},
+            client,
+        )
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_delete_data_in_get_tools(self):
+        names = {t.name for t in articles_tools.get_tools()}
+        self.assertIn("article_delete_data", names)
+
+    def test_delete_data_destructive_annotation(self):
+        tools = {t.name: t for t in articles_tools.get_tools()}
+        ann = tools["article_delete_data"].annotations
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, True)
+        self.assertIs(ann.idempotentHint, False)

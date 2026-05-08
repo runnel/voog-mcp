@@ -681,6 +681,9 @@ class TestServerToolRegistry(unittest.TestCase):
             articles as articles_t,
         )
         from voog.mcp.tools import (
+            content_partials as content_partials_t,
+        )
+        from voog.mcp.tools import (
             ecommerce_settings as ecommerce_settings_t,
         )
         from voog.mcp.tools import (
@@ -722,6 +725,7 @@ class TestServerToolRegistry(unittest.TestCase):
 
         expected = {
             articles_t,
+            content_partials_t,
             ecommerce_settings_t,
             layouts_t,
             layouts_sync_t,

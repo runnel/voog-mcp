@@ -231,6 +231,57 @@ class TestPagesTools(unittest.TestCase):
                 f"pages_list schema {arg!r} missing minLength:1 — empty strings would slip through",
             )
 
+    def test_page_get_no_includes_passes_no_params(self):
+        # Regression guard: bare page_get(page_id=N) must not pass params.
+        client = MagicMock()
+        client.get.return_value = {"id": 42, "title": "X"}
+        pages_tools.call_tool("page_get", {"page_id": 42}, client)
+        client.get.assert_called_once_with("/pages/42")
+
+    def test_page_get_passes_include_seo(self):
+        client = MagicMock()
+        client.get.return_value = {"id": 42}
+        pages_tools.call_tool("page_get", {"page_id": 42, "include_seo": True}, client)
+        client.get.assert_called_once_with("/pages/42", params={"include_seo": "true"})
+
+    def test_page_get_passes_include_children(self):
+        client = MagicMock()
+        client.get.return_value = {"id": 42}
+        pages_tools.call_tool("page_get", {"page_id": 42, "include_children": True}, client)
+        client.get.assert_called_once_with("/pages/42", params={"include_children": "true"})
+
+    def test_page_get_passes_both_includes(self):
+        client = MagicMock()
+        client.get.return_value = {"id": 42}
+        pages_tools.call_tool(
+            "page_get",
+            {"page_id": 42, "include_seo": True, "include_children": True},
+            client,
+        )
+        client.get.assert_called_once_with(
+            "/pages/42",
+            params={"include_seo": "true", "include_children": "true"},
+        )
+
+    def test_page_get_include_false_omits_param(self):
+        # include_seo=False should NOT add the param (a bare GET is more
+        # efficient and matches the v1.2.x request shape).
+        client = MagicMock()
+        client.get.return_value = {"id": 42}
+        pages_tools.call_tool(
+            "page_get",
+            {"page_id": 42, "include_seo": False, "include_children": False},
+            client,
+        )
+        client.get.assert_called_once_with("/pages/42")
+
+    def test_page_get_schema_exposes_includes(self):
+        tool = next(t for t in pages_tools.get_tools() if t.name == "page_get")
+        props = tool.inputSchema["properties"]
+        for arg in ("include_seo", "include_children"):
+            self.assertIn(arg, props)
+            self.assertEqual(props[arg]["type"], "boolean")
+
 
 class TestAllToolsRequireSite(unittest.TestCase):
     def test_all_tools_require_site(self):
