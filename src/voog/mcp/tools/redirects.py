@@ -2,7 +2,7 @@
 
 from mcp.types import CallToolResult, TextContent, Tool
 
-from voog._payloads import build_redirect_payload
+from voog._payloads import build_redirect_envelope, build_redirect_payload
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
@@ -214,7 +214,7 @@ def _redirect_update(arguments: dict, client: VoogClient) -> list[TextContent] |
     try:
         result = client.put(
             f"/redirect_rules/{redirect_id}",
-            {"redirect_rule": rule_body},
+            build_redirect_envelope(rule_body),
         )
         return success_response(
             result,

@@ -143,6 +143,26 @@ class TestForceFlagSchemaDefaults(unittest.TestCase):
         client.delete.assert_not_called()
         self.assertTrue(result.isError)
 
+    def test_layout_asset_delete_force_default_false(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        tools = {t.name: t for t in layouts_tools.get_tools()}
+        self.assertIs(_schema_default(tools["layout_asset_delete"], "force"), False)
+        client = MagicMock()
+        result = layouts_tools.call_tool("layout_asset_delete", {"asset_id": 1}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_site_delete_data_force_default_false(self):
+        from voog.mcp.tools import site as site_tools
+
+        tools = {t.name: t for t in site_tools.get_tools()}
+        self.assertIs(_schema_default(tools["site_delete_data"], "force"), False)
+        client = MagicMock()
+        result = site_tools.call_tool("site_delete_data", {"key": "x"}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
 
 if __name__ == "__main__":
     unittest.main()

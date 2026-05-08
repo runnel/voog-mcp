@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import unittest
 
-from voog._payloads import build_product_payload, build_redirect_payload, build_settings_payload
+from voog._payloads import (
+    build_product_payload,
+    build_redirect_envelope,
+    build_redirect_payload,
+    build_settings_payload,
+)
 
 
 class TestBuildRedirectPayload(unittest.TestCase):
@@ -118,6 +123,29 @@ class TestBuildSettingsPayload(unittest.TestCase):
         body = {"currency": "EUR"}
         original = dict(body)
         build_settings_payload(body)
+        self.assertEqual(body, original)
+
+
+class TestBuildRedirectEnvelope(unittest.TestCase):
+    """PR #111 review nit: symmetric envelope builder for redirect_update's
+    GET-merge-PUT path (mirrors build_product_payload / build_settings_payload).
+    """
+
+    def test_wraps_in_redirect_rule_envelope(self):
+        payload = build_redirect_envelope({"source": "/old", "active": True})
+        self.assertEqual(
+            payload,
+            {"redirect_rule": {"source": "/old", "active": True}},
+        )
+
+    def test_empty_body_still_wrapped(self):
+        payload = build_redirect_envelope({})
+        self.assertEqual(payload, {"redirect_rule": {}})
+
+    def test_does_not_mutate_input(self):
+        body = {"source": "/old", "regexp": False}
+        original = dict(body)
+        build_redirect_envelope(body)
         self.assertEqual(body, original)
 
 

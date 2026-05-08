@@ -51,6 +51,9 @@ def build_redirect_payload(
     ``regexp`` toggles whether ``source`` is treated as a regex pattern.
     Voog's default for new rules is ``False`` (literal path match);
     callers opt in for pattern-based redirects.
+
+    Use ``build_redirect_envelope`` for the "I already have a prepared
+    body" case (e.g. PUT /redirect_rules/{id} with a merged dict).
     """
     return {
         "redirect_rule": {
@@ -61,3 +64,15 @@ def build_redirect_payload(
             "regexp": regexp,
         }
     }
+
+
+def build_redirect_envelope(body: dict) -> dict:
+    """Wrap a prepared redirect_rule body in the ``{"redirect_rule": {...}}`` envelope.
+
+    Mirror of ``build_product_payload`` / ``build_settings_payload``:
+    the caller assembles ``body`` (e.g. via the GET-merge-PUT path in
+    ``_redirect_update``) and this builder just wraps it. Use this when
+    you already have the full dict; for fresh rule construction with
+    keyword args, prefer ``build_redirect_payload``.
+    """
+    return {"redirect_rule": dict(body)}
