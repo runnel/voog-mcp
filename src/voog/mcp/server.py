@@ -49,6 +49,7 @@ from voog.mcp.tools import redirects as redirects_tools
 from voog.mcp.tools import site as site_tools
 from voog.mcp.tools import snapshot as snapshot_tools
 from voog.mcp.tools import texts as texts_tools
+from voog.mcp.tools import webhooks as webhooks_tools
 
 logger = logging.getLogger("voog")
 
@@ -68,6 +69,7 @@ TOOL_GROUPS = [
     site_tools,
     snapshot_tools,
     texts_tools,
+    webhooks_tools,
 ]
 
 RESOURCE_GROUPS = [

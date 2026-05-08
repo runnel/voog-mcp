@@ -163,3 +163,28 @@ def simplify_nodes(nodes: list) -> list:
         }
         for n in nodes
     ]
+
+
+def simplify_webhooks(webhooks: list) -> list:
+    """Project webhooks to the curated list shape.
+
+    Keeps the LLM-relevant fields (target/event/url for filtering, id
+    for further calls, enabled/target_id/description as context). Drops
+    created_at/updated_at (timestamps clutter list views) and source
+    ("api" vs "user" rarely matters in MCP context — fetch via raw
+    passthrough if needed).
+    """
+    simplified = []
+    for w in webhooks:
+        simplified.append(
+            {
+                "id": w.get("id"),
+                "enabled": w.get("enabled"),
+                "target": w.get("target"),
+                "event": w.get("event"),
+                "url": w.get("url"),
+                "target_id": w.get("target_id"),
+                "description": w.get("description"),
+            }
+        )
+    return simplified
