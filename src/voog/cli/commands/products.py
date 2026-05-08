@@ -7,6 +7,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from voog._payloads import build_product_payload
 from voog._upload_validation import _validate_upload_url
 from voog.client import VoogClient
 from voog.projections import PRODUCTS_DETAIL_INCLUDE
@@ -93,7 +94,7 @@ def cmd_product(args, client: VoogClient) -> int:
     # Remove empty dicts
     translations = {k: v for k, v in translations.items() if v}
 
-    payload = {"product": {"translations": translations}}
+    payload = build_product_payload({"translations": translations})
     result = client.put(f"/products/{pid}", payload, base=client.ecommerce_url)
 
     print("  Updated:")

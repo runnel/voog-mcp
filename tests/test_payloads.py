@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from voog._payloads import build_redirect_payload
+from voog._payloads import build_product_payload, build_redirect_payload
 
 
 class TestBuildRedirectPayload(unittest.TestCase):
@@ -66,6 +66,37 @@ class TestBuildRedirectPayload(unittest.TestCase):
                 }
             },
         )
+
+
+class TestBuildProductPayload(unittest.TestCase):
+    def test_wraps_attributes_in_envelope(self):
+        payload = build_product_payload({"name": "Cap", "price": 21})
+        self.assertEqual(
+            payload,
+            {"product": {"name": "Cap", "price": 21}},
+        )
+
+    def test_empty_body_still_wrapped(self):
+        # The builder is a pure wrapper — caller is responsible for
+        # validating non-empty content. Empty body is the caller's bug,
+        # not the builder's.
+        payload = build_product_payload({})
+        self.assertEqual(payload, {"product": {}})
+
+    def test_translations_passed_through(self):
+        payload = build_product_payload(
+            {"name": "Cap", "translations": {"name": {"et": "Müts"}}}
+        )
+        self.assertEqual(
+            payload["product"]["translations"],
+            {"name": {"et": "Müts"}},
+        )
+
+    def test_does_not_mutate_input(self):
+        body = {"name": "Cap"}
+        original = dict(body)
+        build_product_payload(body)
+        self.assertEqual(body, original)
 
 
 if __name__ == "__main__":
