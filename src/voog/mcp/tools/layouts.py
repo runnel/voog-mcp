@@ -26,7 +26,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import require_int, strip_site
+from voog.mcp.tools._helpers import require_force, require_int, strip_site
 
 
 def get_tools() -> list[Tool]:
@@ -469,13 +469,18 @@ def _layout_delete(arguments: dict, client: VoogClient) -> list[TextContent] | C
     err = require_int("layout_id", layout_id, tool_name="layout_delete")
     if err:
         return error_response(err)
-    if not arguments.get("force"):
-        return error_response(
-            f"layout_delete: refusing to delete layout {layout_id} without force=true. "
+    err = require_force(
+        arguments,
+        tool_name="layout_delete",
+        target_desc=f"layout {layout_id}",
+        hint=(
             "Voog blocks deleting a layout that still has pages assigned — "
             "reassign those pages via page_set_layout first, and back up with "
             "site_snapshot."
-        )
+        ),
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/layouts/{layout_id}")
         return success_response(
@@ -541,11 +546,14 @@ def _layout_asset_delete(arguments: dict, client: VoogClient) -> list[TextConten
     err = require_int("asset_id", asset_id, tool_name="layout_asset_delete")
     if err:
         return error_response(err)
-    if not arguments.get("force"):
-        return error_response(
-            f"layout_asset_delete: refusing to delete asset {asset_id} "
-            "without force=true. Templates referencing it will break."
-        )
+    err = require_force(
+        arguments,
+        tool_name="layout_asset_delete",
+        target_desc=f"layout asset {asset_id}",
+        hint="Templates referencing it will break.",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/layout_assets/{asset_id}")
         return success_response(
