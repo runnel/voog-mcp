@@ -241,22 +241,14 @@ class TestPagesTools(unittest.TestCase):
     def test_page_get_passes_include_seo(self):
         client = MagicMock()
         client.get.return_value = {"id": 42}
-        pages_tools.call_tool(
-            "page_get", {"page_id": 42, "include_seo": True}, client
-        )
-        client.get.assert_called_once_with(
-            "/pages/42", params={"include_seo": "true"}
-        )
+        pages_tools.call_tool("page_get", {"page_id": 42, "include_seo": True}, client)
+        client.get.assert_called_once_with("/pages/42", params={"include_seo": "true"})
 
     def test_page_get_passes_include_children(self):
         client = MagicMock()
         client.get.return_value = {"id": 42}
-        pages_tools.call_tool(
-            "page_get", {"page_id": 42, "include_children": True}, client
-        )
-        client.get.assert_called_once_with(
-            "/pages/42", params={"include_children": "true"}
-        )
+        pages_tools.call_tool("page_get", {"page_id": 42, "include_children": True}, client)
+        client.get.assert_called_once_with("/pages/42", params={"include_children": "true"})
 
     def test_page_get_passes_both_includes(self):
         client = MagicMock()

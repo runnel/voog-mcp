@@ -84,11 +84,25 @@ VALID_STATUS = frozenset(["draft", "live"])
 # (PUT-only) — POST permits direct `name`/`slug`/`price` (PUT prefers
 # translations for name/slug). `asset_ids` is POST's image envelope; on
 # PUT it's `assets:[{id}]`.
-CREATE_ATTR_KEYS = frozenset({
-    "name", "slug", "price", "sale_price", "status", "description",
-    "sku", "stock", "reserved_quantity", "category_ids", "image_id",
-    "asset_ids", "physical_properties", "uses_variants", "variant_types",
-})
+CREATE_ATTR_KEYS = frozenset(
+    {
+        "name",
+        "slug",
+        "price",
+        "sale_price",
+        "status",
+        "description",
+        "sku",
+        "stock",
+        "reserved_quantity",
+        "category_ids",
+        "image_id",
+        "asset_ids",
+        "physical_properties",
+        "uses_variants",
+        "variant_types",
+    }
+)
 
 # Required by the Voog API on POST. Validation rejects payloads missing
 # any of these (pre-empts a 422 round-trip). `name` and `slug` may also

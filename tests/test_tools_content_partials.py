@@ -28,9 +28,7 @@ class TestContentPartialUpdate(unittest.TestCase):
             {"content_partial_id": 5, "body": "<p>new</p>"},
             client,
         )
-        client.put.assert_called_once_with(
-            "/content_partials/5", {"body": "<p>new</p>"}
-        )
+        client.put.assert_called_once_with("/content_partials/5", {"body": "<p>new</p>"})
 
     def test_update_metainfo_only(self):
         client = MagicMock()
@@ -40,9 +38,7 @@ class TestContentPartialUpdate(unittest.TestCase):
             {"content_partial_id": 5, "metainfo": {"type": "video"}},
             client,
         )
-        client.put.assert_called_once_with(
-            "/content_partials/5", {"metainfo": {"type": "video"}}
-        )
+        client.put.assert_called_once_with("/content_partials/5", {"metainfo": {"type": "video"}})
 
     def test_update_body_and_metainfo(self):
         client = MagicMock()

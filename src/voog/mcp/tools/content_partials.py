@@ -81,8 +81,7 @@ def _content_partial_update(
 
     if body is None and metainfo is None:
         return error_response(
-            "content_partial_update: at least one of `body` or `metainfo` "
-            "must be supplied"
+            "content_partial_update: at least one of `body` or `metainfo` must be supplied"
         )
 
     payload: dict = {}
@@ -99,6 +98,4 @@ def _content_partial_update(
             summary=f"📄 content_partial {cp_id} updated: {fields_changed}",
         )
     except Exception as e:
-        return error_response(
-            f"content_partial_update id={cp_id} failed: {e}"
-        )
+        return error_response(f"content_partial_update id={cp_id} failed: {e}")

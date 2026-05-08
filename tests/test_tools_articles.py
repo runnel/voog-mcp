@@ -432,9 +432,7 @@ class TestArticleSetData(unittest.TestCase):
             {"article_id": 7, "key": "color", "value": "red"},
             client,
         )
-        client.put.assert_called_once_with(
-            "/articles/7/data/color", {"value": "red"}
-        )
+        client.put.assert_called_once_with("/articles/7/data/color", {"value": "red"})
 
     def test_set_data_rejects_internal_key(self):
         client = MagicMock()
@@ -475,9 +473,7 @@ class TestArticleSetData(unittest.TestCase):
             {"article_id": 7, "key": "tags", "value": ["a", "b"]},
             client,
         )
-        client.put.assert_called_once_with(
-            "/articles/7/data/tags", {"value": ["a", "b"]}
-        )
+        client.put.assert_called_once_with("/articles/7/data/tags", {"value": ["a", "b"]})
 
     def test_set_data_in_get_tools(self):
         names = {t.name for t in articles_tools.get_tools()}

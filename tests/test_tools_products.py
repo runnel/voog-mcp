@@ -13,7 +13,9 @@ class TestGetTools(unittest.TestCase):
     def test_get_tools_returns_four(self):
         tools = products_tools.get_tools()
         names = [t.name for t in tools]
-        self.assertEqual(names, ["products_list", "product_get", "product_update", "product_create"])
+        self.assertEqual(
+            names, ["products_list", "product_get", "product_update", "product_create"]
+        )
 
     def test_products_list_schema(self):
         tools = {t.name: t for t in products_tools.get_tools()}
@@ -882,11 +884,7 @@ class TestProductCreate(unittest.TestCase):
         client = MagicMock()
         result = products_tools.call_tool(
             "product_create",
-            {
-                "attributes": {
-                    "name": "X", "slug": "x", "price": 1, "status": "active"
-                }
-            },
+            {"attributes": {"name": "X", "slug": "x", "price": 1, "status": "active"}},
             client,
         )
         client.post.assert_not_called()
@@ -901,7 +899,9 @@ class TestProductCreate(unittest.TestCase):
             "product_create",
             {
                 "attributes": {
-                    "name": "Cap", "slug": "cap", "price": 21,
+                    "name": "Cap",
+                    "slug": "cap",
+                    "price": 21,
                     "asset_ids": [101, 102],
                 }
             },
@@ -915,11 +915,7 @@ class TestProductCreate(unittest.TestCase):
         client = MagicMock()
         result = products_tools.call_tool(
             "product_create",
-            {
-                "attributes": {
-                    "name": "X", "slug": "x", "price": 1, "bogus": "y"
-                }
-            },
+            {"attributes": {"name": "X", "slug": "x", "price": 1, "bogus": "y"}},
             client,
         )
         client.post.assert_not_called()
