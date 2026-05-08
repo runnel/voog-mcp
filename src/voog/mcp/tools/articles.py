@@ -23,7 +23,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import _validate_data_key, strip_site
 from voog.projections import simplify_articles
 
 _ARTICLES_PLAIN_PARAMS = ("page_id", "language_code", "language_id", "tag")
@@ -278,6 +278,61 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": False,
             },
         ),
+        Tool(
+            name="article_set_data",
+            description=(
+                "Set a single article.data.<key> value (PUT /articles/{id}/data/{key}). "
+                "To delete a key use article_delete_data. "
+                "Keys starting with 'internal_' are server-protected and "
+                "rejected client-side."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "article_id": {"type": "integer"},
+                    "key": {"type": "string"},
+                    "value": {
+                        "type": ["string", "number", "boolean", "object", "array"],
+                    },
+                },
+                "required": ["site", "article_id", "key", "value"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
+        Tool(
+            name="article_delete_data",
+            description=(
+                "Delete a single article.data.<key> (DELETE /articles/{id}/data/{key}). "
+                "IRREVERSIBLE — the key is removed permanently. "
+                "Requires force=true; without it the call is rejected. "
+                "Keys starting with 'internal_' are server-protected and "
+                "rejected client-side."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "article_id": {"type": "integer"},
+                    "key": {"type": "string"},
+                    "force": {
+                        "type": "boolean",
+                        "description": "Must be true to actually perform the delete. Defaults to false (defensive opt-in).",
+                        "default": False,
+                    },
+                },
+                "required": ["site", "article_id", "key"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": False,
+            },
+        ),
     ]
 
 
@@ -298,6 +353,10 @@ def call_tool(
         return _article_publish(arguments, client)
     if name == "article_delete":
         return _article_delete(arguments, client)
+    if name == "article_set_data":
+        return _article_set_data(arguments, client)
+    if name == "article_delete_data":
+        return _article_delete_data(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 
@@ -471,3 +530,44 @@ def _article_delete(arguments: dict, client: VoogClient):
         )
     except Exception as e:
         return error_response(f"article_delete id={article_id} failed: {e}")
+
+
+def _article_set_data(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    article_id = arguments.get("article_id")
+    key = arguments.get("key") or ""
+    value = arguments.get("value")
+
+    err = _validate_data_key(key, tool_name="article_set_data")
+    if err:
+        return error_response(err)
+    try:
+        result = client.put(f"/articles/{article_id}/data/{key}", {"value": value})
+        return success_response(
+            result,
+            summary=f"📝 article {article_id} data.{key} set",
+        )
+    except Exception as e:
+        return error_response(f"article_set_data article={article_id} key={key!r} failed: {e}")
+
+
+def _article_delete_data(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    article_id = arguments.get("article_id")
+    key = arguments.get("key") or ""
+    force = bool(arguments.get("force"))
+
+    err = _validate_data_key(key, tool_name="article_delete_data")
+    if err:
+        return error_response(err)
+    if not force:
+        return error_response(
+            f"article_delete_data: refusing to delete article {article_id} data.{key!r} without force=true. "
+            "Set force=true after confirming the deletion is intentional."
+        )
+    try:
+        client.delete(f"/articles/{article_id}/data/{key}")
+        return success_response(
+            {"deleted": {"article_id": article_id, "key": key}},
+            summary=f"🗑️ article {article_id} data.{key} deleted",
+        )
+    except Exception as e:
+        return error_response(f"article_delete_data article={article_id} key={key!r} failed: {e}")
