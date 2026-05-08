@@ -157,10 +157,11 @@ def get_tools() -> list[Tool]:
             name="layout_delete",
             description=(
                 "Delete a layout. IRREVERSIBLE — Voog does not retain "
-                "deleted layouts. Refuses without force=true. Pages "
-                "currently using the layout will 500 on render until "
-                "reassigned via page_set_layout — back up with "
-                "site_snapshot first."
+                "deleted layouts. Refuses without force=true.\n\n"
+                "Voog blocks deletion of layouts that still have pages assigned — "
+                "the API returns an error, the layout is NOT deleted. Reassign "
+                "those pages first via page_set_layout, then retry. Back up with "
+                "site_snapshot before this operation."
             ),
             inputSchema={
                 "type": "object",
@@ -481,8 +482,9 @@ def _layout_delete(arguments: dict, client: VoogClient) -> list[TextContent] | C
     if not arguments.get("force"):
         return error_response(
             f"layout_delete: refusing to delete layout {layout_id} without force=true. "
-            "Pages using this layout will fail to render — reassign via "
-            "page_set_layout first, and back up with site_snapshot."
+            "Voog blocks deleting a layout that still has pages assigned — "
+            "reassign those pages via page_set_layout first, and back up with "
+            "site_snapshot."
         )
     try:
         client.delete(f"/layouts/{layout_id}")

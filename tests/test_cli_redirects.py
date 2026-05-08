@@ -67,6 +67,7 @@ class TestRedirectAdd(unittest.TestCase):
                     "destination": "/new",
                     "redirect_type": 301,
                     "active": True,
+                    "regexp": False,
                 }
             },
         )

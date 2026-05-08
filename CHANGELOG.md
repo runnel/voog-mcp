@@ -7,10 +7,20 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- `pages_list` accepts optional filter args: `language_code`, `content_type`, `node_id` (sent as Voog `q.page.*` filters); plain endpoint params `path_prefix`, `search`, `parent_id`, `language_id`; and `sort` (mapped to Voog's `s=<object>.<attr>.<$asc|$desc>` syntax). All filters optional — bare `pages_list(site=...)` continues to fetch every page. String-typed filters carry `minLength: 1` so empty values are rejected at the MCP boundary. Closes audit I5 for pages.
+- `articles_list` accepts optional filter args: `page_id`, `language_code`, `language_id`, `tag` (plain endpoint params per Voog docs), and `sort`. All filters optional. String-typed filters carry `minLength: 1`. Closes audit I5 for articles.
+- `redirect_add` schema exposes `active` (boolean) and `regexp` (boolean) — previously hardcoded to `active=true` / `regexp` omitted. `regexp=true` enables Voog's regex-pattern redirects from typed tools without falling back to `voog_admin_api_call`. Closes audit B2.
+- `redirect_update` schema exposes `regexp` and round-trips it through the GET-merge-PUT path so unspecified fields aren't coerced to defaults. Closes audit B2.
 - `products_list` projection now includes `stock`, `reserved_quantity`, `uses_variants`, `variants_count`, `created_at`. Same applies to the mirrored `voog://{site}/products` resource. Closes the inventory blind spot — previously `in_stock` was a boolean only, and `created_at` was missing entirely. Field names verified against the live Voog ecommerce API. Existing fields are unchanged; callers only see new keys appear. (#104)
 - `product_get` (and `voog://{site}/products/{id}`) now request `?include=variants,variant_types,translations`, so the response carries the per-variant `variants[]` array with `stock`, `reserved_quantity`, `in_stock`, `variant_attributes_text`, `variant_attributes`. Per-variant inventory is now visible via MCP without the raw API fallback. Verified empirically against a 9-variant Argilla tote. (#104)
 
+### Fixed
+- `VoogClient.get_all` no longer drops data when callers override `per_page`. Pre-1.3.0 termination check hardcoded `len(data) < 100`; under `params={"per_page": 250}` and a last page of 100-249 items, the loop exited early. Now uses the resolved `per_page` for termination. Closes audit B3.
+- `layout_delete` tool description corrected — Voog blocks deletion of layouts that still have pages assigned (returns an error response, layout not deleted); previously the description warned about a 500 render error that does not occur because the delete itself fails. Closes audit B1.
+
 ### Changed
+- `VoogClient.get_all` default `per_page` raised from 100 to 200 (Voog supports up to 250). Halves the round-trip count on large-list endpoints. Caller overrides via `params={"per_page": N}` continue to work. Closes audit I10/P2.
+- `User-Agent` bumped to `voog-mcp/1.3.0-dev` (will roll to `voog-mcp/1.3.0` at release).
 - `voog site-snapshot` (CLI) and `site_snapshot` (MCP tool) now fetch product details with the same `PRODUCTS_DETAIL_INCLUDE` constant the live tools use, so backups inherit per-variant inventory automatically. Previously each surface hardcoded `"variant_types,translations"`, drifting from the source of truth. (#104)
 - `layout_update` and `layout_asset_update` now hard-fail when the PUT response echoes back the resource with the content field cleared (the original #96 silent-no-op symptom). Defense-in-depth only — the MCP tools already send the correct flat payload form, so this can't reproduce on current code paths, but a future regression (envelope re-introduction, server-side rate-limit anomaly, etc.) would otherwise read back as `✓` while the content sat unchanged on Voog. Voog's slim PUT responses normally omit the content field entirely, so the detector falls through on every real response shape. (#99)
 

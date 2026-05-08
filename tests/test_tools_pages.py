@@ -110,6 +110,127 @@ class TestPagesTools(unittest.TestCase):
         payload = json.loads(result.content[0].text)
         self.assertIn("error", payload)
 
+    def test_pages_list_passes_q_language_code(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"language_code": "et"}, client)
+        client.get_all.assert_called_once_with("/pages", params={"q.page.language_code": "et"})
+
+    def test_pages_list_passes_q_content_type(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"content_type": "blog"}, client)
+        client.get_all.assert_called_once_with("/pages", params={"q.page.content_type": "blog"})
+
+    def test_pages_list_passes_q_node_id(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"node_id": 42}, client)
+        client.get_all.assert_called_once_with("/pages", params={"q.page.node_id": 42})
+
+    def test_pages_list_combines_multiple_q_filters(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool(
+            "pages_list",
+            {"language_code": "en", "content_type": "blog"},
+            client,
+        )
+        client.get_all.assert_called_once_with(
+            "/pages",
+            params={
+                "q.page.language_code": "en",
+                "q.page.content_type": "blog",
+            },
+        )
+
+    def test_pages_list_no_filters_passes_no_params(self):
+        # Regression guard: behaviour with no filter args must match v1.2.x —
+        # an unparameterised call to client.get_all("/pages").
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {}, client)
+        client.get_all.assert_called_once_with("/pages")
+
+    def test_pages_list_passes_path_prefix(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"path_prefix": "/blog"}, client)
+        client.get_all.assert_called_once_with("/pages", params={"path_prefix": "/blog"})
+
+    def test_pages_list_passes_search(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"search": "about"}, client)
+        client.get_all.assert_called_once_with("/pages", params={"search": "about"})
+
+    def test_pages_list_passes_parent_id(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"parent_id": 12}, client)
+        client.get_all.assert_called_once_with("/pages", params={"parent_id": 12})
+
+    def test_pages_list_passes_language_id(self):
+        # language_id (integer) is the plain endpoint param. language_code
+        # (string) is the q.page.language_code filter (covered in Task 1).
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"language_id": 627583}, client)
+        client.get_all.assert_called_once_with("/pages", params={"language_id": 627583})
+
+    def test_pages_list_passes_sort(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool("pages_list", {"sort": "page.title.$asc"}, client)
+        client.get_all.assert_called_once_with("/pages", params={"s": "page.title.$asc"})
+
+    def test_pages_list_combines_q_and_plain_params(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool(
+            "pages_list",
+            {"content_type": "blog", "search": "leather", "sort": "page.created_at.$desc"},
+            client,
+        )
+        client.get_all.assert_called_once_with(
+            "/pages",
+            params={
+                "q.page.content_type": "blog",
+                "search": "leather",
+                "s": "page.created_at.$desc",
+            },
+        )
+
+    def test_pages_list_schema_exposes_q_filter_args(self):
+        tool = next(t for t in pages_tools.get_tools() if t.name == "pages_list")
+        props = tool.inputSchema["properties"]
+        for arg in ("language_code", "content_type", "node_id"):
+            self.assertIn(arg, props, f"pages_list schema missing {arg!r}")
+
+    def test_pages_list_schema_exposes_plain_params(self):
+        tool = next(t for t in pages_tools.get_tools() if t.name == "pages_list")
+        props = tool.inputSchema["properties"]
+        for arg in ("path_prefix", "search", "parent_id", "language_id", "sort"):
+            self.assertIn(arg, props, f"pages_list schema missing {arg!r}")
+
+    def test_pages_list_schema_filter_args_are_optional(self):
+        tool = next(t for t in pages_tools.get_tools() if t.name == "pages_list")
+        # Only `site` is required — every filter is optional.
+        self.assertEqual(tool.inputSchema["required"], ["site"])
+
+    def test_pages_list_schema_string_filters_have_minlength(self):
+        # Empty-string filter values would silently pass through to Voog
+        # (e.g. "?q.page.language_code=") — schema-level minLength:1
+        # rejects this at the MCP boundary instead of letting Voog handle it.
+        tool = next(t for t in pages_tools.get_tools() if t.name == "pages_list")
+        props = tool.inputSchema["properties"]
+        for arg in ("language_code", "content_type", "path_prefix", "search", "sort"):
+            self.assertEqual(
+                props[arg].get("minLength"),
+                1,
+                f"pages_list schema {arg!r} missing minLength:1 — empty strings would slip through",
+            )
+
 
 class TestAllToolsRequireSite(unittest.TestCase):
     def test_all_tools_require_site(self):

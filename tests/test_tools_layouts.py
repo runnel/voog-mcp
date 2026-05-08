@@ -538,6 +538,14 @@ class TestLayoutUpdate(unittest.TestCase):
 
 
 class TestLayoutDelete(unittest.TestCase):
+    def test_layout_delete_description_documents_api_block(self):
+        tool = next(t for t in layouts_tools.get_tools() if t.name == "layout_delete")
+        desc = tool.description
+        # Describes the API behaviour (block) — not a 500 contingency.
+        self.assertIn("block", desc.lower())
+        self.assertNotIn("500", desc)
+        self.assertIn("page_set_layout", desc)
+
     def test_requires_force(self):
         from voog.mcp.tools import layouts as layouts_tools
 
