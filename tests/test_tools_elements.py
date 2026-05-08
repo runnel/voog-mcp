@@ -1,0 +1,158 @@
+"""Tests for voog.mcp.tools.elements — Elements CRUD."""
+
+import json
+import unittest
+from unittest.mock import MagicMock
+
+from voog.mcp.tools import elements as et
+
+
+class TestGetTools(unittest.TestCase):
+    def test_three_tools_after_task1(self):
+        # Tasks 2-4 add element_create / element_update / element_delete.
+        names = sorted(t.name for t in et.get_tools())
+        self.assertEqual(
+            names,
+            ["element_definitions_list", "element_get", "elements_list"],
+        )
+
+
+class TestElementsList(unittest.TestCase):
+    def test_in_get_tools(self):
+        names = {t.name for t in et.get_tools()}
+        self.assertIn("elements_list", names)
+
+    def test_bare_call_no_filters(self):
+        client = MagicMock()
+        client.get_all.return_value = [
+            {
+                "id": 1,
+                "title": "Alpha",
+                "path": "alpha",
+                "page_id": 7,
+                "element_definition_id": 3,
+                "position": 1,
+                "values": {"x": "y"},
+            },
+        ]
+        result = et.call_tool("elements_list", {}, client)
+        # No filters → params=None
+        client.get_all.assert_called_once_with("/elements", params=None)
+        items = json.loads(result[1].text)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["id"], 1)
+        # values stripped from list projection
+        self.assertNotIn("values", items[0])
+
+    def test_filters_forwarded(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        et.call_tool(
+            "elements_list",
+            {
+                "page_id": 7,
+                "language_code": "et",
+                "element_definition_id": 3,
+            },
+            client,
+        )
+        params = client.get_all.call_args.kwargs["params"]
+        self.assertEqual(params["page_id"], 7)
+        self.assertEqual(params["language_code"], "et")
+        self.assertEqual(params["element_definition_id"], 3)
+
+    def test_include_values_filter(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        et.call_tool(
+            "elements_list",
+            {"include_values": True},
+            client,
+        )
+        params = client.get_all.call_args.kwargs["params"]
+        self.assertIs(params["include_values"], True)
+
+    def test_annotations(self):
+        tools = {t.name: t for t in et.get_tools()}
+        ann = tools["elements_list"].annotations
+        self.assertIs(ann.readOnlyHint, True)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, True)
+
+
+class TestElementGet(unittest.TestCase):
+    def test_in_get_tools(self):
+        names = {t.name for t in et.get_tools()}
+        self.assertIn("element_get", names)
+
+    def test_returns_full_element(self):
+        client = MagicMock()
+        client.get.return_value = {
+            "id": 5,
+            "title": "Sample",
+            "values": {"foo": "bar"},
+        }
+        result = et.call_tool("element_get", {"element_id": 5}, client)
+        client.get.assert_called_once_with("/elements/5")
+        body = json.loads(result[0].text)
+        self.assertEqual(body["id"], 5)
+        # Detail view DOES include values (unlike list projection).
+        self.assertEqual(body["values"]["foo"], "bar")
+
+    def test_annotations(self):
+        tools = {t.name: t for t in et.get_tools()}
+        ann = tools["element_get"].annotations
+        self.assertIs(ann.readOnlyHint, True)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, True)
+
+
+class TestElementDefinitionsList(unittest.TestCase):
+    def test_in_get_tools(self):
+        names = {t.name for t in et.get_tools()}
+        self.assertIn("element_definitions_list", names)
+
+    def test_returns_simplified(self):
+        client = MagicMock()
+        client.get_all.return_value = [
+            {
+                "id": 3,
+                "title": "Portfolio Item",
+                "data": {
+                    "properties": {
+                        "image": {"key": "image", "data_type": "image"},
+                        "caption": {"key": "caption", "data_type": "string"},
+                    },
+                },
+            },
+        ]
+        result = et.call_tool("element_definitions_list", {}, client)
+        client.get_all.assert_called_once_with("/element_definitions")
+        items = json.loads(result[1].text)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["id"], 3)
+        # property_keys sorted for determinism
+        self.assertEqual(items[0]["property_keys"], ["caption", "image"])
+
+    def test_handles_missing_data(self):
+        client = MagicMock()
+        client.get_all.return_value = [
+            {"id": 1, "title": "Empty"},  # no `data` key at all
+        ]
+        result = et.call_tool("element_definitions_list", {}, client)
+        items = json.loads(result[1].text)
+        self.assertEqual(items[0]["property_keys"], [])
+
+    def test_annotations(self):
+        tools = {t.name: t for t in et.get_tools()}
+        ann = tools["element_definitions_list"].annotations
+        self.assertIs(ann.readOnlyHint, True)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, True)
+
+
+class TestServerToolRegistry(unittest.TestCase):
+    def test_elements_in_tool_groups(self):
+        from voog.mcp import server
+
+        self.assertIn(et, server.TOOL_GROUPS)
