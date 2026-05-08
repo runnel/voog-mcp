@@ -8,11 +8,9 @@ from voog.mcp.tools import webhooks as wt
 
 
 class TestGetTools(unittest.TestCase):
-    def test_one_tool_registered_after_task1(self):
-        # Tasks 2-4 add webhook_create / webhook_update / webhook_delete.
-        # This sentinel grows per task to keep each task self-contained green.
+    def test_two_tools_registered(self):
         names = sorted(t.name for t in wt.get_tools())
-        self.assertEqual(names, ["webhooks_list"])
+        self.assertEqual(names, ["webhook_create", "webhooks_list"])
 
 
 class TestWebhooksList(unittest.TestCase):
@@ -53,6 +51,112 @@ class TestWebhooksList(unittest.TestCase):
         self.assertIs(ann.readOnlyHint, True)
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, True)
+
+
+class TestWebhookCreate(unittest.TestCase):
+    def test_in_get_tools(self):
+        names = {t.name for t in wt.get_tools()}
+        self.assertIn("webhook_create", names)
+
+    def test_minimum_payload(self):
+        client = MagicMock()
+        client.post.return_value = {
+            "id": 99,
+            "target": "order",
+            "event": "paid",
+            "url": "https://example.com/hook",
+            "enabled": True,
+        }
+        wt.call_tool(
+            "webhook_create",
+            {
+                "target": "order",
+                "event": "paid",
+                "url": "https://example.com/hook",
+            },
+            client,
+        )
+        client.post.assert_called_once_with(
+            "/webhooks",
+            {
+                "target": "order",
+                "event": "paid",
+                "url": "https://example.com/hook",
+            },
+        )
+
+    def test_full_payload(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 99}
+        wt.call_tool(
+            "webhook_create",
+            {
+                "target": "ticket",
+                "event": "create",
+                "url": "https://example.com/hook",
+                "enabled": False,
+                "target_id": 5,
+                "source": "api",
+                "description": "support sync",
+            },
+            client,
+        )
+        sent_body = client.post.call_args[0][1]
+        self.assertNotIn("webhook", sent_body)
+        self.assertEqual(sent_body["target"], "ticket")
+        self.assertEqual(sent_body["target_id"], 5)
+        self.assertIs(sent_body["enabled"], False)
+        self.assertEqual(sent_body["description"], "support sync")
+
+    def test_no_envelope_wrapper(self):
+        # Regression guard against future "wrap me in {webhook: ...}" drift.
+        client = MagicMock()
+        client.post.return_value = {"id": 1}
+        wt.call_tool(
+            "webhook_create",
+            {"target": "form", "event": "submit", "url": "https://x"},
+            client,
+        )
+        sent_body = client.post.call_args[0][1]
+        self.assertNotIn("webhook", sent_body)
+        self.assertIn("target", sent_body)
+
+    def test_requires_target(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_create",
+            {"event": "submit", "url": "https://x"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_requires_event(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_create",
+            {"target": "form", "url": "https://x"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_requires_url(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_create",
+            {"target": "form", "event": "submit"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_annotations(self):
+        tools = {t.name: t for t in wt.get_tools()}
+        ann = tools["webhook_create"].annotations
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, False)
 
 
 class TestServerToolRegistry(unittest.TestCase):
