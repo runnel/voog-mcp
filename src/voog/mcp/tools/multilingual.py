@@ -1,6 +1,6 @@
 """MCP tools for Voog multilingual primitives — languages and nodes.
 
-Five tools:
+Six tools:
 
   - ``language_create`` — POST /languages, add a new site language.
   - ``language_delete`` — DELETE /languages/{id}, remove a language (force gate).
@@ -12,6 +12,7 @@ Five tools:
                            parallel-translation pages array. Use when
                            preparing page_create(node_id=...) for a
                            parallel translation.
+  - ``node_update``     — PUT /nodes/{id}, update a node's title.
 """
 
 from mcp.types import CallToolResult, TextContent, Tool
@@ -179,6 +180,37 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": True,
             },
         ),
+        Tool(
+            name="node_update",
+            description=(
+                "Update a node's title (PUT /nodes/{id}). Per Voog docs, "
+                "only `title` is documented as updatable. Body is FLAT — "
+                "no envelope wrapper. For tree restructuring use "
+                "node_move (parent + position) or node_relocate "
+                "(positional placement)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "node_id": {
+                        "type": "integer",
+                        "description": "Voog node id (from nodes_list)",
+                    },
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "New node title",
+                    },
+                },
+                "required": ["site", "node_id", "title"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
     ]
 
 
@@ -216,6 +248,9 @@ def call_tool(
             return success_response(node)
         except Exception as e:
             return error_response(f"node_get id={node_id} failed: {e}")
+
+    if name == "node_update":
+        return _node_update(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 
@@ -277,3 +312,18 @@ def _language_delete(arguments: dict, client: VoogClient) -> list[TextContent] |
         )
     except Exception as e:
         return error_response(f"language_delete id={language_id} failed: {e}")
+
+
+def _node_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    node_id = arguments.get("node_id")
+    title = arguments.get("title") or ""
+    if not title.strip():
+        return error_response("node_update: title must be non-empty")
+    try:
+        result = client.put(f"/nodes/{node_id}", {"title": title})
+        return success_response(
+            result,
+            summary=f"🌳 node {node_id} updated: title={title!r}",
+        )
+    except Exception as e:
+        return error_response(f"node_update id={node_id} failed: {e}")

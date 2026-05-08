@@ -8,7 +8,7 @@ from voog.mcp.tools import multilingual as mt
 
 
 class TestGetTools(unittest.TestCase):
-    def test_five_tools_registered(self):
+    def test_six_tools_registered(self):
         names = sorted(t.name for t in mt.get_tools())
         self.assertEqual(
             names,
@@ -17,6 +17,7 @@ class TestGetTools(unittest.TestCase):
                 "language_delete",
                 "languages_list",
                 "node_get",
+                "node_update",
                 "nodes_list",
             ],
         )
@@ -200,3 +201,58 @@ class TestLanguageDelete(unittest.TestCase):
         self.assertIs(ann.readOnlyHint, False)
         self.assertIs(ann.destructiveHint, True)
         self.assertIs(ann.idempotentHint, False)
+
+
+class TestNodeUpdate(unittest.TestCase):
+    def test_update_in_get_tools(self):
+        names = {t.name for t in mt.get_tools()}
+        self.assertIn("node_update", names)
+
+    def test_update_calls_put_with_flat_body(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 3, "title": "New title"}
+        mt.call_tool(
+            "node_update",
+            {"node_id": 3, "title": "New title"},
+            client,
+        )
+        client.put.assert_called_once_with("/nodes/3", {"title": "New title"})
+
+    def test_update_no_envelope_wrapper(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 3}
+        mt.call_tool(
+            "node_update",
+            {"node_id": 3, "title": "X"},
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertNotIn("node", sent_body)
+        self.assertIn("title", sent_body)
+
+    def test_update_requires_title(self):
+        client = MagicMock()
+        result = mt.call_tool(
+            "node_update",
+            {"node_id": 3},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_update_rejects_empty_title(self):
+        client = MagicMock()
+        result = mt.call_tool(
+            "node_update",
+            {"node_id": 3, "title": "   "},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_update_annotations(self):
+        tools = {t.name: t for t in mt.get_tools()}
+        ann = tools["node_update"].annotations
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, True)
