@@ -114,25 +114,19 @@ class TestPagesTools(unittest.TestCase):
         client = MagicMock()
         client.get_all.return_value = []
         pages_tools.call_tool("pages_list", {"language_code": "et"}, client)
-        client.get_all.assert_called_once_with(
-            "/pages", params={"q.page.language_code": "et"}
-        )
+        client.get_all.assert_called_once_with("/pages", params={"q.page.language_code": "et"})
 
     def test_pages_list_passes_q_content_type(self):
         client = MagicMock()
         client.get_all.return_value = []
         pages_tools.call_tool("pages_list", {"content_type": "blog"}, client)
-        client.get_all.assert_called_once_with(
-            "/pages", params={"q.page.content_type": "blog"}
-        )
+        client.get_all.assert_called_once_with("/pages", params={"q.page.content_type": "blog"})
 
     def test_pages_list_passes_q_node_id(self):
         client = MagicMock()
         client.get_all.return_value = []
         pages_tools.call_tool("pages_list", {"node_id": 42}, client)
-        client.get_all.assert_called_once_with(
-            "/pages", params={"q.page.node_id": 42}
-        )
+        client.get_all.assert_called_once_with("/pages", params={"q.page.node_id": 42})
 
     def test_pages_list_combines_multiple_q_filters(self):
         client = MagicMock()
@@ -162,25 +156,19 @@ class TestPagesTools(unittest.TestCase):
         client = MagicMock()
         client.get_all.return_value = []
         pages_tools.call_tool("pages_list", {"path_prefix": "/blog"}, client)
-        client.get_all.assert_called_once_with(
-            "/pages", params={"path_prefix": "/blog"}
-        )
+        client.get_all.assert_called_once_with("/pages", params={"path_prefix": "/blog"})
 
     def test_pages_list_passes_search(self):
         client = MagicMock()
         client.get_all.return_value = []
         pages_tools.call_tool("pages_list", {"search": "about"}, client)
-        client.get_all.assert_called_once_with(
-            "/pages", params={"search": "about"}
-        )
+        client.get_all.assert_called_once_with("/pages", params={"search": "about"})
 
     def test_pages_list_passes_parent_id(self):
         client = MagicMock()
         client.get_all.return_value = []
         pages_tools.call_tool("pages_list", {"parent_id": 12}, client)
-        client.get_all.assert_called_once_with(
-            "/pages", params={"parent_id": 12}
-        )
+        client.get_all.assert_called_once_with("/pages", params={"parent_id": 12})
 
     def test_pages_list_passes_language_id(self):
         # language_id (integer) is the plain endpoint param. language_code
@@ -188,19 +176,13 @@ class TestPagesTools(unittest.TestCase):
         client = MagicMock()
         client.get_all.return_value = []
         pages_tools.call_tool("pages_list", {"language_id": 627583}, client)
-        client.get_all.assert_called_once_with(
-            "/pages", params={"language_id": 627583}
-        )
+        client.get_all.assert_called_once_with("/pages", params={"language_id": 627583})
 
     def test_pages_list_passes_sort(self):
         client = MagicMock()
         client.get_all.return_value = []
-        pages_tools.call_tool(
-            "pages_list", {"sort": "page.title.$asc"}, client
-        )
-        client.get_all.assert_called_once_with(
-            "/pages", params={"s": "page.title.$asc"}
-        )
+        pages_tools.call_tool("pages_list", {"sort": "page.title.$asc"}, client)
+        client.get_all.assert_called_once_with("/pages", params={"s": "page.title.$asc"})
 
     def test_pages_list_combines_q_and_plain_params(self):
         client = MagicMock()
