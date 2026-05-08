@@ -54,6 +54,39 @@ from voog.mcp.tools import webhooks as webhooks_tools
 
 logger = logging.getLogger("voog")
 
+# Conservative redaction — covers the common content-bearing fields.
+# Long string values of any other key are length-capped via the second pass.
+_REDACTED_KEYS = frozenset({"body", "data", "value", "source"})
+_STRING_CAP = 500  # characters; any single string value longer than this is truncated
+
+
+def _redact_arguments(arguments: object) -> dict:
+    """Return a sanitised copy of *arguments* safe for DEBUG logging.
+
+    Rules applied in order:
+    1. If *arguments* is not a dict, return an empty dict (defensive).
+    2. Values whose key is in ``_REDACTED_KEYS`` are replaced with
+       ``"<redacted>"`` regardless of size (they are content-bearing fields
+       that may contain PII or large HTML).
+    3. All other string values longer than ``_STRING_CAP`` characters are
+       replaced with ``"<truncated, N chars>"``.
+    4. Everything else is kept as-is (bool, int, list, nested dict, …).
+
+    The *arguments* dict is **never mutated**.
+    """
+    if not isinstance(arguments, dict):
+        return {}
+    result: dict = {}
+    for key, val in arguments.items():
+        if key in _REDACTED_KEYS:
+            result[key] = "<redacted>"
+        elif isinstance(val, str) and len(val) > _STRING_CAP:
+            result[key] = f"<truncated, {len(val)} chars>"
+        else:
+            result[key] = val
+    return result
+
+
 TOOL_GROUPS = [
     articles_tools,
     content_partials_tools,
@@ -167,7 +200,7 @@ async def run_server(global_cfg: GlobalConfig, env: dict[str, str]):
     @server.call_tool()
     async def handle_call_tool(name: str, arguments: dict | None):
         arguments = arguments or {}
-        logger.debug("call_tool %s args=%s", name, arguments)
+        logger.debug("call_tool %s args=%s", name, _redact_arguments(arguments))
         if name == "voog_list_sites":
             sites = factory.list_sites()
             return [{"type": "text", "text": str(sites)}]
