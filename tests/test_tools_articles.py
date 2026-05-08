@@ -8,7 +8,7 @@ from voog.mcp.tools import articles as articles_tools
 
 
 class TestGetTools(unittest.TestCase):
-    def test_six_tools_registered(self):
+    def test_eight_tools_registered(self):
         names = sorted(t.name for t in articles_tools.get_tools())
         self.assertEqual(
             names,

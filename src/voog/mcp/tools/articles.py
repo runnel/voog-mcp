@@ -567,7 +567,7 @@ def _article_delete_data(arguments: dict, client: VoogClient) -> list[TextConten
         client.delete(f"/articles/{article_id}/data/{key}")
         return success_response(
             {"deleted": {"article_id": article_id, "key": key}},
-            summary=f"🗑️ article {article_id} data.{key} deleted",
+            summary=f"🗑️  article {article_id} data.{key} deleted",
         )
     except Exception as e:
         return error_response(f"article_delete_data article={article_id} key={key!r} failed: {e}")
