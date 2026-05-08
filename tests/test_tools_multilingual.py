@@ -8,9 +8,18 @@ from voog.mcp.tools import multilingual as mt
 
 
 class TestGetTools(unittest.TestCase):
-    def test_four_tools_registered(self):
+    def test_five_tools_registered(self):
         names = sorted(t.name for t in mt.get_tools())
-        self.assertEqual(names, ["language_create", "languages_list", "node_get", "nodes_list"])
+        self.assertEqual(
+            names,
+            [
+                "language_create",
+                "language_delete",
+                "languages_list",
+                "node_get",
+                "nodes_list",
+            ],
+        )
 
 
 class TestLanguagesList(unittest.TestCase):
@@ -152,4 +161,33 @@ class TestLanguageCreate(unittest.TestCase):
         ann = tools["language_create"].annotations
         self.assertIs(ann.readOnlyHint, False)
         self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, False)
+
+
+class TestLanguageDelete(unittest.TestCase):
+    def test_delete_in_get_tools(self):
+        names = {t.name for t in mt.get_tools()}
+        self.assertIn("language_delete", names)
+
+    def test_delete_requires_force(self):
+        client = MagicMock()
+        result = mt.call_tool("language_delete", {"language_id": 7}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_delete_with_force_calls_client(self):
+        client = MagicMock()
+        client.delete.return_value = None
+        mt.call_tool(
+            "language_delete",
+            {"language_id": 7, "force": True},
+            client,
+        )
+        client.delete.assert_called_once_with("/languages/7")
+
+    def test_delete_annotations(self):
+        tools = {t.name: t for t in mt.get_tools()}
+        ann = tools["language_delete"].annotations
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, True)
         self.assertIs(ann.idempotentHint, False)

@@ -1,8 +1,9 @@
 """MCP tools for Voog multilingual primitives — languages and nodes.
 
-Four tools:
+Five tools:
 
   - ``language_create`` — POST /languages, add a new site language.
+  - ``language_delete`` — DELETE /languages/{id}, remove a language (force gate).
   - ``languages_list``  — GET /languages, simplified projection. Use
                            the returned ids for page_create.language_id
                            / article_update etc.
@@ -82,6 +83,39 @@ def get_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="language_delete",
+            description=(
+                "Remove a language from the site (DELETE /languages/{id}). "
+                "IRREVERSIBLE — Voog deletes the language and unbinds "
+                "associated content. Requires force=true; without it the "
+                "call is rejected. Run site_snapshot first if uncertain."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "language_id": {
+                        "type": "integer",
+                        "description": "Voog language id (from languages_list)",
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": (
+                            "Must be true to actually perform the delete. "
+                            "Defaults to false (defensive opt-in)."
+                        ),
+                        "default": False,
+                    },
+                },
+                "required": ["site", "language_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": False,
+            },
+        ),
+        Tool(
             name="languages_list",
             description=(
                 "List all languages on the Voog site (id, code, title, "
@@ -152,6 +186,9 @@ def call_tool(
     if name == "language_create":
         return _language_create(arguments, client)
 
+    if name == "language_delete":
+        return _language_delete(arguments, client)
+
     if name == "languages_list":
         try:
             langs = client.get_all("/languages")
@@ -218,3 +255,21 @@ def _language_create(arguments: dict, client: VoogClient) -> list[TextContent] |
         )
     except Exception as e:
         return error_response(f"language_create code={code!r} failed: {e}")
+
+
+def _language_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    language_id = arguments.get("language_id")
+    if not arguments.get("force"):
+        return error_response(
+            f"language_delete: refusing to delete language {language_id} without force=true. "
+            "IRREVERSIBLE — Voog deletes the language and unbinds associated content. "
+            "Run site_snapshot first if uncertain, then set force=true."
+        )
+    try:
+        client.delete(f"/languages/{language_id}")
+        return success_response(
+            {"deleted": {"language_id": language_id}},
+            summary=f"🗑️  language {language_id} deleted",
+        )
+    except Exception as e:
+        return error_response(f"language_delete id={language_id} failed: {e}")
