@@ -1,6 +1,6 @@
 """MCP tools for Voog multilingual primitives — languages and nodes.
 
-Five tools:
+Eight tools:
 
   - ``language_create`` — POST /languages, add a new site language.
   - ``language_delete`` — DELETE /languages/{id}, remove a language (force gate).
@@ -12,6 +12,13 @@ Five tools:
                            parallel-translation pages array. Use when
                            preparing page_create(node_id=...) for a
                            parallel translation.
+  - ``node_update``     — PUT /nodes/{id}, update a node's title.
+  - ``node_move``       — PUT /nodes/{id}/move, move/reorder a node
+                           within the tree via query-string params.
+  - ``node_relocate``   — PUT /nodes/{id}/relocate, place a node at a
+                           precise position relative to a sibling or
+                           under a new parent (flat body, exactly one
+                           of before/after/parent_node_id).
 """
 
 from mcp.types import CallToolResult, TextContent, Tool
@@ -179,45 +186,140 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": True,
             },
         ),
+        Tool(
+            name="node_update",
+            description=(
+                "Update a node's title (PUT /nodes/{id}). Per Voog docs, "
+                "only `title` is documented as updatable. Body is FLAT — "
+                "no envelope wrapper. For tree restructuring use "
+                "node_move (parent + position) or node_relocate "
+                "(positional placement)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "node_id": {
+                        "type": "integer",
+                        "description": "Voog node id (from nodes_list)",
+                    },
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "New node title",
+                    },
+                },
+                "required": ["site", "node_id", "title"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
+        Tool(
+            name="node_move",
+            description=(
+                "Move/reorder a node within the page tree (PUT "
+                "/nodes/{id}/move). Inputs travel as query-string "
+                "params per Voog docs. Required: parent_id (current "
+                "or new parent — pass current to just reorder). "
+                "Optional: position (1-indexed, Voog default 1)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "node_id": {
+                        "type": "integer",
+                        "description": "Voog node id to move",
+                    },
+                    "parent_id": {
+                        "type": "integer",
+                        "description": "Current or new parent node id",
+                    },
+                    "position": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "New position under parent (1-indexed). Omit to let Voog default to 1.",
+                    },
+                },
+                "required": ["site", "node_id", "parent_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
+        Tool(
+            name="node_relocate",
+            description=(
+                "Relocate a node to a precise position relative to a "
+                "sibling, or to the first slot under a new parent (PUT "
+                "/nodes/{id}/relocate). Body is FLAT. Supply EXACTLY ONE "
+                "of: before (place this node before the given sibling "
+                "id), after (place after sibling id), or parent_node_id "
+                "(move to first position under new parent). Mutually "
+                "exclusive — handler rejects multiple."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "node_id": {
+                        "type": "integer",
+                        "description": "Voog node id to relocate",
+                    },
+                    "before": {
+                        "type": "integer",
+                        "description": "Sibling node id; place this node before it",
+                    },
+                    "after": {
+                        "type": "integer",
+                        "description": "Sibling node id; place this node after it",
+                    },
+                    "parent_node_id": {
+                        "type": "integer",
+                        "description": "New parent node id (moves to first position)",
+                    },
+                },
+                "required": ["site", "node_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
     ]
 
 
-def call_tool(
-    name: str, arguments: dict | None, client: VoogClient
-) -> list[TextContent] | CallToolResult:
-    arguments = strip_site(arguments or {})
+def _languages_list(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    try:
+        langs = client.get_all("/languages")
+        simplified = simplify_languages(langs)
+        return success_response(simplified, summary=f"🌐 {len(simplified)} languages")
+    except Exception as e:
+        return error_response(f"languages_list failed: {e}")
 
-    if name == "language_create":
-        return _language_create(arguments, client)
 
-    if name == "language_delete":
-        return _language_delete(arguments, client)
+def _nodes_list(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    try:
+        nodes = client.get_all("/nodes")
+        simplified = simplify_nodes(nodes)
+        return success_response(simplified, summary=f"🌳 {len(simplified)} nodes")
+    except Exception as e:
+        return error_response(f"nodes_list failed: {e}")
 
-    if name == "languages_list":
-        try:
-            langs = client.get_all("/languages")
-            simplified = simplify_languages(langs)
-            return success_response(simplified, summary=f"🌐 {len(simplified)} languages")
-        except Exception as e:
-            return error_response(f"languages_list failed: {e}")
 
-    if name == "nodes_list":
-        try:
-            nodes = client.get_all("/nodes")
-            simplified = simplify_nodes(nodes)
-            return success_response(simplified, summary=f"🌳 {len(simplified)} nodes")
-        except Exception as e:
-            return error_response(f"nodes_list failed: {e}")
-
-    if name == "node_get":
-        node_id = arguments.get("node_id")
-        try:
-            node = client.get(f"/nodes/{node_id}")
-            return success_response(node)
-        except Exception as e:
-            return error_response(f"node_get id={node_id} failed: {e}")
-
-    return error_response(f"Unknown tool: {name}")
+def _node_get(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    node_id = arguments.get("node_id")
+    try:
+        node = client.get(f"/nodes/{node_id}")
+        return success_response(node)
+    except Exception as e:
+        return error_response(f"node_get id={node_id} failed: {e}")
 
 
 _LANGUAGE_CREATE_FIELDS = (
@@ -277,3 +379,91 @@ def _language_delete(arguments: dict, client: VoogClient) -> list[TextContent] |
         )
     except Exception as e:
         return error_response(f"language_delete id={language_id} failed: {e}")
+
+
+def _node_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    node_id = arguments.get("node_id")
+    title = arguments.get("title") or ""
+    if not title.strip():
+        return error_response("node_update: title must be non-empty")
+    try:
+        result = client.put(f"/nodes/{node_id}", {"title": title})
+        return success_response(
+            result,
+            summary=f"🌳 node {node_id} updated: title={title!r}",
+        )
+    except Exception as e:
+        return error_response(f"node_update id={node_id} failed: {e}")
+
+
+def _node_move(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    node_id = arguments.get("node_id")
+    parent_id = arguments.get("parent_id")
+    # `bool` is a subclass of int — reject it explicitly so True/False
+    # don't slip through as 1/0 and confuse Voog. PR #113 review.
+    if not isinstance(parent_id, int) or isinstance(parent_id, bool):
+        return error_response("node_move: parent_id is required (integer)")
+    params: dict = {"parent_id": parent_id}
+    position = arguments.get("position")
+    if position is not None:
+        if not isinstance(position, int) or isinstance(position, bool):
+            return error_response("node_move: position must be an integer")
+        params["position"] = position
+    try:
+        result = client.put(f"/nodes/{node_id}/move", params=params)
+        return success_response(
+            result,
+            summary=(
+                f"🌳 node {node_id} moved → parent={parent_id}, "
+                f"position={params.get('position', 'default')}"
+            ),
+        )
+    except Exception as e:
+        return error_response(f"node_move id={node_id} failed: {e}")
+
+
+_NODE_RELOCATE_FIELDS = ("before", "after", "parent_node_id")
+
+
+def _node_relocate(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    node_id = arguments.get("node_id")
+    supplied = [k for k in _NODE_RELOCATE_FIELDS if arguments.get(k) is not None]
+    if not supplied:
+        return error_response("node_relocate: supply exactly one of before, after, parent_node_id")
+    if len(supplied) > 1:
+        return error_response(
+            f"node_relocate: supplied {supplied}; the three positional "
+            "fields are mutually exclusive — pick one"
+        )
+    key = supplied[0]
+    body = {key: arguments[key]}
+    try:
+        result = client.put(f"/nodes/{node_id}/relocate", body)
+        return success_response(
+            result,
+            summary=f"🌳 node {node_id} relocated: {key}={arguments[key]}",
+        )
+    except Exception as e:
+        return error_response(f"node_relocate id={node_id} failed: {e}")
+
+
+_DISPATCH = {
+    "language_create": _language_create,
+    "language_delete": _language_delete,
+    "languages_list": _languages_list,
+    "node_get": _node_get,
+    "node_move": _node_move,
+    "node_relocate": _node_relocate,
+    "node_update": _node_update,
+    "nodes_list": _nodes_list,
+}
+
+
+def call_tool(
+    name: str, arguments: dict | None, client: VoogClient
+) -> list[TextContent] | CallToolResult:
+    arguments = strip_site(arguments or {})
+    handler = _DISPATCH.get(name)
+    if handler is None:
+        return error_response(f"Unknown tool: {name}")
+    return handler(arguments, client)

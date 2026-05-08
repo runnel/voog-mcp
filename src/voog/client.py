@@ -119,11 +119,11 @@ class VoogClient:
     def get(self, path: str, *, base: str | None = None, params: dict | None = None):
         return self._request("GET", path, base=base, params=params)
 
-    def put(self, path: str, data=None, *, base: str | None = None):
-        return self._request("PUT", path, base=base, data=data)
+    def put(self, path: str, data=None, *, base: str | None = None, params: dict | None = None):
+        return self._request("PUT", path, base=base, data=data, params=params)
 
-    def post(self, path: str, data, *, base: str | None = None):
-        return self._request("POST", path, base=base, data=data)
+    def post(self, path: str, data, *, base: str | None = None, params: dict | None = None):
+        return self._request("POST", path, base=base, data=data, params=params)
 
     def patch(self, path: str, data=None, *, base: str | None = None):
         return self._request("PATCH", path, base=base, data=data)

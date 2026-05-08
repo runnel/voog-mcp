@@ -485,3 +485,55 @@ class TestRequestLogging(unittest.TestCase):
             any("connection reset" in m or "Network" in m for m in warning_msgs),
             f"Expected network error warning, got: {warning_msgs}",
         )
+
+
+class TestPutPostParams(unittest.TestCase):
+    """PUT /nodes/{id}/move uses query-string params per Voog docs.
+    Symmetry: post also accepts params= for any future endpoint that
+    needs it. Phase 6 / audit I14.
+    """
+
+    def _client(self):
+        return VoogClient(host="example.com", api_token="t")
+
+    def test_put_forwards_params(self):
+        client = self._client()
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = fake_resp
+            client.put("/nodes/3/move", params={"parent_id": 2, "position": 1})
+        url = mock_urlopen.call_args.args[0].full_url
+        self.assertIn("/nodes/3/move?", url)
+        self.assertIn("parent_id=2", url)
+        self.assertIn("position=1", url)
+
+    def test_put_without_params_unchanged(self):
+        client = self._client()
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = fake_resp
+            client.put("/articles/7", data={"autosaved_title": "x"})
+        url = mock_urlopen.call_args.args[0].full_url
+        self.assertNotIn("?", url)
+
+    def test_post_forwards_params(self):
+        client = self._client()
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = fake_resp
+            client.post("/foo", data={"x": 1}, params={"include": "bar"})
+        url = mock_urlopen.call_args.args[0].full_url
+        self.assertIn("include=bar", url)
+
+    def test_post_without_params_unchanged(self):
+        client = self._client()
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = fake_resp
+            client.post("/products", data={"product": {"name": "x"}})
+        url = mock_urlopen.call_args.args[0].full_url
+        self.assertNotIn("?", url)
