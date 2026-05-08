@@ -1,7 +1,8 @@
 """MCP tools for Voog multilingual primitives — languages and nodes.
 
-Three read-only tools:
+Four tools:
 
+  - ``language_create`` — POST /languages, add a new site language.
   - ``languages_list``  — GET /languages, simplified projection. Use
                            the returned ids for page_create.language_id
                            / article_update etc.
@@ -22,6 +23,64 @@ from voog.projections import simplify_languages, simplify_nodes
 
 def get_tools() -> list[Tool]:
     return [
+        Tool(
+            name="language_create",
+            description=(
+                "Add a new language to the Voog site (POST /languages). "
+                "Required: code (ISO 639-1 two-letter), title. Optional: "
+                "region (ISO 3166-1 alpha-2), site_title, site_header, "
+                "default_language, published, content_origin_id "
+                "(duplicate content from another language). Body is FLAT — "
+                "no envelope wrapper."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "code": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 5,
+                        "description": "ISO 639-1 two-letter code (e.g. 'et', 'en')",
+                    },
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Language name shown in the language menu",
+                    },
+                    "region": {
+                        "type": "string",
+                        "description": "ISO 3166-1 alpha-2 region code (optional)",
+                    },
+                    "site_title": {
+                        "type": "string",
+                        "description": "Per-language HTML title (optional)",
+                    },
+                    "site_header": {
+                        "type": "string",
+                        "description": "Per-language content header (optional)",
+                    },
+                    "default_language": {
+                        "type": "boolean",
+                        "description": "Make this the site's default language",
+                    },
+                    "published": {
+                        "type": "boolean",
+                        "description": "Whether the language is publicly visible (default true)",
+                    },
+                    "content_origin_id": {
+                        "type": "integer",
+                        "description": "Duplicate content from this existing language id",
+                    },
+                },
+                "required": ["site", "code", "title"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": False,
+            },
+        ),
         Tool(
             name="languages_list",
             description=(
@@ -90,6 +149,9 @@ def call_tool(
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
+    if name == "language_create":
+        return _language_create(arguments, client)
+
     if name == "languages_list":
         try:
             langs = client.get_all("/languages")
@@ -115,3 +177,44 @@ def call_tool(
             return error_response(f"node_get id={node_id} failed: {e}")
 
     return error_response(f"Unknown tool: {name}")
+
+
+_LANGUAGE_CREATE_FIELDS = (
+    "code",
+    "title",
+    "region",
+    "site_title",
+    "site_header",
+    "default_language",
+    "published",
+    "content_origin_id",
+)
+
+
+def _language_create(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    code = arguments.get("code") or ""
+    title = arguments.get("title") or ""
+    if not code.strip():
+        return error_response("language_create: code is required")
+    if not title.strip():
+        return error_response("language_create: title is required")
+
+    # Flat body — no {"language": {...}} wrapper per Voog docs.
+    body: dict = {}
+    for key in _LANGUAGE_CREATE_FIELDS:
+        if arguments.get(key) is not None:
+            body[key] = arguments[key]
+
+    try:
+        result = client.post("/languages", body)
+        new_id = result.get("id") if isinstance(result, dict) else None
+        return success_response(
+            result,
+            summary=(
+                f"language created (id={new_id}, code={code})"
+                if new_id
+                else f"language created (code={code})"
+            ),
+        )
+    except Exception as e:
+        return error_response(f"language_create code={code!r} failed: {e}")

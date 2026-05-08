@@ -8,9 +8,9 @@ from voog.mcp.tools import multilingual as mt
 
 
 class TestGetTools(unittest.TestCase):
-    def test_three_tools_registered(self):
+    def test_four_tools_registered(self):
         names = sorted(t.name for t in mt.get_tools())
-        self.assertEqual(names, ["languages_list", "node_get", "nodes_list"])
+        self.assertEqual(names, ["language_create", "languages_list", "node_get", "nodes_list"])
 
 
 class TestLanguagesList(unittest.TestCase):
@@ -70,3 +70,86 @@ class TestNodeGet(unittest.TestCase):
         body = json.loads(result[0].text)
         self.assertEqual(body["id"], 5)
         self.assertEqual(len(body["pages"]), 2)
+
+
+class TestLanguageCreate(unittest.TestCase):
+    def test_create_in_get_tools(self):
+        names = {t.name for t in mt.get_tools()}
+        self.assertIn("language_create", names)
+
+    def test_create_minimum_payload(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 99, "code": "et", "title": "Eesti"}
+        mt.call_tool(
+            "language_create",
+            {"code": "et", "title": "Eesti"},
+            client,
+        )
+        client.post.assert_called_once_with(
+            "/languages",
+            {"code": "et", "title": "Eesti"},
+        )
+
+    def test_create_full_payload(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 99}
+        mt.call_tool(
+            "language_create",
+            {
+                "code": "en",
+                "title": "English",
+                "region": "GB",
+                "site_title": "My site",
+                "site_header": "Welcome!",
+                "default_language": False,
+                "published": True,
+                "content_origin_id": 5,
+            },
+            client,
+        )
+        sent_body = client.post.call_args[0][1]
+        self.assertNotIn("language", sent_body)
+        self.assertEqual(sent_body["code"], "en")
+        self.assertEqual(sent_body["region"], "GB")
+        self.assertEqual(sent_body["site_title"], "My site")
+        self.assertEqual(sent_body["content_origin_id"], 5)
+        self.assertIs(sent_body["default_language"], False)
+
+    def test_create_no_envelope_wrapper(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 1}
+        mt.call_tool(
+            "language_create",
+            {"code": "et", "title": "Eesti"},
+            client,
+        )
+        sent_body = client.post.call_args[0][1]
+        self.assertNotIn("language", sent_body)
+        self.assertIn("code", sent_body)
+
+    def test_create_requires_code(self):
+        client = MagicMock()
+        result = mt.call_tool(
+            "language_create",
+            {"title": "Eesti"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_create_requires_title(self):
+        client = MagicMock()
+        result = mt.call_tool(
+            "language_create",
+            {"code": "et"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_create_annotations(self):
+        tools = {t.name: t for t in mt.get_tools()}
+        ann = tools["language_create"].annotations
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, False)
