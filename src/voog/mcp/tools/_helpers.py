@@ -1,6 +1,6 @@
 """Shared helpers for filesystem-touching tool modules.
 
-Four small primitives:
+Six small primitives:
 
   - :func:`validate_output_dir`        — non-empty + absolute path check;
                                           returns an error string or ``None``.
@@ -28,6 +28,17 @@ Four small primitives:
                                           consume: must be a non-empty
                                           ``dict[str, str]`` with non-empty
                                           values.
+  - :func:`require_int`                — rejects bools and non-ints for
+                                          ``*_id`` and other integer fields.
+                                          Used by T2-T5 (v1.3 pre-release) to
+                                          replace the inline
+                                          ``isinstance(v, int) and not
+                                          isinstance(v, bool)`` pattern that
+                                          PR #113 established.
+  - :func:`require_force`              — standard force-gate guard for
+                                          destructive operations. Used by T5
+                                          to replace the 9 inline copies of
+                                          ``if not arguments.get("force")``.
 """
 
 import json
@@ -166,3 +177,77 @@ def _validate_data_key(key: str, *, tool_name: str) -> str | None:
             f"only, 1-128 chars (got {key!r})"
         )
     return None
+
+
+def require_int(name: str, value, *, tool_name: str) -> str | None:
+    """Validate that ``value`` is a plain integer (bools explicitly rejected).
+
+    Returns ``None`` when ``value`` is a valid int and NOT a bool. Returns an
+    error message string (suitable for ``error_response``) otherwise.
+
+    Python's ``bool`` is a subclass of ``int``, so ``isinstance(True, int)``
+    is ``True``. This helper enforces the PR #113 pattern — explicit bool
+    rejection — in one place so callers don't repeat the two-clause check.
+
+    Caller pattern::
+
+        err = require_int("page_id", page_id, tool_name="article_create")
+        if err:
+            return error_response(err)
+
+    Used by T2-T5 (v1.3 pre-release) to replace the inline
+    ``isinstance(v, int) and not isinstance(v, bool)`` copies in
+    elements.py, multilingual.py, articles.py, products.py, webhooks.py,
+    and others.
+    """
+    # bool is an int subclass; check first to short-circuit before the int check
+    if isinstance(value, bool) or not isinstance(value, int):
+        return (
+            f"{tool_name}: {name} must be an integer"
+            f" (got {type(value).__name__}: {value!r})"
+        )
+    return None
+
+
+def require_force(
+    arguments: dict,
+    *,
+    tool_name: str,
+    target_desc: str,
+    hint: str | None = None,
+) -> str | None:
+    """Guard a destructive operation behind ``force=true``.
+
+    Returns ``None`` when ``arguments.get("force")`` is truthy (operation
+    allowed). Returns a standard error message string when force is absent or
+    falsy (operation refused).
+
+    The optional ``hint`` parameter appends a context-specific suggestion to
+    the error message (e.g. "Run pages_snapshot first to confirm.").  When
+    ``hint`` is ``None`` no trailing text is appended.
+
+    Caller pattern::
+
+        err = require_force(arguments, tool_name="webhook_delete",
+                            target_desc=f"webhook {webhook_id}")
+        if err:
+            return error_response(err)
+
+    Used by T5 (v1.3 pre-release) to replace the 9 inline force-gate copies
+    in webhooks.py, elements.py, redirects.py, articles.py, pages_mutate.py,
+    multilingual.py, and site.py.
+
+    Precondition: all v1.3 force-gated tools are deletions, so the message
+    hardcodes "refusing to delete". If a non-delete force-gated tool is ever
+    added, add a ``verb: str = "delete"`` keyword-only parameter and update
+    the message template accordingly.
+    """
+    if arguments.get("force"):
+        return None
+    msg = (
+        f"{tool_name}: refusing to delete {target_desc} without force=true."
+        " Set force=true after confirming the deletion is intentional."
+    )
+    if hint:
+        msg = f"{msg} {hint}"
+    return msg
