@@ -346,25 +346,10 @@ def call_tool(
     name: str, arguments: dict | None, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
-
-    if name == "articles_list":
-        return _articles_list(arguments, client)
-    if name == "article_get":
-        return _article_get(arguments, client)
-    if name == "article_create":
-        return _article_create(arguments, client)
-    if name == "article_update":
-        return _article_update(arguments, client)
-    if name == "article_publish":
-        return _article_publish(arguments, client)
-    if name == "article_delete":
-        return _article_delete(arguments, client)
-    if name == "article_set_data":
-        return _article_set_data(arguments, client)
-    if name == "article_delete_data":
-        return _article_delete_data(arguments, client)
-
-    return error_response(f"Unknown tool: {name}")
+    handler = _DISPATCH.get(name)
+    if handler is None:
+        return error_response(f"Unknown tool: {name}")
+    return handler(arguments, client)
 
 
 def _articles_list(arguments: dict, client: VoogClient):
@@ -577,3 +562,15 @@ def _article_delete_data(arguments: dict, client: VoogClient) -> list[TextConten
         )
     except Exception as e:
         return error_response(f"article_delete_data article={article_id} key={key!r} failed: {e}")
+
+
+_DISPATCH = {
+    "articles_list": _articles_list,
+    "article_get": _article_get,
+    "article_create": _article_create,
+    "article_update": _article_update,
+    "article_publish": _article_publish,
+    "article_delete": _article_delete,
+    "article_set_data": _article_set_data,
+    "article_delete_data": _article_delete_data,
+}

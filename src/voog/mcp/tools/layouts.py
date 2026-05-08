@@ -262,32 +262,10 @@ def call_tool(
     name: str, arguments: dict | None, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
-
-    if name == "layout_rename":
-        return _layout_rename(arguments, client)
-
-    if name == "layout_create":
-        return _layout_create(arguments, client)
-
-    if name == "asset_replace":
-        return _asset_replace(arguments, client)
-
-    if name == "layout_update":
-        return _layout_update(arguments, client)
-
-    if name == "layout_delete":
-        return _layout_delete(arguments, client)
-
-    if name == "layout_asset_create":
-        return _layout_asset_create(arguments, client)
-
-    if name == "layout_asset_update":
-        return _layout_asset_update(arguments, client)
-
-    if name == "layout_asset_delete":
-        return _layout_asset_delete(arguments, client)
-
-    return error_response(f"Unknown tool: {name}")
+    handler = _DISPATCH.get(name)
+    if handler is None:
+        return error_response(f"Unknown tool: {name}")
+    return handler(arguments, client)
 
 
 def _detect_silent_no_op(result, sent: dict, field: str) -> str | None:
@@ -558,3 +536,15 @@ def _layout_asset_delete(arguments: dict, client: VoogClient) -> list[TextConten
         )
     except Exception as e:
         return error_response(f"layout_asset_delete id={asset_id} failed: {e}")
+
+
+_DISPATCH = {
+    "layout_rename": _layout_rename,
+    "layout_create": _layout_create,
+    "asset_replace": _asset_replace,
+    "layout_update": _layout_update,
+    "layout_delete": _layout_delete,
+    "layout_asset_create": _layout_asset_create,
+    "layout_asset_update": _layout_asset_update,
+    "layout_asset_delete": _layout_asset_delete,
+}

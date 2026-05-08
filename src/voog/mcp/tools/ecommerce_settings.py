@@ -11,6 +11,7 @@ project memory has the full story).
 
 from mcp.types import CallToolResult, TextContent, Tool
 
+from voog._payloads import build_settings_payload
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site, validate_translations_shape
@@ -114,7 +115,7 @@ def call_tool(
         try:
             data = client.put(
                 "/settings",
-                {"settings": body},
+                build_settings_payload(body),
                 base=client.ecommerce_url,
             )
             return success_response(

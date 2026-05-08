@@ -280,32 +280,10 @@ def call_tool(
     name: str, arguments: dict | None, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
-
-    if name == "page_set_hidden":
-        return _page_set_hidden(arguments, client)
-
-    if name == "page_set_layout":
-        return _page_set_layout(arguments, client)
-
-    if name == "page_delete":
-        return _page_delete(arguments, client)
-
-    if name == "page_create":
-        return _page_create(arguments, client)
-
-    if name == "page_update":
-        return _page_update(arguments, client)
-
-    if name == "page_set_data":
-        return _page_set_data(arguments, client)
-
-    if name == "page_delete_data":
-        return _page_delete_data(arguments, client)
-
-    if name == "page_duplicate":
-        return _page_duplicate(arguments, client)
-
-    return error_response(f"Unknown tool: {name}")
+    handler = _DISPATCH.get(name)
+    if handler is None:
+        return error_response(f"Unknown tool: {name}")
+    return handler(arguments, client)
 
 
 def _page_set_hidden(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
@@ -524,3 +502,15 @@ def _page_duplicate(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return success_response(result, summary=summary)
     except Exception as e:
         return error_response(f"page_duplicate id={page_id} failed: {e}")
+
+
+_DISPATCH = {
+    "page_set_hidden": _page_set_hidden,
+    "page_set_layout": _page_set_layout,
+    "page_delete": _page_delete,
+    "page_create": _page_create,
+    "page_update": _page_update,
+    "page_set_data": _page_set_data,
+    "page_delete_data": _page_delete_data,
+    "page_duplicate": _page_duplicate,
+}

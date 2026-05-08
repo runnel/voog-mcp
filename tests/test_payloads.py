@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import unittest
 
-from voog._payloads import build_redirect_payload
+from voog._payloads import (
+    build_product_payload,
+    build_redirect_envelope,
+    build_redirect_payload,
+    build_settings_payload,
+)
 
 
 class TestBuildRedirectPayload(unittest.TestCase):
@@ -66,6 +71,82 @@ class TestBuildRedirectPayload(unittest.TestCase):
                 }
             },
         )
+
+
+class TestBuildProductPayload(unittest.TestCase):
+    def test_wraps_attributes_in_envelope(self):
+        payload = build_product_payload({"name": "Cap", "price": 21})
+        self.assertEqual(
+            payload,
+            {"product": {"name": "Cap", "price": 21}},
+        )
+
+    def test_empty_body_still_wrapped(self):
+        # The builder is a pure wrapper — caller is responsible for
+        # validating non-empty content. Empty body is the caller's bug,
+        # not the builder's.
+        payload = build_product_payload({})
+        self.assertEqual(payload, {"product": {}})
+
+    def test_translations_passed_through(self):
+        payload = build_product_payload({"name": "Cap", "translations": {"name": {"et": "Müts"}}})
+        self.assertEqual(
+            payload["product"]["translations"],
+            {"name": {"et": "Müts"}},
+        )
+
+    def test_does_not_mutate_input(self):
+        body = {"name": "Cap"}
+        original = dict(body)
+        build_product_payload(body)
+        self.assertEqual(body, original)
+
+
+class TestBuildSettingsPayload(unittest.TestCase):
+    def test_wraps_in_settings_envelope(self):
+        payload = build_settings_payload({"currency": "EUR"})
+        self.assertEqual(payload, {"settings": {"currency": "EUR"}})
+
+    def test_empty_body(self):
+        payload = build_settings_payload({})
+        self.assertEqual(payload, {"settings": {}})
+
+    def test_translations_passed_through(self):
+        body = {
+            "currency": "EUR",
+            "translations": {"products_url_slug": {"en": "products"}},
+        }
+        payload = build_settings_payload(body)
+        self.assertEqual(payload["settings"]["translations"], body["translations"])
+
+    def test_does_not_mutate_input(self):
+        body = {"currency": "EUR"}
+        original = dict(body)
+        build_settings_payload(body)
+        self.assertEqual(body, original)
+
+
+class TestBuildRedirectEnvelope(unittest.TestCase):
+    """PR #111 review nit: symmetric envelope builder for redirect_update's
+    GET-merge-PUT path (mirrors build_product_payload / build_settings_payload).
+    """
+
+    def test_wraps_in_redirect_rule_envelope(self):
+        payload = build_redirect_envelope({"source": "/old", "active": True})
+        self.assertEqual(
+            payload,
+            {"redirect_rule": {"source": "/old", "active": True}},
+        )
+
+    def test_empty_body_still_wrapped(self):
+        payload = build_redirect_envelope({})
+        self.assertEqual(payload, {"redirect_rule": {}})
+
+    def test_does_not_mutate_input(self):
+        body = {"source": "/old", "regexp": False}
+        original = dict(body)
+        build_redirect_envelope(body)
+        self.assertEqual(body, original)
 
 
 if __name__ == "__main__":
