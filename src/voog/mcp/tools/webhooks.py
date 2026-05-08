@@ -155,6 +155,38 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": True,
             },
         ),
+        Tool(
+            name="webhook_delete",
+            description=(
+                "Remove a webhook (DELETE /webhooks/{id}). Voog returns "
+                "204. Requires force=true; without it the call is "
+                "rejected. Run webhooks_list first to confirm the id."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "webhook_id": {
+                        "type": "integer",
+                        "description": "Voog webhook id (from webhooks_list)",
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": (
+                            "Must be true to actually perform the delete. "
+                            "Defaults to false (defensive opt-in)."
+                        ),
+                        "default": False,
+                    },
+                },
+                "required": ["site", "webhook_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": False,
+            },
+        ),
     ]
 
 
@@ -230,10 +262,28 @@ def _webhook_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response(f"webhook_update id={webhook_id} failed: {e}")
 
 
+def _webhook_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    webhook_id = arguments.get("webhook_id")
+    if not arguments.get("force"):
+        return error_response(
+            f"webhook_delete: refusing to delete webhook {webhook_id} without force=true. "
+            "Run webhooks_list first to confirm, then set force=true."
+        )
+    try:
+        client.delete(f"/webhooks/{webhook_id}")
+        return success_response(
+            {"deleted": {"webhook_id": webhook_id}},
+            summary=f"🗑️  webhook {webhook_id} deleted",
+        )
+    except Exception as e:
+        return error_response(f"webhook_delete id={webhook_id} failed: {e}")
+
+
 _DISPATCH = {
     "webhooks_list": _webhooks_list,
     "webhook_create": _webhook_create,
     "webhook_update": _webhook_update,
+    "webhook_delete": _webhook_delete,
 }
 
 
