@@ -19,8 +19,26 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import require_int, strip_site
 from voog.projections import simplify_webhooks
+
+
+def _validate_webhook_url(url: str, *, tool_name: str) -> str | None:
+    """Reject URLs that aren't http:// or https://.
+
+    Returns an error message string when the scheme is wrong, or ``None``
+    when the URL is acceptable. Does NOT validate the rest of the URL —
+    Voog enforces structure server-side (422).
+
+    NOTE: Allows malformed but http(s)-prefixed URLs through (e.g.
+    ``"http://"`` with no host); Voog enforces structure server-side.
+    """
+    # Caller is responsible for type — MCP schema upstream guarantees str | None.
+    # RFC 3986 §3.1: schemes are case-insensitive.
+    url_lower = url.lower()
+    if not (url_lower.startswith("http://") or url_lower.startswith("https://")):
+        return f"{tool_name}: url must start with http:// or https:// (got {url!r})"
+    return None
 
 
 def get_tools() -> list[Tool]:
@@ -220,6 +238,14 @@ def _webhook_create(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response("webhook_create: event is required")
     if not url.strip():
         return error_response("webhook_create: url is required")
+    err = _validate_webhook_url(url, tool_name="webhook_create")
+    if err:
+        return error_response(err)
+    target_id = arguments.get("target_id")
+    if target_id is not None:
+        err = require_int("target_id", target_id, tool_name="webhook_create")
+        if err:
+            return error_response(err)
 
     body: dict = {}
     for key in _WEBHOOK_CREATE_FIELDS:
@@ -242,6 +268,16 @@ def _webhook_create(arguments: dict, client: VoogClient) -> list[TextContent] | 
 
 def _webhook_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     webhook_id = arguments.get("webhook_id")
+    url = arguments.get("url")
+    if url is not None:
+        err = _validate_webhook_url(url, tool_name="webhook_update")
+        if err:
+            return error_response(err)
+    target_id = arguments.get("target_id")
+    if target_id is not None:
+        err = require_int("target_id", target_id, tool_name="webhook_update")
+        if err:
+            return error_response(err)
     body: dict = {}
     # Reuse the create field set — same surface, just partial.
     for key in _WEBHOOK_CREATE_FIELDS:
