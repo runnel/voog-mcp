@@ -78,6 +78,39 @@ class TestElementsList(unittest.TestCase):
         params = client.get_all.call_args.kwargs["params"]
         self.assertIs(params["include_values"], True)
 
+    def test_include_values_returns_values_in_projection(self):
+        # PR #116 review: include_values=true must thread through to the
+        # projection so the tool description's promise is honoured. Without
+        # this thread, three-layer contract drifted: tool-desc said yes,
+        # schema-param-desc said yes, projection unconditionally stripped.
+        client = MagicMock()
+        client.get_all.return_value = [
+            {
+                "id": 1,
+                "title": "Alpha",
+                "values": {"caption": "hello", "image": "https://x"},
+            },
+        ]
+        result = et.call_tool(
+            "elements_list",
+            {"include_values": True},
+            client,
+        )
+        items = json.loads(result[1].text)
+        self.assertEqual(items[0]["id"], 1)
+        self.assertIn("values", items[0])
+        self.assertEqual(items[0]["values"]["caption"], "hello")
+
+    def test_no_include_values_strips_values(self):
+        # Default behaviour preserved: bare elements_list omits values.
+        client = MagicMock()
+        client.get_all.return_value = [
+            {"id": 1, "title": "Alpha", "values": {"k": "v"}},
+        ]
+        result = et.call_tool("elements_list", {}, client)
+        items = json.loads(result[1].text)
+        self.assertNotIn("values", items[0])
+
     def test_annotations(self):
         tools = {t.name: t for t in et.get_tools()}
         ann = tools["elements_list"].annotations
@@ -256,6 +289,19 @@ class TestElementCreate(unittest.TestCase):
         result = et.call_tool(
             "element_create",
             {"page_id": 7, "title": "X"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_rejects_bool_element_definition_id(self):
+        # PR #116 review: bool is a subclass of int — explicit reject so
+        # True/False don't slip through and land as element_definition_id
+        # in the body. Mirrors the page_id pattern (Phase 6 review).
+        client = MagicMock()
+        result = et.call_tool(
+            "element_create",
+            {"element_definition_id": True, "page_id": 7, "title": "X"},
             client,
         )
         client.post.assert_not_called()

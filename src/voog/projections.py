@@ -190,28 +190,34 @@ def simplify_webhooks(webhooks: list) -> list:
     return simplified
 
 
-def simplify_elements(elements: list) -> list:
+def simplify_elements(elements: list, *, include_values: bool = False) -> list:
     """Project elements to the curated list shape.
 
     Keeps id/title/path/page_id/element_definition_id/position for
-    listing+identification. Drops timestamps, computed URLs (url,
+    listing+identification. Drops timestamps and computed URLs (url,
     move_url, contents_url, public_url) — fetchable via element_get.
-    `values` (the custom-properties hash) is also dropped from list
-    views; callers needing values pass `include_values=true` to the
-    API and use element_get for the full shape.
+
+    By default, the ``values`` (custom-properties hash) is also dropped
+    from list views — values clutter list responses with per-element
+    detail when callers typically want a compact identification view.
+    When ``include_values=True``, the ``values`` key is included in
+    each projected element. ``elements_list`` threads its caller's
+    ``include_values`` arg through to here, so the contract documented
+    in the tool description is honoured end-to-end (PR #116 review).
     """
     simplified = []
     for e in elements:
-        simplified.append(
-            {
-                "id": e.get("id"),
-                "title": e.get("title"),
-                "path": e.get("path"),
-                "page_id": e.get("page_id"),
-                "element_definition_id": e.get("element_definition_id"),
-                "position": e.get("position"),
-            }
-        )
+        item = {
+            "id": e.get("id"),
+            "title": e.get("title"),
+            "path": e.get("path"),
+            "page_id": e.get("page_id"),
+            "element_definition_id": e.get("element_definition_id"),
+            "position": e.get("position"),
+        }
+        if include_values:
+            item["values"] = e.get("values")
+        simplified.append(item)
     return simplified
 
 

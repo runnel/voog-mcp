@@ -91,7 +91,13 @@ def get_tools() -> list[Tool]:
                     },
                     "include_values": {
                         "type": "boolean",
-                        "description": "Include the values hash in raw API response (Voog server-side)",
+                        "description": (
+                            "When true, Voog populates each element's "
+                            "values hash AND the MCP projection includes "
+                            "it in the returned list. Default false — "
+                            "values clutter list views; use element_get "
+                            "for full per-element shape."
+                        ),
                     },
                 },
                 "required": ["site"],
@@ -275,7 +281,16 @@ def _elements_list(arguments: dict, client: VoogClient) -> list[TextContent] | C
             params[key] = arguments[key]
     try:
         elements = client.get_all("/elements", params=params or None)
-        simplified = simplify_elements(elements)
+        # PR #116 review: thread include_values through to the projection
+        # so the tool description's promise ("include the values hash in
+        # the projection") is honoured end-to-end. The same flag is also
+        # forwarded to Voog as `?include_values=true` (in `params` above)
+        # so Voog populates `values` server-side; without that, even a
+        # values-aware projection would have nothing to surface.
+        simplified = simplify_elements(
+            elements,
+            include_values=bool(arguments.get("include_values")),
+        )
         return success_response(
             simplified,
             summary=f"🧩 {len(simplified)} elements",
@@ -331,6 +346,12 @@ def _element_create(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response(
             "element_create: supply element_definition_id (preferred) or element_definition_title"
         )
+    # PR #116 review: bool-rejection for element_definition_id, mirroring
+    # the page_id pattern (Phase 6 review). bool is a Python int subclass,
+    # so True/False would slip through int-only checks.
+    def_id = arguments.get("element_definition_id")
+    if def_id is not None and (not isinstance(def_id, int) or isinstance(def_id, bool)):
+        return error_response("element_create: element_definition_id must be an integer")
 
     body: dict = {}
     for key in _ELEMENT_CREATE_FIELDS:
