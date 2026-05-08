@@ -70,7 +70,12 @@ class VoogClient:
                     raise
                 logger.warning(
                     "HTTP %s on %s %s — retrying in %.1fs (attempt %d/%d)",
-                    e.code, method, url, 0.5 * (2 ** attempt), attempt + 1, self.max_retries,
+                    e.code,
+                    method,
+                    url,
+                    0.5 * (2**attempt),
+                    attempt + 1,
+                    self.max_retries,
                 )
                 last_exc = e
             except OSError as e:
@@ -78,10 +83,15 @@ class VoogClient:
                     raise
                 logger.warning(
                     "Network error on %s %s — retrying in %.1fs (attempt %d/%d): %s",
-                    method, url, 0.5 * (2 ** attempt), attempt + 1, self.max_retries, e,
+                    method,
+                    url,
+                    0.5 * (2**attempt),
+                    attempt + 1,
+                    self.max_retries,
+                    e,
                 )
                 last_exc = e
-            time.sleep(0.5 * (2 ** attempt))
+            time.sleep(0.5 * (2**attempt))
         # Unreachable — the loop either returns or re-raises before exit.
         raise last_exc  # type: ignore[misc]
 

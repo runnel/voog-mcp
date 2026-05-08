@@ -164,7 +164,8 @@ def load_global_config(
     env_file = raw.get("env_file")
     logger.info(
         "loaded config: %d site(s) configured, default_site=%r",
-        len(sites), default_site,
+        len(sites),
+        default_site,
     )
     return GlobalConfig(sites=sites, default_site=default_site, env_file=env_file)
 
