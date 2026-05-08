@@ -24,6 +24,20 @@ def build_product_payload(body: dict) -> dict:
     return {"product": dict(body)}
 
 
+def build_settings_payload(body: dict) -> dict:
+    """Wrap a prepared ecommerce settings body in the ``{"settings": {...}}`` envelope.
+
+    Mirror of ``build_product_payload``: the caller assembles and
+    validates ``body`` (attribute whitelist, translations shape, etc.);
+    this builder just wraps it in the API envelope.
+
+    Voog ecommerce v1 accepts ``{"settings": {...}}`` for PUT /settings.
+    Centralising the envelope here means future Voog schema changes only
+    need to touch one place rather than every caller of `_settings`.
+    """
+    return {"settings": dict(body)}
+
+
 def build_redirect_payload(
     source: str,
     destination: str,

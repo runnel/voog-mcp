@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from voog._payloads import build_product_payload, build_redirect_payload
+from voog._payloads import build_product_payload, build_redirect_payload, build_settings_payload
 
 
 class TestBuildRedirectPayload(unittest.TestCase):
@@ -96,6 +96,30 @@ class TestBuildProductPayload(unittest.TestCase):
         body = {"name": "Cap"}
         original = dict(body)
         build_product_payload(body)
+        self.assertEqual(body, original)
+
+
+class TestBuildSettingsPayload(unittest.TestCase):
+    def test_wraps_in_settings_envelope(self):
+        payload = build_settings_payload({"currency": "EUR"})
+        self.assertEqual(payload, {"settings": {"currency": "EUR"}})
+
+    def test_empty_body(self):
+        payload = build_settings_payload({})
+        self.assertEqual(payload, {"settings": {}})
+
+    def test_translations_passed_through(self):
+        body = {
+            "currency": "EUR",
+            "translations": {"products_url_slug": {"en": "products"}},
+        }
+        payload = build_settings_payload(body)
+        self.assertEqual(payload["settings"]["translations"], body["translations"])
+
+    def test_does_not_mutate_input(self):
+        body = {"currency": "EUR"}
+        original = dict(body)
+        build_settings_payload(body)
         self.assertEqual(body, original)
 
 
