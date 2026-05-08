@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
-versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
+versioning: [PEP 440](https://peps.python.org/pep-0440/).
 
 ## [Unreleased]
 
@@ -40,7 +40,7 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 - `_validate_data_key` (used by `page_set_data` / `page_delete_data` / `article_set_data` / `article_delete_data`) now rejects keys with spaces, unicode, `@`, `+`, or other non-URL-path-safe characters at the validator instead of letting them surface as confusing `urlopen` errors. Allowlist matches the Phase 3 site-name pattern: `^[A-Za-z0-9_\-.]{1,128}$` — same character class, longer length cap (data keys are longer identifiers than short site names). PR #109 review follow-up.
-- `VoogClient.get_all` no longer drops data when callers override `per_page`. pre-1.3 termination check hardcoded `len(data) < 100`; under `params={"per_page": 250}` and a last page of 100-249 items, the loop exited early. Now uses the resolved `per_page` for termination. Closes audit B3.
+- `VoogClient.get_all` no longer drops data when callers override `per_page`. Pre-1.3 termination check hardcoded `len(data) < 100`; under `params={"per_page": 250}` and a last page of 100-249 items, the loop exited early. Now uses the resolved `per_page` for termination. Closes audit B3.
 - `layout_delete` tool description corrected — Voog blocks deletion of layouts that still have pages assigned (returns an error response, layout not deleted); previously the description warned about a 500 render error that does not occur because the delete itself fails. Closes audit B1.
 
 ### Changed
