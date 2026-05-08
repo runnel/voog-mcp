@@ -41,8 +41,12 @@ def get_tools() -> list[Tool]:
                     "code": {
                         "type": "string",
                         "minLength": 2,
-                        "maxLength": 5,
-                        "description": "ISO 639-1 two-letter code (e.g. 'et', 'en')",
+                        "maxLength": 2,
+                        "description": (
+                            "ISO 639-1 two-letter code (e.g. 'et', 'en'). "
+                            "Voog stores region separately — pass 'region' "
+                            "for variants like en-GB, NOT 'en-GB' here."
+                        ),
                     },
                     "title": {
                         "type": "string",

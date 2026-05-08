@@ -163,6 +163,15 @@ class TestLanguageCreate(unittest.TestCase):
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, False)
 
+    def test_code_schema_locks_to_two_chars(self):
+        # Voog stores region separately — `code` must be exactly 2 chars
+        # (ISO 639-1). PR #112 review: regression guard against drift back
+        # to permissive maxLength that round-trips a 422 from Voog.
+        tools = {t.name: t for t in mt.get_tools()}
+        code_schema = tools["language_create"].inputSchema["properties"]["code"]
+        self.assertEqual(code_schema["minLength"], 2)
+        self.assertEqual(code_schema["maxLength"], 2)
+
 
 class TestLanguageDelete(unittest.TestCase):
     def test_delete_in_get_tools(self):
