@@ -104,13 +104,13 @@ Now `voog pull` / `voog push` from that directory always target the right site, 
 
 ```bash
 voog --help                      # all commands
-voog list-sites                  # show configured sites
+voog config list-sites           # show configured sites
 voog --site mysite products      # list products on mysite
 voog pull                        # download templates (uses cwd-level voog.json)
 voog push layouts/Front\ page.tpl
 voog redirects
 voog config check                # verify all configured tokens
-voog snapshot --output backup/   # full-site snapshot for diff/audit
+voog site-snapshot backup/       # full-site snapshot for diff/audit
 ```
 
 ## Use as MCP server
