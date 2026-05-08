@@ -76,3 +76,43 @@ def build_redirect_envelope(body: dict) -> dict:
     keyword args, prefer ``build_redirect_payload``.
     """
     return {"redirect_rule": dict(body)}
+
+
+# Article field mapping. The three autosaved_* keys are the writable
+# pair to article.title/body/excerpt (read-only on the public side per
+# Voog convention). Pass-through keys are non-autosaved, written
+# directly to article.<field>.
+_ARTICLE_AUTOSAVED_MAP = {
+    "title": "autosaved_title",
+    "body": "autosaved_body",
+    "excerpt": "autosaved_excerpt",
+}
+_ARTICLE_PASSTHROUGH = ("description", "path", "image_id", "tag_names", "data")
+
+
+def build_article_payload(arguments: dict, *, include_publish: bool = False) -> dict:
+    """Build the FLAT body for POST/PUT /articles.
+
+    Articles use a flat body (no envelope wrapper) but require the
+    autosaved_* convention: ``article.title`` is read-only, writes go
+    to ``autosaved_title``. Same for ``body`` and ``excerpt``. Other
+    fields (``description``, ``path``, ``image_id``, ``tag_names``,
+    ``data``) are pass-through.
+
+    Only keys that are explicitly present and not None are included —
+    empty strings/lists ARE included. Missing keys are simply absent.
+
+    ``include_publish=True`` (POST-only) maps the caller's truthy
+    ``arguments["publish"]`` to ``"publishing": True``. ``publish=False``
+    is treated as absence (no ``publishing`` key emitted).
+    """
+    body: dict = {}
+    for arg_key, body_key in _ARTICLE_AUTOSAVED_MAP.items():
+        if arguments.get(arg_key) is not None:
+            body[body_key] = arguments[arg_key]
+    for key in _ARTICLE_PASSTHROUGH:
+        if arguments.get(key) is not None:
+            body[key] = arguments[key]
+    if include_publish and arguments.get("publish"):
+        body["publishing"] = True
+    return body
