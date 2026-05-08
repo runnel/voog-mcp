@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from voog._payloads import (
+    build_article_payload,
     build_product_payload,
     build_redirect_envelope,
     build_redirect_payload,
@@ -147,6 +148,77 @@ class TestBuildRedirectEnvelope(unittest.TestCase):
         original = dict(body)
         build_redirect_envelope(body)
         self.assertEqual(body, original)
+
+
+class TestBuildArticlePayload(unittest.TestCase):
+    """Article body shaping (audit I11 follow-up). Flat body, autosaved_* mapping."""
+
+    def test_maps_title_to_autosaved_title(self):
+        body = build_article_payload({"title": "Hello"})
+        self.assertEqual(body, {"autosaved_title": "Hello"})
+
+    def test_maps_body_to_autosaved_body(self):
+        body = build_article_payload({"body": "<p>x</p>"})
+        self.assertEqual(body, {"autosaved_body": "<p>x</p>"})
+
+    def test_maps_excerpt_to_autosaved_excerpt(self):
+        body = build_article_payload({"excerpt": "summary"})
+        self.assertEqual(body, {"autosaved_excerpt": "summary"})
+
+    def test_passes_through_description(self):
+        body = build_article_payload({"description": "meta desc"})
+        self.assertEqual(body, {"description": "meta desc"})
+
+    def test_passes_through_path_image_id_tag_names_data(self):
+        body = build_article_payload(
+            {
+                "path": "/blog/post",
+                "image_id": 42,
+                "tag_names": ["news", "tech"],
+                "data": {"custom": "v"},
+            }
+        )
+        self.assertEqual(
+            body,
+            {
+                "path": "/blog/post",
+                "image_id": 42,
+                "tag_names": ["news", "tech"],
+                "data": {"custom": "v"},
+            },
+        )
+
+    def test_empty_arguments_yields_empty_body(self):
+        body = build_article_payload({})
+        self.assertEqual(body, {})
+
+    def test_missing_keys_skipped(self):
+        body = build_article_payload({"title": "X"})
+        self.assertNotIn("autosaved_body", body)
+        self.assertNotIn("description", body)
+
+    def test_explicit_none_skipped(self):
+        body = build_article_payload({"title": None, "body": ""})
+        self.assertNotIn("autosaved_title", body)
+        self.assertEqual(body["autosaved_body"], "")
+
+    def test_publish_flag_off_by_default(self):
+        body = build_article_payload({"title": "X", "publish": True})
+        self.assertNotIn("publishing", body)
+
+    def test_publish_flag_included_when_requested(self):
+        body = build_article_payload({"title": "X", "publish": True}, include_publish=True)
+        self.assertIs(body["publishing"], True)
+
+    def test_publish_false_does_not_set_publishing(self):
+        body = build_article_payload({"title": "X", "publish": False}, include_publish=True)
+        self.assertNotIn("publishing", body)
+
+    def test_does_not_mutate_input(self):
+        args = {"title": "X", "body": "Y"}
+        original = dict(args)
+        build_article_payload(args)
+        self.assertEqual(args, original)
 
 
 if __name__ == "__main__":

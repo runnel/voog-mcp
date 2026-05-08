@@ -21,6 +21,7 @@ Skill-memory rules captured in code:
 
 from mcp.types import CallToolResult, TextContent, Tool
 
+from voog._payloads import build_article_payload
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import _validate_data_key, strip_site
@@ -382,28 +383,8 @@ def _article_create(arguments: dict, client: VoogClient):
     if not title.strip():
         return error_response("article_create: title must be non-empty")
 
-    body = {
-        "page_id": page_id,
-        "autosaved_title": title,
-    }
-    # Use `is not None` (matches article_update) so empty strings/lists are
-    # preserved as legitimate "set this field to empty" inputs.
-    if arguments.get("body") is not None:
-        body["autosaved_body"] = arguments["body"]
-    if arguments.get("excerpt") is not None:
-        body["autosaved_excerpt"] = arguments["excerpt"]
-    if arguments.get("description") is not None:
-        body["description"] = arguments["description"]
-    if arguments.get("path") is not None:
-        body["path"] = arguments["path"]
-    if arguments.get("image_id") is not None:
-        body["image_id"] = arguments["image_id"]
-    if arguments.get("tag_names") is not None:
-        body["tag_names"] = arguments["tag_names"]
-    if arguments.get("data") is not None:
-        body["data"] = arguments["data"]
-    if arguments.get("publish"):
-        body["publishing"] = True
+    body = build_article_payload(arguments, include_publish=True)
+    body["page_id"] = page_id  # POST-only
 
     try:
         result = client.post("/articles", body)
@@ -417,32 +398,12 @@ def _article_create(arguments: dict, client: VoogClient):
 
 def _article_update(arguments: dict, client: VoogClient):
     article_id = arguments.get("article_id")
-    body: dict = {}
-
-    # Map writeable fields → autosaved_* (or pass-through for non-autosaved).
-    if arguments.get("title") is not None:
-        body["autosaved_title"] = arguments["title"]
-    if arguments.get("body") is not None:
-        body["autosaved_body"] = arguments["body"]
-    if arguments.get("excerpt") is not None:
-        body["autosaved_excerpt"] = arguments["excerpt"]
-    if arguments.get("description") is not None:
-        body["description"] = arguments["description"]
-    if arguments.get("path") is not None:
-        body["path"] = arguments["path"]
-    if arguments.get("image_id") is not None:
-        body["image_id"] = arguments["image_id"]
-    if arguments.get("tag_names") is not None:
-        body["tag_names"] = arguments["tag_names"]
-    if arguments.get("data") is not None:
-        body["data"] = arguments["data"]
-
+    body = build_article_payload(arguments)
     if not body:
         return error_response(
             "article_update: at least one field (title, body, excerpt, "
             "description, path, image_id, tag_names, data) must be set"
         )
-
     try:
         result = client.put(f"/articles/{article_id}", body)
         return success_response(
