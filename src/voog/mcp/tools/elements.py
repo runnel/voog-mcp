@@ -144,6 +144,56 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": True,
             },
         ),
+        Tool(
+            name="element_create",
+            description=(
+                "Create an element (POST /elements). Body is FLAT. "
+                "Required: element_definition_id OR "
+                "element_definition_title (id takes precedence per Voog "
+                "docs); page_id; title. Optional: path (auto-generated "
+                "from title if omitted), values (custom-properties hash "
+                "matching the element_definition's schema)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "element_definition_id": {
+                        "type": "integer",
+                        "description": "Definition id (from element_definitions_list)",
+                    },
+                    "element_definition_title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Alternative to element_definition_id (id wins if both supplied)",
+                    },
+                    "page_id": {
+                        "type": "integer",
+                        "description": "Parent page id (from pages_list)",
+                    },
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Element title",
+                    },
+                    "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "URL slug (auto-generated from title if omitted)",
+                    },
+                    "values": {
+                        "type": "object",
+                        "description": "Custom-properties hash matching the element_definition's schema",
+                    },
+                },
+                "required": ["site", "page_id", "title"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": False,
+            },
+        ),
     ]
 
 
@@ -186,10 +236,55 @@ def _element_definitions_list(
         return error_response(f"element_definitions_list failed: {e}")
 
 
+_ELEMENT_CREATE_FIELDS = (
+    "element_definition_id",
+    "element_definition_title",
+    "page_id",
+    "title",
+    "path",
+    "values",
+)
+
+
+def _element_create(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    page_id = arguments.get("page_id")
+    title = arguments.get("title") or ""
+    if not isinstance(page_id, int) or isinstance(page_id, bool):
+        return error_response("element_create: page_id is required (integer)")
+    if not title.strip():
+        return error_response("element_create: title is required")
+    if (
+        arguments.get("element_definition_id") is None
+        and not (arguments.get("element_definition_title") or "").strip()
+    ):
+        return error_response(
+            "element_create: supply element_definition_id (preferred) or element_definition_title"
+        )
+
+    body: dict = {}
+    for key in _ELEMENT_CREATE_FIELDS:
+        if arguments.get(key) is not None:
+            body[key] = arguments[key]
+    try:
+        result = client.post("/elements", body)
+        new_id = result.get("id") if isinstance(result, dict) else None
+        return success_response(
+            result,
+            summary=(
+                f"🧩 element created (id={new_id}, title={title!r})"
+                if new_id
+                else f"🧩 element created (title={title!r})"
+            ),
+        )
+    except Exception as e:
+        return error_response(f"element_create failed: {e}")
+
+
 _DISPATCH = {
     "elements_list": _elements_list,
     "element_get": _element_get,
     "element_definitions_list": _element_definitions_list,
+    "element_create": _element_create,
 }
 
 

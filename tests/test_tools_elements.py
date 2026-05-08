@@ -8,12 +8,11 @@ from voog.mcp.tools import elements as et
 
 
 class TestGetTools(unittest.TestCase):
-    def test_three_tools_after_task1(self):
-        # Tasks 2-4 add element_create / element_update / element_delete.
+    def test_four_tools_registered(self):
         names = sorted(t.name for t in et.get_tools())
         self.assertEqual(
             names,
-            ["element_definitions_list", "element_get", "elements_list"],
+            ["element_create", "element_definitions_list", "element_get", "elements_list"],
         )
 
 
@@ -149,6 +148,118 @@ class TestElementDefinitionsList(unittest.TestCase):
         self.assertIs(ann.readOnlyHint, True)
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, True)
+
+
+class TestElementCreate(unittest.TestCase):
+    def test_in_get_tools(self):
+        names = {t.name for t in et.get_tools()}
+        self.assertIn("element_create", names)
+
+    def test_minimum_with_definition_id(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 42, "title": "Hello"}
+        et.call_tool(
+            "element_create",
+            {
+                "element_definition_id": 3,
+                "page_id": 7,
+                "title": "Hello",
+            },
+            client,
+        )
+        client.post.assert_called_once_with(
+            "/elements",
+            {
+                "element_definition_id": 3,
+                "page_id": 7,
+                "title": "Hello",
+            },
+        )
+
+    def test_minimum_with_definition_title(self):
+        # Voog accepts element_definition_title as alternative key.
+        client = MagicMock()
+        client.post.return_value = {"id": 42}
+        et.call_tool(
+            "element_create",
+            {
+                "element_definition_title": "Portfolio Item",
+                "page_id": 7,
+                "title": "Hello",
+            },
+            client,
+        )
+        sent_body = client.post.call_args[0][1]
+        self.assertEqual(sent_body["element_definition_title"], "Portfolio Item")
+        self.assertNotIn("element_definition_id", sent_body)
+
+    def test_full_payload(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 42}
+        et.call_tool(
+            "element_create",
+            {
+                "element_definition_id": 3,
+                "page_id": 7,
+                "title": "Hello",
+                "path": "hello-custom",
+                "values": {"image": "https://x", "caption": "y"},
+            },
+            client,
+        )
+        sent_body = client.post.call_args[0][1]
+        self.assertNotIn("element", sent_body)  # no envelope
+        self.assertEqual(sent_body["path"], "hello-custom")
+        self.assertEqual(sent_body["values"]["caption"], "y")
+
+    def test_no_envelope_wrapper(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 1}
+        et.call_tool(
+            "element_create",
+            {"element_definition_id": 1, "page_id": 1, "title": "X"},
+            client,
+        )
+        sent_body = client.post.call_args[0][1]
+        self.assertNotIn("element", sent_body)
+        self.assertIn("title", sent_body)
+
+    def test_requires_page_id(self):
+        client = MagicMock()
+        result = et.call_tool(
+            "element_create",
+            {"element_definition_id": 1, "title": "X"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_requires_title(self):
+        client = MagicMock()
+        result = et.call_tool(
+            "element_create",
+            {"element_definition_id": 1, "page_id": 7},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_requires_definition_id_or_title(self):
+        client = MagicMock()
+        result = et.call_tool(
+            "element_create",
+            {"page_id": 7, "title": "X"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_annotations(self):
+        tools = {t.name: t for t in et.get_tools()}
+        ann = tools["element_create"].annotations
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, False)
 
 
 class TestServerToolRegistry(unittest.TestCase):
