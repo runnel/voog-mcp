@@ -5,7 +5,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._payloads import build_redirect_envelope, build_redirect_payload
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import require_int, strip_site
+from voog.mcp.tools._helpers import require_force, require_int, strip_site
 
 VALID_REDIRECT_TYPES = [301, 302, 307, 410]
 REDIRECT_FIELDS = ("source", "destination", "redirect_type", "active", "regexp")
@@ -240,10 +240,13 @@ def _redirect_delete(arguments: dict, client: VoogClient) -> list[TextContent] |
     err = require_int("redirect_id", redirect_id, tool_name="redirect_delete")
     if err:
         return error_response(err)
-    if not arguments.get("force"):
-        return error_response(
-            f"redirect_delete: refusing to delete rule {redirect_id} without force=true"
-        )
+    err = require_force(
+        arguments,
+        tool_name="redirect_delete",
+        target_desc=f"redirect {redirect_id}",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/redirect_rules/{redirect_id}")
         return success_response(

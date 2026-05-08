@@ -29,7 +29,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._concurrency import parallel_map
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import _validate_data_key, require_int, strip_site
+from voog.mcp.tools._helpers import _validate_data_key, require_force, require_int, strip_site
 
 
 def get_tools() -> list[Tool]:
@@ -345,13 +345,14 @@ def _page_delete(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
     err = require_int("page_id", page_id, tool_name="page_delete")
     if err:
         return error_response(err)
-    force = bool(arguments.get("force"))
-    if not force:
-        return error_response(
-            f"page_delete: refusing to delete page {page_id} without force=true. "
-            "Set force=true after confirming the deletion is intentional. "
-            "Voog does not retain deleted pages — consider running pages_snapshot first."
-        )
+    err = require_force(
+        arguments,
+        tool_name="page_delete",
+        target_desc=f"page {page_id}",
+        hint="Voog does not retain deleted pages — consider running pages_snapshot first.",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/pages/{page_id}")
         # API returns 204 No Content — no body to echo back
@@ -507,16 +508,17 @@ def _page_delete_data(arguments: dict, client: VoogClient) -> list[TextContent] 
     if err:
         return error_response(err)
     key = arguments.get("key") or ""
-    force = bool(arguments.get("force"))
 
     err = _validate_data_key(key, tool_name="page_delete_data")
     if err:
         return error_response(err)
-    if not force:
-        return error_response(
-            f"page_delete_data: refusing to delete page {page_id} data.{key!r} without force=true. "
-            "Set force=true after confirming the deletion is intentional."
-        )
+    err = require_force(
+        arguments,
+        tool_name="page_delete_data",
+        target_desc=f"data key {key!r} from page {page_id}",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/pages/{page_id}/data/{key}")
         return success_response(

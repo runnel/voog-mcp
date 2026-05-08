@@ -23,7 +23,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import require_int, strip_site
+from voog.mcp.tools._helpers import require_force, require_int, strip_site
 from voog.projections import simplify_element_definitions, simplify_elements
 
 # elements_list filter args forwarded as Voog query-string params.
@@ -413,11 +413,14 @@ def _element_delete(arguments: dict, client: VoogClient) -> list[TextContent] | 
     err = require_int("element_id", element_id, tool_name="element_delete")
     if err:
         return error_response(err)
-    if not arguments.get("force"):
-        return error_response(
-            f"element_delete: refusing to delete element {element_id} without force=true. "
-            "Run elements_list first to confirm, then set force=true."
-        )
+    err = require_force(
+        arguments,
+        tool_name="element_delete",
+        target_desc=f"element {element_id}",
+        hint="Run elements_list first to confirm.",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/elements/{element_id}")
         return success_response(

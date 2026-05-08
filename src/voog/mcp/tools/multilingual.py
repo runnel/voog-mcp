@@ -25,7 +25,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import require_int, strip_site
+from voog.mcp.tools._helpers import require_force, require_int, strip_site
 from voog.projections import simplify_languages, simplify_nodes
 
 
@@ -376,12 +376,14 @@ def _language_delete(arguments: dict, client: VoogClient) -> list[TextContent] |
     err = require_int("language_id", language_id, tool_name="language_delete")
     if err:
         return error_response(err)
-    if not arguments.get("force"):
-        return error_response(
-            f"language_delete: refusing to delete language {language_id} without force=true. "
-            "IRREVERSIBLE — Voog deletes the language and unbinds associated content. "
-            "Run site_snapshot first if uncertain, then set force=true."
-        )
+    err = require_force(
+        arguments,
+        tool_name="language_delete",
+        target_desc=f"language {language_id}",
+        hint="IRREVERSIBLE — Voog deletes the language and unbinds associated content. Run site_snapshot first if uncertain.",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/languages/{language_id}")
         return success_response(

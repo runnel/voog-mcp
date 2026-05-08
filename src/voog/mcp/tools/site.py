@@ -16,7 +16,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import _validate_data_key, strip_site
+from voog.mcp.tools._helpers import _validate_data_key, require_force, strip_site
 
 # Fields that must never be PUT back to /site:
 #   - `code` is immutable per Voog (and project memory).
@@ -159,15 +159,16 @@ def _site_set_data(arguments: dict, client: VoogClient) -> list[TextContent] | C
 
 def _site_delete_data(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     key = arguments.get("key") or ""
-    force = bool(arguments.get("force"))
     err = _validate_data_key(key, tool_name="site_delete_data")
     if err:
         return error_response(err)
-    if not force:
-        return error_response(
-            f"site_delete_data: refusing to delete site.data.{key!r} without force=true. "
-            "Set force=true after confirming the deletion is intentional."
-        )
+    err = require_force(
+        arguments,
+        tool_name="site_delete_data",
+        target_desc=f"site data key {key!r}",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/site/data/{key}")
         return success_response(

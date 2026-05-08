@@ -24,7 +24,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._payloads import build_article_payload
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import _validate_data_key, require_int, strip_site
+from voog.mcp.tools._helpers import _validate_data_key, require_force, require_int, strip_site
 from voog.projections import simplify_articles
 
 _ARTICLES_PLAIN_PARAMS = ("page_id", "language_code", "language_id", "tag")
@@ -488,11 +488,14 @@ def _article_delete(arguments: dict, client: VoogClient):
     err = require_int("article_id", article_id, tool_name="article_delete")
     if err:
         return error_response(err)
-    if not arguments.get("force"):
-        return error_response(
-            f"article_delete: refusing to delete article {article_id} "
-            "without force=true. Voog does not retain deleted articles."
-        )
+    err = require_force(
+        arguments,
+        tool_name="article_delete",
+        target_desc=f"article {article_id}",
+        hint="Voog does not retain deleted articles.",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/articles/{article_id}")
         return success_response(
@@ -530,16 +533,17 @@ def _article_delete_data(arguments: dict, client: VoogClient) -> list[TextConten
     if err:
         return error_response(err)
     key = arguments.get("key") or ""
-    force = bool(arguments.get("force"))
 
     err = _validate_data_key(key, tool_name="article_delete_data")
     if err:
         return error_response(err)
-    if not force:
-        return error_response(
-            f"article_delete_data: refusing to delete article {article_id} data.{key!r} without force=true. "
-            "Set force=true after confirming the deletion is intentional."
-        )
+    err = require_force(
+        arguments,
+        tool_name="article_delete_data",
+        target_desc=f"data key {key!r} from article {article_id}",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/articles/{article_id}/data/{key}")
         return success_response(

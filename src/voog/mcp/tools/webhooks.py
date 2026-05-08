@@ -19,7 +19,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import require_int, strip_site
+from voog.mcp.tools._helpers import require_force, require_int, strip_site
 from voog.projections import simplify_webhooks
 
 
@@ -300,11 +300,14 @@ def _webhook_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
 
 def _webhook_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     webhook_id = arguments.get("webhook_id")
-    if not arguments.get("force"):
-        return error_response(
-            f"webhook_delete: refusing to delete webhook {webhook_id} without force=true. "
-            "Run webhooks_list first to confirm, then set force=true."
-        )
+    err = require_force(
+        arguments,
+        tool_name="webhook_delete",
+        target_desc=f"webhook {webhook_id}",
+        hint="Run webhooks_list first to confirm.",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/webhooks/{webhook_id}")
         return success_response(
