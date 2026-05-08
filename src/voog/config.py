@@ -41,6 +41,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -91,6 +92,23 @@ def default_global_config_path() -> Path:
     return Path(base) / "voog" / "voog.json"
 
 
+_SITE_NAME_RE = re.compile(r"^[A-Za-z0-9_\-.]{1,64}$")
+
+
+def _validate_site_name(name: str) -> None:
+    """Reject site names that would break ``voog://{site}/...`` URI parsing.
+
+    Allowed: alphanumeric, underscore, hyphen, dot. 1-64 chars.
+    Reject: empty, whitespace, slashes, ``#``/``?``, unicode, very long names.
+    """
+    if not _SITE_NAME_RE.fullmatch(name):
+        raise ConfigError(
+            f"site name {name!r} is invalid — must match {_SITE_NAME_RE.pattern} "
+            f"(letters/digits/_/-/. only, 1-64 chars). Site names are interpolated "
+            f"into voog://{{site}}/... resource URIs and must be URL-safe."
+        )
+
+
 def load_global_config(
     path: Path | None = None,
     *,
@@ -116,6 +134,7 @@ def load_global_config(
     sites_raw = raw.get("sites", {}) or {}
     sites: dict[str, SiteConfig] = {}
     for name, entry in sites_raw.items():
+        _validate_site_name(name)
         if not isinstance(entry, dict):
             raise ConfigError(f"site '{name}' must be an object")
         host = entry.get("host")
