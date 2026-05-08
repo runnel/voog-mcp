@@ -8,13 +8,14 @@ from voog.mcp.tools import elements as et
 
 
 class TestGetTools(unittest.TestCase):
-    def test_five_tools_registered(self):
+    def test_six_tools_registered(self):
         names = sorted(t.name for t in et.get_tools())
         self.assertEqual(
             names,
             [
                 "element_create",
                 "element_definitions_list",
+                "element_delete",
                 "element_get",
                 "element_update",
                 "elements_list",
@@ -340,6 +341,35 @@ class TestElementUpdate(unittest.TestCase):
         self.assertIs(ann.readOnlyHint, False)
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, True)
+
+
+class TestElementDelete(unittest.TestCase):
+    def test_in_get_tools(self):
+        names = {t.name for t in et.get_tools()}
+        self.assertIn("element_delete", names)
+
+    def test_requires_force(self):
+        client = MagicMock()
+        result = et.call_tool("element_delete", {"element_id": 5}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_with_force_calls_client(self):
+        client = MagicMock()
+        client.delete.return_value = None
+        et.call_tool(
+            "element_delete",
+            {"element_id": 5, "force": True},
+            client,
+        )
+        client.delete.assert_called_once_with("/elements/5")
+
+    def test_annotations(self):
+        tools = {t.name: t for t in et.get_tools()}
+        ann = tools["element_delete"].annotations
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, True)
+        self.assertIs(ann.idempotentHint, False)
 
 
 class TestServerToolRegistry(unittest.TestCase):

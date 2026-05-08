@@ -183,6 +183,16 @@ class TestForceFlagSchemaDefaults(unittest.TestCase):
         client.delete.assert_not_called()
         self.assertTrue(result.isError)
 
+    def test_element_delete_force_default_false(self):
+        from voog.mcp.tools import elements as elements_tools
+
+        tools = {t.name: t for t in elements_tools.get_tools()}
+        self.assertIs(_schema_default(tools["element_delete"], "force"), False)
+        client = MagicMock()
+        result = elements_tools.call_tool("element_delete", {"element_id": 1}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
 
 if __name__ == "__main__":
     unittest.main()

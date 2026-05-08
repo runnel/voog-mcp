@@ -233,6 +233,38 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": True,
             },
         ),
+        Tool(
+            name="element_delete",
+            description=(
+                "Delete an element (DELETE /elements/{id}). Voog returns "
+                "204. Requires force=true; without it the call is "
+                "rejected. Run elements_list first to confirm the id."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "element_id": {
+                        "type": "integer",
+                        "description": "Voog element id (from elements_list)",
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": (
+                            "Must be true to actually perform the delete. "
+                            "Defaults to false (defensive opt-in)."
+                        ),
+                        "default": False,
+                    },
+                },
+                "required": ["site", "element_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": False,
+            },
+        ),
     ]
 
 
@@ -343,12 +375,30 @@ def _element_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response(f"element_update id={element_id} failed: {e}")
 
 
+def _element_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    element_id = arguments.get("element_id")
+    if not arguments.get("force"):
+        return error_response(
+            f"element_delete: refusing to delete element {element_id} without force=true. "
+            "Run elements_list first to confirm, then set force=true."
+        )
+    try:
+        client.delete(f"/elements/{element_id}")
+        return success_response(
+            {"deleted": {"element_id": element_id}},
+            summary=f"🗑️  element {element_id} deleted",
+        )
+    except Exception as e:
+        return error_response(f"element_delete id={element_id} failed: {e}")
+
+
 _DISPATCH = {
     "elements_list": _elements_list,
     "element_get": _element_get,
     "element_definitions_list": _element_definitions_list,
     "element_create": _element_create,
     "element_update": _element_update,
+    "element_delete": _element_delete,
 }
 
 
