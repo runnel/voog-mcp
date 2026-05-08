@@ -716,6 +716,9 @@ class TestServerToolRegistry(unittest.TestCase):
             ecommerce_settings as ecommerce_settings_t,
         )
         from voog.mcp.tools import (
+            elements as elements_t,
+        )
+        from voog.mcp.tools import (
             layouts as layouts_t,
         )
         from voog.mcp.tools import (
@@ -759,6 +762,7 @@ class TestServerToolRegistry(unittest.TestCase):
             articles_t,
             content_partials_t,
             ecommerce_settings_t,
+            elements_t,
             layouts_t,
             layouts_sync_t,
             multilingual_t,

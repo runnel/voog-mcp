@@ -188,3 +188,55 @@ def simplify_webhooks(webhooks: list) -> list:
             }
         )
     return simplified
+
+
+def simplify_elements(elements: list, *, include_values: bool = False) -> list:
+    """Project elements to the curated list shape.
+
+    Keeps id/title/path/page_id/element_definition_id/position for
+    listing+identification. Drops timestamps and computed URLs (url,
+    move_url, contents_url, public_url) — fetchable via element_get.
+
+    By default, the ``values`` (custom-properties hash) is also dropped
+    from list views — values clutter list responses with per-element
+    detail when callers typically want a compact identification view.
+    When ``include_values=True``, the ``values`` key is included in
+    each projected element. ``elements_list`` threads its caller's
+    ``include_values`` arg through to here, so the contract documented
+    in the tool description is honoured end-to-end (PR #116 review).
+    """
+    simplified = []
+    for e in elements:
+        item = {
+            "id": e.get("id"),
+            "title": e.get("title"),
+            "path": e.get("path"),
+            "page_id": e.get("page_id"),
+            "element_definition_id": e.get("element_definition_id"),
+            "position": e.get("position"),
+        }
+        if include_values:
+            item["values"] = e.get("values")
+        simplified.append(item)
+    return simplified
+
+
+def simplify_element_definitions(definitions: list) -> list:
+    """Project element_definitions to the curated list shape.
+
+    Keeps id/title plus the data.properties keys (so callers can see
+    what fields each definition expects without fetching full schema).
+    Drops timestamps and computed URLs.
+    """
+    simplified = []
+    for d in definitions:
+        data = d.get("data") or {}
+        properties = data.get("properties") or {}
+        simplified.append(
+            {
+                "id": d.get("id"),
+                "title": d.get("title"),
+                "property_keys": sorted(properties.keys()) if isinstance(properties, dict) else [],
+            }
+        )
+    return simplified
