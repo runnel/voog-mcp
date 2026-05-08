@@ -2,13 +2,13 @@
 
 All notable changes to this project will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
-versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
+versioning: [PEP 440](https://peps.python.org/pep-0440/).
 
 ## [Unreleased]
 
 (no changes yet)
 
-## [1.3.0] — 2026-05-08
+## [1.3] — 2026-05-08
 
 ### Breaking changes
 - `site_snapshot.force` renamed to `site_snapshot.overwrite`. The `force` flag on delete tools means "authorize destruction"; on `site_snapshot` it means "allow writing into an existing directory" — a different concept that deserves a distinct name. Passing `force=true` to `site_snapshot` now falls through as an unknown property (schema has `additionalProperties: false`) and will be rejected by a conforming MCP validator. Update callers to use `overwrite=true`.
@@ -40,14 +40,14 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 - `_validate_data_key` (used by `page_set_data` / `page_delete_data` / `article_set_data` / `article_delete_data`) now rejects keys with spaces, unicode, `@`, `+`, or other non-URL-path-safe characters at the validator instead of letting them surface as confusing `urlopen` errors. Allowlist matches the Phase 3 site-name pattern: `^[A-Za-z0-9_\-.]{1,128}$` — same character class, longer length cap (data keys are longer identifiers than short site names). PR #109 review follow-up.
-- `VoogClient.get_all` no longer drops data when callers override `per_page`. Pre-1.3.0 termination check hardcoded `len(data) < 100`; under `params={"per_page": 250}` and a last page of 100-249 items, the loop exited early. Now uses the resolved `per_page` for termination. Closes audit B3.
+- `VoogClient.get_all` no longer drops data when callers override `per_page`. Pre-1.3 termination check hardcoded `len(data) < 100`; under `params={"per_page": 250}` and a last page of 100-249 items, the loop exited early. Now uses the resolved `per_page` for termination. Closes audit B3.
 - `layout_delete` tool description corrected — Voog blocks deletion of layouts that still have pages assigned (returns an error response, layout not deleted); previously the description warned about a 500 render error that does not occur because the delete itself fails. Closes audit B1.
 
 ### Changed
 - `voog.mcp.tools.multilingual` refactored from linear `if name == "x":` dispatch to a `_DISPATCH` dict, completing the Phase 4 sweep (which had skipped multilingual when it had only 3 tools — Phase 5+6 brought it to 8). Pre-existing inline handlers (`languages_list`, `nodes_list`, `node_get`) extracted into named functions for dispatch-dict registration. `_DISPATCH` placed BEFORE `call_tool` (the codebase's two pre-existing styles split 3-vs-3 on placement; standardising forward). Pure refactor — no wire-behaviour changes. Audit I12 follow-up.
 - Tool dispatch in `articles`, `layouts`, `pages_mutate`, `products`, `redirects`, `site` switched from linear `if name == "x":` chains to a module-level `_DISPATCH` dict. No wire behaviour change — the lookup is structural, slightly faster, and forces `get_tools()`/`call_tool` to share a single source of names (a missing entry in either now fails the unknown-tool branch deterministically). Side effects: `_products_list` signature normalised from `(client)` to `(arguments, client)`; `redirects.py` and `site.py` had their inline `call_tool` branches extracted into named handlers (`_redirect_*`, `_site_*`) for the dispatch dict. Closes audit I12.
 - `VoogClient.get_all` default `per_page` raised from 100 to 200 (Voog supports up to 250). Halves the round-trip count on large-list endpoints. Caller overrides via `params={"per_page": N}` continue to work. Closes audit I10/P2.
-- `User-Agent` bumped to `voog-mcp/1.3.0`.
+- `User-Agent` bumped to `voog-mcp/1.3`.
 - `voog site-snapshot` (CLI) and `site_snapshot` (MCP tool) now fetch product details with the same `PRODUCTS_DETAIL_INCLUDE` constant the live tools use, so backups inherit per-variant inventory automatically. Previously each surface hardcoded `"variant_types,translations"`, drifting from the source of truth. (#104)
 - `layout_update` and `layout_asset_update` now hard-fail when the PUT response echoes back the resource with the content field cleared (the original #96 silent-no-op symptom). Defense-in-depth only — the MCP tools already send the correct flat payload form, so this can't reproduce on current code paths, but a future regression (envelope re-introduction, server-side rate-limit anomaly, etc.) would otherwise read back as `✓` while the content sat unchanged on Voog. Voog's slim PUT responses normally omit the content field entirely, so the detector falls through on every real response shape. (#99)
 
@@ -193,7 +193,7 @@ Initial public release. Refactored from internal personal tooling.
 - `voog.py` legacy script (replaced by `voog` CLI binary)
 - `voog_mcp/` package layout (replaced by `src/voog/mcp/`)
 
-[1.3.0]: https://github.com/runnel/voog-mcp/compare/v1.2.2...v1.3.0
+[1.3]: https://github.com/runnel/voog-mcp/compare/v1.2.2...v1.3
 [1.2.2]: https://github.com/runnel/voog-mcp/releases/tag/v1.2.2
 [1.2.1]: https://github.com/runnel/voog-mcp/releases/tag/v1.2.1
 [1.2.0]: https://github.com/runnel/voog-mcp/releases/tag/v1.2.0
