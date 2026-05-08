@@ -8,10 +8,20 @@ from __future__ import annotations
 import json
 import logging
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
 logger = logging.getLogger("voog.client")
+
+# Methods safe to retry on transient failures. POST/PATCH are excluded
+# because the canonical failure mode (Voog accepts the request, response
+# is lost on the read) would silently create duplicate resources on the
+# retry — see PR #110 review. GET is read-only; PUT in Voog's API is
+# full-replace (sending the same payload twice yields the same end
+# state); DELETE on a missing resource returns 404 which the caller can
+# tolerate (resource is gone either way).
+_RETRYABLE_METHODS = frozenset({"GET", "PUT", "DELETE"})
 
 
 class VoogClient:
@@ -49,6 +59,14 @@ class VoogClient:
           - ``OSError`` (network connectivity — DNS, TCP reset, etc.)
 
         Does NOT retry on 4xx (caller errors — same payload would fail again).
+
+        **Retries are restricted to GET / PUT / DELETE** (see
+        ``_RETRYABLE_METHODS``). POST and PATCH always run a single
+        attempt: under the canonical "Voog accepted but response lost"
+        failure mode, retrying a POST would silently create a duplicate
+        resource (e.g. a second product, redirect rule). The caller is
+        responsible for deciding how to handle a transient POST failure.
+
         Backoff is exponential: ``0.5 * 2^attempt`` seconds between attempts
         (0.5s before the first retry, 1.0s before the second).
         """
@@ -59,14 +77,17 @@ class VoogClient:
         req = urllib.request.Request(url, data=payload, headers=self.headers, method=method)
         logger.debug("%s %s", method, url)
 
+        # POST / PATCH are not safe to retry — see _RETRYABLE_METHODS comment.
+        retries = self.max_retries if method in _RETRYABLE_METHODS else 0
+
         last_exc: Exception | None = None
-        for attempt in range(self.max_retries + 1):
+        for attempt in range(retries + 1):
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     body = resp.read()
                     return json.loads(body) if body else None
             except urllib.error.HTTPError as e:
-                if e.code < 500 or attempt == self.max_retries:
+                if e.code < 500 or attempt == retries:
                     raise
                 logger.warning(
                     "HTTP %s on %s %s — retrying in %.1fs (attempt %d/%d)",
@@ -75,11 +96,11 @@ class VoogClient:
                     url,
                     0.5 * (2**attempt),
                     attempt + 1,
-                    self.max_retries,
+                    retries,
                 )
                 last_exc = e
             except OSError as e:
-                if attempt == self.max_retries:
+                if attempt == retries:
                     raise
                 logger.warning(
                     "Network error on %s %s — retrying in %.1fs (attempt %d/%d): %s",
@@ -87,7 +108,7 @@ class VoogClient:
                     url,
                     0.5 * (2**attempt),
                     attempt + 1,
-                    self.max_retries,
+                    retries,
                     e,
                 )
                 last_exc = e

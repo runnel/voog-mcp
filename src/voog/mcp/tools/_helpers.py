@@ -153,6 +153,14 @@ def _validate_data_key(key: str, *, tool_name: str) -> str | None:
     if ".." in decoded.split("/"):
         return f"{tool_name}: key must not contain '..' segments (got {key!r})"
     if not _DATA_KEY_RE.fullmatch(decoded):
+        # Echo the decoded form alongside the raw key when they differ
+        # (e.g. ``hex%20color`` decodes to ``hex color``) so the caller
+        # can see the actual offending character without re-decoding.
+        if decoded != key:
+            return (
+                f"{tool_name}: key must be URL-path-safe — letters/digits/_/-/. "
+                f"only, 1-128 chars (got {key!r}, decodes to {decoded!r})"
+            )
         return (
             f"{tool_name}: key must be URL-path-safe — letters/digits/_/-/. "
             f"only, 1-128 chars (got {key!r})"

@@ -348,6 +348,81 @@ class TestRequestRetry(unittest.TestCase):
         mock_sleep.assert_not_called()
 
 
+class TestRequestRetryMethodGating(unittest.TestCase):
+    """PR #110 review fix: POST/PATCH must NOT retry — duplicate-resource risk."""
+
+    def test_post_5xx_not_retried(self):
+        # Voog accepted the POST, response was lost on the wire.
+        # Retrying would create a SECOND product/redirect/etc.
+        client = VoogClient(host="example.com", api_token="t")
+        err_503 = urllib.error.HTTPError(
+            url="x", code=503, msg="Service Unavailable", hdrs=None, fp=None
+        )
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_503]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    client.post("/products", {"product": {}})
+        self.assertEqual(ctx.exception.code, 503)
+        # Single attempt — no retry.
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    def test_post_oserror_not_retried(self):
+        client = VoogClient(host="example.com", api_token="t")
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [OSError("connection reset")]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                with self.assertRaises(OSError):
+                    client.post("/products", {"product": {}})
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    def test_patch_5xx_not_retried(self):
+        client = VoogClient(host="example.com", api_token="t")
+        err_502 = urllib.error.HTTPError(url="x", code=502, msg="Bad Gateway", hdrs=None, fp=None)
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = [err_502]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                with self.assertRaises(urllib.error.HTTPError):
+                    client.patch("/resource", {})
+        mock_urlopen.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    def test_put_5xx_still_retries(self):
+        # Regression guard: PUT is idempotent in Voog's API (full-replace),
+        # so retries are still safe and active.
+        client = VoogClient(host="example.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b"{}"
+        err_503 = urllib.error.HTTPError(
+            url="x", code=503, msg="Service Unavailable", hdrs=None, fp=None
+        )
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            cm = MagicMock()
+            cm.__enter__.return_value = fake_resp
+            cm.__exit__.return_value = False
+            mock_urlopen.side_effect = [err_503, cm]
+            with patch("voog.client.time.sleep"):
+                client.put("/resource", {"key": "v"})
+        self.assertEqual(mock_urlopen.call_count, 2)
+
+    def test_delete_5xx_still_retries(self):
+        # DELETE is semantically idempotent (404 on retry is fine — gone).
+        client = VoogClient(host="example.com", api_token="t")
+        fake_resp = MagicMock()
+        fake_resp.read.return_value = b""
+        err_500 = urllib.error.HTTPError(url="x", code=500, msg="Internal", hdrs=None, fp=None)
+        with patch("voog.client.urllib.request.urlopen") as mock_urlopen:
+            cm = MagicMock()
+            cm.__enter__.return_value = fake_resp
+            cm.__exit__.return_value = False
+            mock_urlopen.side_effect = [err_500, cm]
+            with patch("voog.client.time.sleep"):
+                client.delete("/pages/42")
+        self.assertEqual(mock_urlopen.call_count, 2)
+
+
 class TestRequestLogging(unittest.TestCase):
     """Audit I17 — _request emits debug logs for traceability."""
 

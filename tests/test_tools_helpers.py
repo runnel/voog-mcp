@@ -205,6 +205,24 @@ class TestValidateDataKeyURLSafety(unittest.TestCase):
             f"error message should explain allowed characters: {err}",
         )
 
+    def test_url_safety_message_shows_decoded_form_when_different(self):
+        # PR #110 review nit: when the raw key differs from its decoded
+        # form (e.g. percent-encoded space), echo both so the caller can
+        # see the actual offending character.
+        err = _validate_data_key("hex%20color", tool_name="t")
+        self.assertIsNotNone(err)
+        self.assertIn("hex%20color", err)  # raw
+        self.assertIn("hex color", err)  # decoded
+        self.assertIn("decodes to", err)
+
+    def test_url_safety_message_omits_decoded_form_when_same(self):
+        # When the raw key has no encoding to unwind, the message should
+        # not bloat with a duplicated "decodes to" clause.
+        err = _validate_data_key("hex color", tool_name="t")
+        self.assertIsNotNone(err)
+        self.assertIn("hex color", err)
+        self.assertNotIn("decodes to", err)
+
 
 if __name__ == "__main__":
     unittest.main()
