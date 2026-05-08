@@ -283,6 +283,34 @@ class TestPagesTools(unittest.TestCase):
             self.assertEqual(props[arg]["type"], "boolean")
 
 
+class TestPagesBoolReject(unittest.TestCase):
+    """T4b: require_int guards — bools must not reach Voog as ids."""
+
+    def test_page_get_page_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_tools.call_tool("page_get", {"page_id": True}, client)
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
+
+    def test_pages_list_node_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_tools.call_tool("pages_list", {"node_id": False}, client)
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()
+
+    def test_pages_list_parent_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_tools.call_tool("pages_list", {"parent_id": True}, client)
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()
+
+    def test_pages_list_language_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_tools.call_tool("pages_list", {"language_id": False}, client)
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()
+
+
 class TestAllToolsRequireSite(unittest.TestCase):
     def test_all_tools_require_site(self):
         from voog.mcp.tools import pages as mod

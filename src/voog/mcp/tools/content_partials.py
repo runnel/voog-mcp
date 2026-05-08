@@ -17,7 +17,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import require_int, strip_site
 
 
 def get_tools() -> list[Tool]:
@@ -76,6 +76,9 @@ def _content_partial_update(
     arguments: dict, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     cp_id = arguments.get("content_partial_id")
+    err = require_int("content_partial_id", cp_id, tool_name="content_partial_update")
+    if err:
+        return error_response(err)
     body = arguments.get("body")
     metainfo = arguments.get("metainfo")
 

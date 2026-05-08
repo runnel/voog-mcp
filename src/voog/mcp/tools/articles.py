@@ -24,23 +24,16 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._payloads import build_article_payload
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import _validate_data_key, strip_site
+from voog.mcp.tools._helpers import (
+    _validate_data_key,
+    build_list_params,
+    require_force,
+    require_int,
+    strip_site,
+)
 from voog.projections import simplify_articles
 
 _ARTICLES_PLAIN_PARAMS = ("page_id", "language_code", "language_id", "tag")
-
-
-def _build_articles_list_params(arguments: dict) -> dict | None:
-    """Translate tool args to Voog query params. Returns None when no
-    filters are set, so the caller falls through to the unparameterised
-    `client.get_all("/articles")` shape."""
-    params: dict = {}
-    for arg_key in _ARTICLES_PLAIN_PARAMS:
-        if arg_key in arguments:
-            params[arg_key] = arguments[arg_key]
-    if "sort" in arguments:
-        params["s"] = arguments["sort"]
-    return params or None
 
 
 def get_tools() -> list[Tool]:
@@ -354,7 +347,17 @@ def call_tool(
 
 
 def _articles_list(arguments: dict, client: VoogClient):
-    params = _build_articles_list_params(arguments)
+    for int_field in ("page_id", "language_id"):
+        val = arguments.get(int_field)
+        if val is not None:
+            err = require_int(int_field, val, tool_name="articles_list")
+            if err:
+                return error_response(err)
+    params = build_list_params(
+        arguments,
+        plain=_ARTICLES_PLAIN_PARAMS,
+        sort_target="s",
+    )
     try:
         if params:
             articles = client.get_all("/articles", params=params)
@@ -368,6 +371,9 @@ def _articles_list(arguments: dict, client: VoogClient):
 
 def _article_get(arguments: dict, client: VoogClient):
     article_id = arguments.get("article_id")
+    err = require_int("article_id", article_id, tool_name="article_get")
+    if err:
+        return error_response(err)
     try:
         article = client.get(f"/articles/{article_id}")
         return success_response(article)
@@ -378,8 +384,9 @@ def _article_get(arguments: dict, client: VoogClient):
 def _article_create(arguments: dict, client: VoogClient):
     page_id = arguments.get("page_id")
     title = arguments.get("title") or ""
-    if not isinstance(page_id, int):
-        return error_response("article_create: page_id must be an integer")
+    err = require_int("page_id", page_id, tool_name="article_create")
+    if err:
+        return error_response(err)
     if not title.strip():
         return error_response("article_create: title must be non-empty")
 
@@ -398,6 +405,9 @@ def _article_create(arguments: dict, client: VoogClient):
 
 def _article_update(arguments: dict, client: VoogClient):
     article_id = arguments.get("article_id")
+    err = require_int("article_id", article_id, tool_name="article_update")
+    if err:
+        return error_response(err)
     body = build_article_payload(arguments)
     if not body:
         return error_response(
@@ -416,6 +426,9 @@ def _article_update(arguments: dict, client: VoogClient):
 
 def _article_publish(arguments: dict, client: VoogClient):
     article_id = arguments.get("article_id")
+    err = require_int("article_id", article_id, tool_name="article_publish")
+    if err:
+        return error_response(err)
     autosaved_keys = ("autosaved_title", "autosaved_body", "autosaved_excerpt")
     provided = {k: arguments[k] for k in autosaved_keys if k in arguments}
 
@@ -469,11 +482,17 @@ def _article_publish(arguments: dict, client: VoogClient):
 
 def _article_delete(arguments: dict, client: VoogClient):
     article_id = arguments.get("article_id")
-    if not arguments.get("force"):
-        return error_response(
-            f"article_delete: refusing to delete article {article_id} "
-            "without force=true. Voog does not retain deleted articles."
-        )
+    err = require_int("article_id", article_id, tool_name="article_delete")
+    if err:
+        return error_response(err)
+    err = require_force(
+        arguments,
+        tool_name="article_delete",
+        target_desc=f"article {article_id}",
+        hint="Voog does not retain deleted articles.",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/articles/{article_id}")
         return success_response(
@@ -486,6 +505,9 @@ def _article_delete(arguments: dict, client: VoogClient):
 
 def _article_set_data(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     article_id = arguments.get("article_id")
+    err = require_int("article_id", article_id, tool_name="article_set_data")
+    if err:
+        return error_response(err)
     key = arguments.get("key") or ""
     value = arguments.get("value")
 
@@ -504,17 +526,21 @@ def _article_set_data(arguments: dict, client: VoogClient) -> list[TextContent] 
 
 def _article_delete_data(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     article_id = arguments.get("article_id")
+    err = require_int("article_id", article_id, tool_name="article_delete_data")
+    if err:
+        return error_response(err)
     key = arguments.get("key") or ""
-    force = bool(arguments.get("force"))
 
     err = _validate_data_key(key, tool_name="article_delete_data")
     if err:
         return error_response(err)
-    if not force:
-        return error_response(
-            f"article_delete_data: refusing to delete article {article_id} data.{key!r} without force=true. "
-            "Set force=true after confirming the deletion is intentional."
-        )
+    err = require_force(
+        arguments,
+        tool_name="article_delete_data",
+        target_desc=f"data key {key!r} from article {article_id}",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/articles/{article_id}/data/{key}")
         return success_response(

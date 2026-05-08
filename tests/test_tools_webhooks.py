@@ -272,6 +272,331 @@ class TestWebhookDelete(unittest.TestCase):
         self.assertIs(ann.idempotentHint, False)
 
 
+class TestWebhookCreateTargetIdValidation(unittest.TestCase):
+    """Issue 1 — target_id must be a plain int, not a bool."""
+
+    def test_target_id_true_returns_error(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_create",
+            {
+                "target": "order",
+                "event": "paid",
+                "url": "https://example.com/hook",
+                "target_id": True,
+            },
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+        self.assertIn("bool", result.content[0].text)
+        self.assertIn("integer", result.content[0].text)
+
+    def test_target_id_false_returns_error(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_create",
+            {
+                "target": "order",
+                "event": "paid",
+                "url": "https://example.com/hook",
+                "target_id": False,
+            },
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+        self.assertIn("bool", result.content[0].text)
+
+    def test_target_id_valid_int_succeeds(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 1}
+        wt.call_tool(
+            "webhook_create",
+            {"target": "order", "event": "paid", "url": "https://example.com/hook", "target_id": 5},
+            client,
+        )
+        client.post.assert_called_once()
+        sent_body = client.post.call_args[0][1]
+        self.assertEqual(sent_body["target_id"], 5)
+
+    def test_target_id_omitted_no_error(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 1}
+        wt.call_tool(
+            "webhook_create",
+            {"target": "order", "event": "paid", "url": "https://example.com/hook"},
+            client,
+        )
+        client.post.assert_called_once()
+
+    def test_target_id_none_no_error(self):
+        # None is filtered by the `is not None` guard — treated as omitted.
+        client = MagicMock()
+        client.post.return_value = {"id": 1}
+        wt.call_tool(
+            "webhook_create",
+            {
+                "target": "order",
+                "event": "paid",
+                "url": "https://example.com/hook",
+                "target_id": None,
+            },
+            client,
+        )
+        client.post.assert_called_once()
+
+
+class TestWebhookUpdateTargetIdValidation(unittest.TestCase):
+    """Issue 1 — target_id bool rejection in webhook_update."""
+
+    def test_target_id_true_returns_error(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "target_id": True},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+        self.assertIn("bool", result.content[0].text)
+        self.assertIn("integer", result.content[0].text)
+
+    def test_target_id_false_returns_error(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "target_id": False},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+        self.assertIn("bool", result.content[0].text)
+
+    def test_target_id_valid_int_succeeds(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+        wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "target_id": 99},
+            client,
+        )
+        client.put.assert_called_once()
+        sent_body = client.put.call_args[0][1]
+        self.assertEqual(sent_body["target_id"], 99)
+
+    def test_target_id_omitted_no_error(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+        wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "enabled": True},
+            client,
+        )
+        client.put.assert_called_once()
+
+    def test_target_id_none_no_error(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+        wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "enabled": True, "target_id": None},
+            client,
+        )
+        client.put.assert_called_once()
+
+
+class TestWebhookCreateUrlValidation(unittest.TestCase):
+    """Issue 2 — url must start with http:// or https://."""
+
+    def test_ftp_url_returns_error(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_create",
+            {"target": "order", "event": "paid", "url": "ftp://x"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+        self.assertIn("http", result.content[0].text)
+
+    def test_javascript_url_returns_error(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_create",
+            {"target": "order", "event": "paid", "url": "javascript:alert(1)"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_bare_string_returns_error(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_create",
+            {"target": "order", "event": "paid", "url": "not-a-url"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_http_url_succeeds(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 1}
+        wt.call_tool(
+            "webhook_create",
+            {"target": "order", "event": "paid", "url": "http://example.com/hook"},
+            client,
+        )
+        client.post.assert_called_once()
+
+    def test_https_url_succeeds(self):
+        client = MagicMock()
+        client.post.return_value = {"id": 1}
+        wt.call_tool(
+            "webhook_create",
+            {"target": "order", "event": "paid", "url": "https://example.com/hook"},
+            client,
+        )
+        client.post.assert_called_once()
+
+    def test_uppercase_http_url_succeeds(self):
+        # RFC 3986 §3.1 — scheme is case-insensitive.
+        client = MagicMock()
+        client.post.return_value = {"id": 1}
+        wt.call_tool(
+            "webhook_create",
+            {"target": "order", "event": "paid", "url": "HTTP://example.com/hook"},
+            client,
+        )
+        client.post.assert_called_once()
+
+
+class TestWebhookUpdateUrlValidation(unittest.TestCase):
+    """Issue 2 — url scheme validation in webhook_update."""
+
+    def test_ftp_url_returns_error(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "url": "ftp://x"},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+        self.assertIn("http", result.content[0].text)
+
+    def test_javascript_url_returns_error(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "url": "javascript:alert(1)"},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_bare_string_returns_error(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "url": "not-a-url"},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_http_url_succeeds(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+        wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "url": "http://example.com/hook"},
+            client,
+        )
+        client.put.assert_called_once()
+
+    def test_https_url_succeeds(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+        wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "url": "https://example.com/hook"},
+            client,
+        )
+        client.put.assert_called_once()
+
+    def test_uppercase_https_url_succeeds(self):
+        # RFC 3986 §3.1 — scheme is case-insensitive.
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+        wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "url": "HTTPS://example.com/hook"},
+            client,
+        )
+        client.put.assert_called_once()
+
+    def test_mixedcase_https_url_succeeds(self):
+        # RFC 3986 §3.1 — scheme is case-insensitive.
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+        wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "url": "HtTpS://example.com/hook"},
+            client,
+        )
+        client.put.assert_called_once()
+
+    def test_url_none_no_error(self):
+        # None means url not being updated — skip validation.
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+        wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "enabled": True, "url": None},
+            client,
+        )
+        client.put.assert_called_once()
+
+    def test_url_omitted_no_error(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+        wt.call_tool(
+            "webhook_update",
+            {"webhook_id": 7, "enabled": False},
+            client,
+        )
+        client.put.assert_called_once()
+
+
+class TestWebhookIdValidation(unittest.TestCase):
+    """webhook_id path-param int/bool reject in update + delete (consistency with other modules)."""
+
+    def test_webhook_update_rejects_bool_webhook_id(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_update",
+            {"webhook_id": True, "enabled": False},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+        self.assertIn("bool", result.content[0].text)
+        self.assertIn("integer", result.content[0].text)
+
+    def test_webhook_delete_rejects_bool_webhook_id(self):
+        client = MagicMock()
+        result = wt.call_tool(
+            "webhook_delete",
+            {"webhook_id": True, "force": True},
+            client,
+        )
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+        self.assertIn("bool", result.content[0].text)
+
+
 class TestServerToolRegistry(unittest.TestCase):
     def test_webhooks_in_tool_groups(self):
         from voog.mcp import server

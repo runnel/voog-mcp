@@ -99,6 +99,130 @@ class TestGetTools(unittest.TestCase):
         self.assertIs(_ann_get(ann, "idempotentHint", "idempotent_hint"), False)
 
 
+class TestPagesMutateBoolReject(unittest.TestCase):
+    """T4b: require_int guards — bools must not reach Voog as ids."""
+
+    def test_page_set_hidden_ids_element_bool_rejected(self):
+        client = MagicMock()
+        result = pages_mutate_tools.call_tool(
+            "page_set_hidden",
+            {"ids": [True], "hidden": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_page_set_layout_page_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_mutate_tools.call_tool(
+            "page_set_layout",
+            {"page_id": False, "layout_id": 1},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_page_set_layout_layout_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_mutate_tools.call_tool(
+            "page_set_layout",
+            {"page_id": 1, "layout_id": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_page_delete_page_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_mutate_tools.call_tool(
+            "page_delete",
+            {"page_id": True, "force": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
+
+    def test_page_create_language_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_mutate_tools.call_tool(
+            "page_create",
+            {"title": "X", "slug": "x", "language_id": False},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.post.assert_not_called()
+
+    def test_page_create_parent_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_mutate_tools.call_tool(
+            "page_create",
+            {"title": "X", "slug": "x", "language_id": 1, "parent_id": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.post.assert_not_called()
+
+    def test_page_create_node_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_mutate_tools.call_tool(
+            "page_create",
+            {"title": "X", "slug": "x", "language_id": 1, "node_id": False},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.post.assert_not_called()
+
+    def test_page_update_page_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_mutate_tools.call_tool(
+            "page_update",
+            {"page_id": True, "title": "X"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_page_update_layout_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_mutate_tools.call_tool(
+            "page_update",
+            {"page_id": 5, "layout_id": False},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_page_set_data_page_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_mutate_tools.call_tool(
+            "page_set_data",
+            {"page_id": True, "key": "foo", "value": "bar"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_page_delete_data_page_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_mutate_tools.call_tool(
+            "page_delete_data",
+            {"page_id": False, "key": "foo", "force": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
+
+    def test_page_duplicate_page_id_bool_rejected(self):
+        client = MagicMock()
+        result = pages_mutate_tools.call_tool(
+            "page_duplicate",
+            {"page_id": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.post.assert_not_called()
+
+
 class TestPageSetHidden(unittest.TestCase):
     def test_single_page_success(self):
         client = MagicMock()

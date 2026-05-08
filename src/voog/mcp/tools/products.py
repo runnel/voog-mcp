@@ -33,7 +33,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._payloads import build_product_payload
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site, validate_translations_shape
+from voog.mcp.tools._helpers import require_int, strip_site, validate_translations_shape
 from voog.projections import (
     PRODUCTS_DETAIL_INCLUDE,
     PRODUCTS_LIST_INCLUDE,
@@ -310,6 +310,9 @@ def _products_list(arguments: dict, client: VoogClient) -> list[TextContent] | C
 
 def _product_get(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     product_id = arguments.get("product_id")
+    err = require_int("product_id", product_id, tool_name="product_get")
+    if err:
+        return error_response(err)
     try:
         product = client.get(
             f"/products/{product_id}",
@@ -323,6 +326,9 @@ def _product_get(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
 
 def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     product_id = arguments.get("product_id")
+    err = require_int("product_id", product_id, tool_name="product_update")
+    if err:
+        return error_response(err)
     attributes = arguments.get("attributes") or {}
     translations = arguments.get("translations") or {}
     legacy_fields = arguments.get("fields") or {}
@@ -340,6 +346,12 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
             return error_response(
                 f"product_update: attribute {key!r} not supported. Allowed: {sorted(ATTR_KEYS)}"
             )
+    # stock is always a whole-unit integer — reject bools explicitly.
+    if "stock" in attributes and isinstance(attributes["stock"], bool):
+        return error_response(
+            f"product_update: stock must be an integer"
+            f" (got {type(attributes['stock']).__name__}: {attributes['stock']!r})"
+        )
     if "status" in attributes and attributes["status"] not in VALID_STATUS:
         return error_response(
             f"product_update: status must be one of "
@@ -420,10 +432,13 @@ def _product_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
                 f"product_update: asset_ids must be a list of integers "
                 f"(got {type(asset_ids).__name__})"
             )
-        try:
-            product_body["assets"] = [{"id": int(n)} for n in asset_ids]
-        except (TypeError, ValueError) as e:
-            return error_response(f"product_update: asset_ids items must be integers ({e})")
+        assets = []
+        for i, n in enumerate(asset_ids):
+            err = require_int(f"asset_ids[{i}]", n, tool_name="product_update")
+            if err:
+                return error_response(err)
+            assets.append({"id": n})
+        product_body["assets"] = assets
 
     if merged_translations:
         product_body["translations"] = merged_translations
@@ -465,6 +480,12 @@ def _product_create(arguments: dict, client: VoogClient) -> list[TextContent] | 
             return error_response(
                 f"product_create: attribute {key!r} not supported. Allowed: {sorted(CREATE_ATTR_KEYS)}"
             )
+    # stock is always a whole-unit integer — reject bools explicitly.
+    if "stock" in attributes and isinstance(attributes["stock"], bool):
+        return error_response(
+            f"product_create: stock must be an integer"
+            f" (got {type(attributes['stock']).__name__}: {attributes['stock']!r})"
+        )
     if "status" in attributes and attributes["status"] not in VALID_STATUS:
         return error_response(
             f"product_create: status must be one of "
@@ -552,10 +573,13 @@ def _product_create(arguments: dict, client: VoogClient) -> list[TextContent] | 
                 f"product_create: asset_ids must be a list of integers "
                 f"(got {type(product_body['asset_ids']).__name__})"
             )
-        try:
-            product_body["asset_ids"] = [int(n) for n in product_body["asset_ids"]]
-        except (TypeError, ValueError) as e:
-            return error_response(f"product_create: asset_ids items must be integers ({e})")
+        validated_ids = []
+        for i, n in enumerate(product_body["asset_ids"]):
+            err = require_int(f"asset_ids[{i}]", n, tool_name="product_create")
+            if err:
+                return error_response(err)
+            validated_ids.append(n)
+        product_body["asset_ids"] = validated_ids
 
     if merged_translations:
         product_body["translations"] = merged_translations

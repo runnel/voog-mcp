@@ -350,6 +350,52 @@ class TestRedirectUpdate(unittest.TestCase):
         self.assertIs(sent_body["redirect_rule"]["regexp"], True)
 
 
+class TestRedirectsBoolReject(unittest.TestCase):
+    """T4b: require_int guards — bools must not reach Voog as ids."""
+
+    def test_redirect_update_redirect_id_bool_rejected(self):
+        client = MagicMock()
+        result = redirects_tools.call_tool(
+            "redirect_update",
+            {"redirect_id": True, "destination": "/new"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
+        client.put.assert_not_called()
+
+    def test_redirect_delete_redirect_id_bool_rejected(self):
+        client = MagicMock()
+        result = redirects_tools.call_tool(
+            "redirect_delete",
+            {"redirect_id": False, "force": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
+
+    def test_redirect_add_redirect_type_bool_rejected(self):
+        client = MagicMock()
+        result = redirects_tools.call_tool(
+            "redirect_add",
+            {"source": "/a", "destination": "/b", "redirect_type": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.post.assert_not_called()
+
+    def test_redirect_update_redirect_type_bool_rejected(self):
+        client = MagicMock()
+        result = redirects_tools.call_tool(
+            "redirect_update",
+            {"redirect_id": 9, "redirect_type": False},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
+        client.put.assert_not_called()
+
+
 class TestRedirectDelete(unittest.TestCase):
     def test_requires_force(self):
         from voog.mcp.tools import redirects as redirects_tools

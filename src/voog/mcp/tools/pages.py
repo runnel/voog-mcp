@@ -4,7 +4,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import build_list_params, require_int, strip_site
 from voog.projections import simplify_pages
 
 # q.* filters (object.attribute on the resource).
@@ -18,22 +18,6 @@ _PAGES_Q_FILTERS = {
 # q.* filters (multi-field search, prefix matching, parent traversal).
 # See https://www.voog.com/developers/api/resources/pages.
 _PAGES_PLAIN_PARAMS = ("path_prefix", "search", "parent_id", "language_id")
-
-
-def _build_pages_list_params(arguments: dict) -> dict | None:
-    """Translate tool args to Voog query params. Returns None when no
-    filters are set, so the caller falls through to the unparameterised
-    `client.get_all("/pages")` shape."""
-    params: dict = {}
-    for arg_key, voog_key in _PAGES_Q_FILTERS.items():
-        if arg_key in arguments:
-            params[voog_key] = arguments[arg_key]
-    for arg_key in _PAGES_PLAIN_PARAMS:
-        if arg_key in arguments:
-            params[arg_key] = arguments[arg_key]
-    if "sort" in arguments:
-        params["s"] = arguments["sort"]
-    return params or None
 
 
 def get_tools() -> list[Tool]:
@@ -133,7 +117,18 @@ def call_tool(
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
     if name == "pages_list":
-        params = _build_pages_list_params(arguments)
+        for int_field in ("node_id", "parent_id", "language_id"):
+            val = arguments.get(int_field)
+            if val is not None:
+                err = require_int(int_field, val, tool_name="pages_list")
+                if err:
+                    return error_response(err)
+        params = build_list_params(
+            arguments,
+            plain=_PAGES_PLAIN_PARAMS,
+            q_map=_PAGES_Q_FILTERS,
+            sort_target="s",
+        )
         try:
             if params:
                 pages = client.get_all("/pages", params=params)
@@ -146,6 +141,9 @@ def call_tool(
 
     if name == "page_get":
         page_id = arguments.get("page_id")
+        err = require_int("page_id", page_id, tool_name="page_get")
+        if err:
+            return error_response(err)
         params: dict = {}
         if arguments.get("include_seo"):
             params["include_seo"] = "true"

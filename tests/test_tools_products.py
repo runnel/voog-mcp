@@ -75,6 +75,87 @@ class TestGetTools(unittest.TestCase):
         self.assertIs(_ann_get(ann, "idempotentHint", "idempotent_hint"), True)
 
 
+class TestProductGetBoolReject(unittest.TestCase):
+    def test_product_id_bool_rejected(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = products_tools.call_tool("product_get", {"product_id": True}, client)
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
+
+
+class TestProductUpdateBoolReject(unittest.TestCase):
+    def test_product_id_bool_rejected(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = products_tools.call_tool(
+            "product_update",
+            {"product_id": False, "attributes": {"status": "live"}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_asset_ids_element_bool_rejected(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "attributes": {"asset_ids": [True, 2]}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("asset_ids[0]", payload["error"])
+        client.put.assert_not_called()
+
+    def test_stock_bool_rejected(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        result = products_tools.call_tool(
+            "product_update",
+            {"product_id": 42, "attributes": {"stock": True}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("stock", payload["error"])
+        client.put.assert_not_called()
+
+
+class TestProductCreateBoolReject(unittest.TestCase):
+    def test_asset_ids_element_bool_rejected(self):
+        client = MagicMock()
+        result = products_tools.call_tool(
+            "product_create",
+            {
+                "attributes": {
+                    "name": "Cap",
+                    "slug": "cap",
+                    "price": 21,
+                    "asset_ids": [True, 102],
+                }
+            },
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("asset_ids[0]", payload["error"])
+        client.post.assert_not_called()
+
+    def test_stock_bool_rejected(self):
+        client = MagicMock()
+        result = products_tools.call_tool(
+            "product_create",
+            {"attributes": {"name": "X", "slug": "x", "price": 10, "stock": False}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("stock", payload["error"])
+        client.post.assert_not_called()
+
+
 class TestProductsList(unittest.TestCase):
     def test_products_list_uses_ecommerce_base_with_translations(self):
         client = MagicMock()

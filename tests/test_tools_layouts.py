@@ -91,6 +91,71 @@ class TestGetTools(unittest.TestCase):
         self.assertIs(_ann_get(ann, "idempotentHint", "idempotent_hint"), False)
 
 
+class TestLayoutsBoolReject(unittest.TestCase):
+    """T4b: require_int guards — bools must not reach Voog as ids."""
+
+    def test_layout_rename_layout_id_bool_rejected(self):
+        client = MagicMock()
+        result = layouts_tools.call_tool(
+            "layout_rename",
+            {"layout_id": True, "new_title": "OK"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_asset_replace_asset_id_bool_rejected(self):
+        client = MagicMock()
+        result = layouts_tools.call_tool(
+            "asset_replace",
+            {"asset_id": False, "new_filename": "ok.css"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
+        client.post.assert_not_called()
+
+    def test_layout_update_layout_id_bool_rejected(self):
+        client = MagicMock()
+        result = layouts_tools.call_tool(
+            "layout_update",
+            {"layout_id": True, "body": "x"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_layout_delete_layout_id_bool_rejected(self):
+        client = MagicMock()
+        result = layouts_tools.call_tool(
+            "layout_delete",
+            {"layout_id": False, "force": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
+
+    def test_layout_asset_update_asset_id_bool_rejected(self):
+        client = MagicMock()
+        result = layouts_tools.call_tool(
+            "layout_asset_update",
+            {"asset_id": True, "data": "body{}"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_layout_asset_delete_asset_id_bool_rejected(self):
+        client = MagicMock()
+        result = layouts_tools.call_tool(
+            "layout_asset_delete",
+            {"asset_id": False, "force": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
+
+
 class TestLayoutRename(unittest.TestCase):
     def test_success_calls_put(self):
         client = MagicMock()

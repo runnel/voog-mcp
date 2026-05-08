@@ -40,6 +40,20 @@ class TestGetTools(unittest.TestCase):
         self.assertIs(ann.idempotentHint, False)
 
 
+class TestArticlesListBoolReject(unittest.TestCase):
+    def test_page_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool("articles_list", {"page_id": True}, client)
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()
+
+    def test_language_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool("articles_list", {"language_id": False}, client)
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()
+
+
 class TestArticlesList(unittest.TestCase):
     def test_list_returns_simplified(self):
         client = MagicMock()
@@ -121,6 +135,14 @@ class TestArticlesList(unittest.TestCase):
                 "s": "article.created_at.$desc",
             },
         )
+
+
+class TestArticleGetBoolReject(unittest.TestCase):
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool("article_get", {"article_id": True}, client)
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
 
 
 class TestArticleGet(unittest.TestCase):
@@ -223,6 +245,17 @@ class TestArticleCreate(unittest.TestCase):
         self.assertNotIn("data", body)
         self.assertNotIn("publishing", body)
 
+    def test_page_id_bool_rejected(self):
+        # bool is int subclass — True/False must not slip through as 1/0
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_create",
+            {"page_id": True, "title": "T"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.post.assert_not_called()
+
 
 class TestArticleUpdate(unittest.TestCase):
     def test_update_uses_autosaved_fields(self):
@@ -275,6 +308,14 @@ class TestArticleUpdate(unittest.TestCase):
     def test_update_rejects_empty(self):
         client = MagicMock()
         result = articles_tools.call_tool("article_update", {"article_id": 99}, client)
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_update", {"article_id": True, "title": "X"}, client
+        )
         self.assertTrue(result.isError)
         client.put.assert_not_called()
 
@@ -381,6 +422,117 @@ class TestArticlePublish(unittest.TestCase):
         client.get.assert_not_called()
         client.put.assert_not_called()
 
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool("article_publish", {"article_id": False}, client)
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
+        client.put.assert_not_called()
+
+
+class TestArticlePublishBodyShapeMatchesPayload(unittest.TestCase):
+    """Regression guard: _article_publish's inline body must use the same
+    autosaved_* key names that build_article_payload produces.
+
+    If build_article_payload ever renames autosaved_body → autosaved_content
+    (or any other key), this test will fail until _article_publish is updated
+    in lockstep — preventing silent field-shape drift between the two paths.
+    """
+
+    def test_publish_body_uses_same_autosaved_keys_as_build_article_payload(self):
+        from voog._payloads import build_article_payload
+
+        client = MagicMock()
+        client.put.return_value = {"id": 7}
+
+        articles_tools.call_tool(
+            "article_publish",
+            {
+                "article_id": 7,
+                "autosaved_title": "Hello",
+                "autosaved_body": "<p>world</p>",
+                "autosaved_excerpt": "summary",
+            },
+            client,
+        )
+
+        # _article_publish should have used the fast path (no GET).
+        client.get.assert_not_called()
+        sent_body = client.put.call_args[0][1]
+
+        # Derive the expected autosaved_* key names from build_article_payload.
+        # We pass the logical (non-autosaved) keys so the helper maps them to
+        # the autosaved_* names it owns.  The *names* of those keys are what
+        # we pin here — not the specific content values.
+        expected_payload = build_article_payload(
+            {"title": "Hello", "body": "<p>world</p>", "excerpt": "summary"},
+        )
+
+        # Every autosaved_* key that build_article_payload produces must appear
+        # in the PUT body that _article_publish sends, with the matching value.
+        for key, value in expected_payload.items():
+            if key.startswith("autosaved_"):
+                self.assertIn(
+                    key,
+                    sent_body,
+                    f"_article_publish PUT body is missing autosaved key '{key}' "
+                    f"that build_article_payload produces — the two have drifted.",
+                )
+                self.assertEqual(
+                    sent_body[key],
+                    value,
+                    f"_article_publish sent {key}={sent_body[key]!r} but "
+                    f"build_article_payload maps it to {value!r}.",
+                )
+
+    def test_publish_only_body_contains_publishing_true_and_nothing_else(self):
+        # Bonus: when no autosaved_* args are supplied, the publish-only path
+        # (GET+PUT) must still send publishing:True.  When all three GET values
+        # are present, the body is exactly {publishing, autosaved_*×3}.
+        client = MagicMock()
+        client.get.return_value = {
+            "id": 7,
+            "autosaved_title": None,
+            "autosaved_body": None,
+            "autosaved_excerpt": None,
+            # Simulate an article whose autosaved_* are all null — should error.
+        }
+        client.put.return_value = {"id": 7}
+
+        result = articles_tools.call_tool(
+            "article_publish",
+            {"article_id": 7},
+            client,
+        )
+        # All-null autosaved_* → error, PUT never called.
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
+    def test_no_content_args_publish_only_sends_publishing_true(self):
+        # When article has autosaved values and caller passes no overrides,
+        # the PUT body must include publishing:True alongside the fetched
+        # autosaved_* values — not just publishing:True alone.
+        client = MagicMock()
+        client.get.return_value = {
+            "id": 7,
+            "autosaved_title": "T",
+            "autosaved_body": "B",
+            "autosaved_excerpt": "E",
+        }
+        client.put.return_value = {"id": 7}
+
+        articles_tools.call_tool(
+            "article_publish",
+            {"article_id": 7},
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertIs(sent_body["publishing"], True)
+        # The three autosaved values fetched from GET must appear in the PUT.
+        self.assertEqual(sent_body["autosaved_title"], "T")
+        self.assertEqual(sent_body["autosaved_body"], "B")
+        self.assertEqual(sent_body["autosaved_excerpt"], "E")
+
 
 class TestArticleDelete(unittest.TestCase):
     def test_requires_force(self):
@@ -397,6 +549,14 @@ class TestArticleDelete(unittest.TestCase):
             client,
         )
         client.delete.assert_called_once_with("/articles/99")
+
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_delete", {"article_id": True, "force": True}, client
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
 
 
 class TestArticlesListSchema(unittest.TestCase):
@@ -479,6 +639,16 @@ class TestArticleSetData(unittest.TestCase):
         names = {t.name for t in articles_tools.get_tools()}
         self.assertIn("article_set_data", names)
 
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_set_data",
+            {"article_id": True, "key": "color", "value": "red"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.put.assert_not_called()
+
 
 class TestArticleDeleteData(unittest.TestCase):
     def test_delete_data_requires_force(self):
@@ -514,6 +684,16 @@ class TestArticleDeleteData(unittest.TestCase):
     def test_delete_data_in_get_tools(self):
         names = {t.name for t in articles_tools.get_tools()}
         self.assertIn("article_delete_data", names)
+
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "article_delete_data",
+            {"article_id": False, "key": "color", "force": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.delete.assert_not_called()
 
     def test_delete_data_destructive_annotation(self):
         tools = {t.name: t for t in articles_tools.get_tools()}

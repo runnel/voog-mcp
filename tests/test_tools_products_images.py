@@ -141,6 +141,20 @@ class TestValidation(unittest.TestCase):
             self.assertIn("error", payload)
             self.assertIn(".txt", payload["error"])
 
+    def test_product_id_bool_rejected(self):
+        # bool is int subclass — True/False must not slip through
+        client = _make_client()
+        result = products_images_tools.call_tool(
+            "product_set_images",
+            {"product_id": True, "files": ["/tmp/x.jpg"]},
+            client,
+        )
+        client.post.assert_not_called()
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("product_id", payload["error"])
+
     def test_pdf_extension_rejected(self):
         client = _make_client()
         with tempfile.TemporaryDirectory() as tmp:

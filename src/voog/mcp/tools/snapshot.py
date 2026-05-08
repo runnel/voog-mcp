@@ -97,7 +97,7 @@ def get_tools() -> list[Tool]:
                 "translations + variant_types), per-page contents, per-article "
                 "details, per-product details, and rendered HTML samples for "
                 "VoogStyle capture. By default REFUSES to overwrite an existing "
-                "directory — pick a fresh location. Pass force=true to write "
+                "directory — pick a fresh location. Pass overwrite=true to write "
                 "into an existing directory (automation/cron use case); files "
                 "from a prior snapshot may persist alongside new files if the "
                 "underlying Voog state has shrunk. REQUIRED pre-flight before "
@@ -110,18 +110,21 @@ def get_tools() -> list[Tool]:
                     "site": {"type": "string", "description": "Site name from voog_list_sites"},
                     "output_dir": {
                         "type": "string",
-                        "description": "Absolute path. Fresh (non-existing) by default; pass force=true to allow existing.",
+                        "description": "Absolute path. Fresh (non-existing) by default; pass overwrite=true to allow existing.",
                     },
-                    "force": {
+                    "overwrite": {
                         "type": "boolean",
                         "description": (
-                            "Allow writing into an existing output_dir "
-                            "(automation/cron). Defaults to false (defensive)."
+                            "Allow writing into an existing snapshot directory. "
+                            "Default false; set true to overwrite a prior snapshot's output. "
+                            "(Distinct from the force flag on delete tools, which authorizes "
+                            "destruction. Here it only authorizes writing into an existing dir.)"
                         ),
                         "default": False,
                     },
                 },
                 "required": ["site", "output_dir"],
+                "additionalProperties": False,
             },
             annotations={
                 "readOnlyHint": False,
@@ -207,22 +210,35 @@ def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | 
 
 
 def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    # Defensive: catch v1.2.x callers whose MCP client doesn't enforce
+    # ``additionalProperties: false``. Schema-level rejection alone isn't
+    # enough — some MCP clients silently drop unknown args. Without this
+    # check, ``force=true`` from a legacy caller would be ignored, the
+    # missing ``overwrite`` would default to false, and the snapshot would
+    # refuse to overwrite the dir — leaving the caller wondering why their
+    # ``force=true`` did nothing. Loud explicit error wins.
+    if "force" in arguments:
+        return error_response(
+            "site_snapshot: 'force' was renamed to 'overwrite' in v1.3. "
+            "Pass overwrite=true instead. See CHANGELOG."
+        )
+
     output_dir = arguments.get("output_dir") or ""
     err = validate_output_dir(output_dir, tool_name="site_snapshot", param_name="output_dir")
     if err:
         return error_response(err)
 
     out = Path(output_dir)
-    force = bool(arguments.get("force"))
-    if out.exists() and not force:
+    overwrite = bool(arguments.get("overwrite"))
+    if out.exists() and not overwrite:
         return error_response(
             f"site_snapshot: output_dir {output_dir!r} already exists. "
-            "Pick a fresh location, or pass force=true to write into it "
+            "Pick a fresh location, or pass overwrite=true to write into it "
             "(automation/cron use case)."
         )
 
     try:
-        out.mkdir(parents=True, exist_ok=force)
+        out.mkdir(parents=True, exist_ok=overwrite)
     except Exception as e:
         return error_response(f"site_snapshot: cannot create {output_dir!r}: {e}")
 

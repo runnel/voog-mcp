@@ -9,7 +9,7 @@ update this doc when a tool is added or a new endpoint quirk is discovered.
 - **Admin API** — `https://{host}/admin/api/*`
 - **Ecommerce v1 API** — `https://{host}/admin/api/ecommerce/v1/*`
 - Auth: `X-API-Token: <token>` header (already handled by `VoogClient`)
-- Pagination default: 50 / max 250; `voog.client.VoogClient.get_all` defaults to 100 per page
+- Pagination default: 50 / max 250; `voog.client.VoogClient.get_all` defaults to 200 per page (v1.3; was 100)
 - Filter syntax: `q.<obj>.<attr>.<comp>=value` (`$eq`, `$cont`, `$gt`, …)
 - Response shaping: `include=foo,bar`, `language_code=<iso>`
 
@@ -24,13 +24,17 @@ update this doc when a tool is added or a new endpoint quirk is discovered.
 | Layout assets | (resource only) | `layout_asset_create`, `layout_asset_update`, `layout_asset_delete` | PUT `data` only — `filename` is read-only (use `asset_replace`). |
 | Texts | `text_get` | `text_update`, `page_add_content` | Page content bodies live here. Fresh pages return `[]` from `/contents` until edit-mode trigger. |
 | Redirects | `redirects_list` | `redirect_add`, `redirect_update`, `redirect_delete` | redirect_type ∈ {301, 302, 307, 410}. |
-| Languages | `languages_list` | (none) | Read-only here — language_id resolution helper for page_create. |
-| Nodes | `nodes_list`, `node_get` | (none) | Helper for parallel translations: `POST /pages` with `node_id` of existing page. |
+| Languages | `languages_list` | `language_create`, `language_delete` | `language_delete` requires `force=true`. `language_move` / `language_enable_autodetect` deferred — niche; use passthrough. |
+| Nodes | `nodes_list`, `node_get` | `node_update`, `node_move`, `node_relocate` | `node_move` uses `?parent_id=N&position=M` query params (not body). `node_relocate` accepts one of `before`/`after`/`parent_node_id`. `node_create`/`node_delete` deferred — not documented by Voog. |
 | Site | `site_get` | `site_update`, `site_set_data`, `site_delete_data` | `site.code` immutable once set. `data.internal_*` keys read-only. `site_delete_data` requires `force=true`. |
-| Snapshot | `pages_snapshot`, `site_snapshot` | (none) | Read-only bulk dumps. `pages_snapshot` walks all pages + per-page contents; `site_snapshot` adds articles + products + redirects + layouts. Both fetch in parallel (`max_workers=8`). |
-| Products | `products_list`, `product_get` | `product_update` (full fields), `product_set_images` | `description`, `status`, `price`, `sale_price`, `sku`, `stock`, `category_ids`, `physical_properties`, `variant_types`, `translations.*` all supported. PUT envelope is `{"product": {...}}`. |
+| Snapshot | `pages_snapshot`, `site_snapshot` | (none) | Read-only bulk dumps. `pages_snapshot` walks all pages + per-page contents; `site_snapshot` adds articles + products + redirects + layouts. Both fetch in parallel (`max_workers=8`). `site_snapshot` accepts optional `overwrite=true` for automation/cron use (v1.3); default false preserves v1.2.x "refuse existing directory" contract. |
+| Products | `products_list`, `product_get` | `product_create`, `product_update` (full fields), `product_set_images` | `product_create` requires `name`, `slug`, `price`. PUT/POST envelope is built by `_payloads.build_product_payload` — callers pass flat attributes, the helper wraps `{"product": {...}}`. `product_create` uses `asset_ids` (POST shape, list of int); `product_set_images` uses flat (no envelope). |
 | Ecommerce settings | `ecommerce_settings_get` | `ecommerce_settings_update` | Per-language `products_url_slug` lives in `translations`. |
-| **Everything else** | `voog_admin_api_call(method, path, ...)` | `voog_ecommerce_api_call(method, path, ...)` | Generic passthrough — same auth, same timeout, no envelope assumed. Use for orders, carts, discounts, gateways, shipping_methods, forms, tickets, tags, elements, element_definitions, media_sets, webhooks, content_partials, templates, bulk update, imports, search. |
+| Elements | `elements_list`, `element_get`, `element_definitions_list` | `element_create`, `element_update`, `element_delete` | Bodies are FLAT (no envelope wrapper) per Voog docs. `element_create` accepts `element_definition_id` (preferred) or `element_definition_title`. `element_update` is partial (sends only supplied fields among `title`/`path`/`values`). `element_delete` requires `force=true`. `element_definitions_list` returns sorted property keys so callers see what fields each definition expects. Element reposition (`PUT /elements/{id}/move`) and element_definition mutations deferred — use passthrough. |
+| Webhooks | `webhooks_list` | `webhook_create`, `webhook_update`, `webhook_delete` | Flat bodies per Voog docs. `webhook_update` is partial. `webhook_delete` requires `force=true`. Voog target+event matrix (`ticket`/`form`/`order` × respective events) not enum-enforced — Voog rejects invalid combos with 422. |
+| Content partials | (none — use `layouts_pull` to read) | `content_partial_update` | PUT to `/content_partials/{id}`. Flat body (`body` and/or `metainfo`). Requires at least one field. Avoids `layouts_pull`/`layouts_push` filesystem detour for targeted fragment edits. |
+| Articles (data) | (via `article_get`) | `article_set_data`, `article_delete_data` | Symmetric with `page_set_data`/`page_delete_data`. Same `_validate_data_key` helper (rejects empty/whitespace, `internal_*` prefix, traversal chars). `article_delete_data` requires `force=true`. |
+| **Everything else** | `voog_admin_api_call(method, path, ...)` | `voog_ecommerce_api_call(method, path, ...)` | Generic passthrough — same auth, same timeout, no envelope assumed. Use for orders, carts, discounts, gateways, shipping_methods, forms, tickets, tags, media_sets, templates, bulk update, imports, search. |
 
 ## Envelope conventions
 
@@ -45,7 +49,7 @@ module centralises these so CLI and MCP cannot drift.
 | `POST/PUT /layout_assets` | flat | `{"filename": "...", "asset_type": "...", "data": "..."}` |
 | `PUT /texts/{id}` | flat | `{"body": "<html>..."}` |
 | `POST /redirect_rules` | `{"redirect_rule": {...}}` | (already in `voog._payloads`) |
-| `PUT /products/{id}` | `{"product": {...}}` | translations / fields nested |
+| `POST /products`, `PUT /products/{id}` | `{"product": {...}}` | Built by `_payloads.build_product_payload`; translations / fields nested inside. |
 | `PUT /products/{id}` for image_id+asset_ids | **flat, NOT wrapped** | `{"image_id": ..., "asset_ids": [...]}` (empirically confirmed in `product_set_images`) |
 | `PUT /ecommerce/v1/settings` | `{"settings": {...}}` | per-lang `products_url_slug` under `translations` |
 | `PUT /site` | flat | `{"title": "..."}` |

@@ -23,7 +23,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import strip_site
+from voog.mcp.tools._helpers import build_list_params, require_force, require_int, strip_site
 from voog.projections import simplify_element_definitions, simplify_elements
 
 # elements_list filter args forwarded as Voog query-string params.
@@ -275,10 +275,13 @@ def get_tools() -> list[Tool]:
 
 
 def _elements_list(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
-    params: dict = {}
-    for key in _ELEMENTS_LIST_FILTERS:
-        if arguments.get(key) is not None:
-            params[key] = arguments[key]
+    for int_field in ("page_id", "language_id", "element_definition_id"):
+        val = arguments.get(int_field)
+        if val is not None:
+            err = require_int(int_field, val, tool_name="elements_list")
+            if err:
+                return error_response(err)
+    params = build_list_params(arguments, plain=_ELEMENTS_LIST_FILTERS)
     try:
         elements = client.get_all("/elements", params=params or None)
         # PR #116 review: thread include_values through to the projection
@@ -301,6 +304,9 @@ def _elements_list(arguments: dict, client: VoogClient) -> list[TextContent] | C
 
 def _element_get(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     element_id = arguments.get("element_id")
+    err = require_int("element_id", element_id, tool_name="element_get")
+    if err:
+        return error_response(err)
     try:
         element = client.get(f"/elements/{element_id}")
         return success_response(element)
@@ -335,8 +341,9 @@ _ELEMENT_CREATE_FIELDS = (
 def _element_create(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     page_id = arguments.get("page_id")
     title = arguments.get("title") or ""
-    if not isinstance(page_id, int) or isinstance(page_id, bool):
-        return error_response("element_create: page_id is required (integer)")
+    err = require_int("page_id", page_id, tool_name="element_create")
+    if err:
+        return error_response(err)
     if not title.strip():
         return error_response("element_create: title is required")
     if (
@@ -346,12 +353,11 @@ def _element_create(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response(
             "element_create: supply element_definition_id (preferred) or element_definition_title"
         )
-    # PR #116 review: bool-rejection for element_definition_id, mirroring
-    # the page_id pattern (Phase 6 review). bool is a Python int subclass,
-    # so True/False would slip through int-only checks.
     def_id = arguments.get("element_definition_id")
-    if def_id is not None and (not isinstance(def_id, int) or isinstance(def_id, bool)):
-        return error_response("element_create: element_definition_id must be an integer")
+    if def_id is not None:
+        err = require_int("element_definition_id", def_id, tool_name="element_create")
+        if err:
+            return error_response(err)
 
     body: dict = {}
     for key in _ELEMENT_CREATE_FIELDS:
@@ -377,6 +383,9 @@ _ELEMENT_UPDATE_FIELDS = ("title", "path", "values")
 
 def _element_update(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     element_id = arguments.get("element_id")
+    err = require_int("element_id", element_id, tool_name="element_update")
+    if err:
+        return error_response(err)
     body: dict = {}
     for key in _ELEMENT_UPDATE_FIELDS:
         if arguments.get(key) is not None:
@@ -398,11 +407,17 @@ def _element_update(arguments: dict, client: VoogClient) -> list[TextContent] | 
 
 def _element_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     element_id = arguments.get("element_id")
-    if not arguments.get("force"):
-        return error_response(
-            f"element_delete: refusing to delete element {element_id} without force=true. "
-            "Run elements_list first to confirm, then set force=true."
-        )
+    err = require_int("element_id", element_id, tool_name="element_delete")
+    if err:
+        return error_response(err)
+    err = require_force(
+        arguments,
+        tool_name="element_delete",
+        target_desc=f"element {element_id}",
+        hint="Run elements_list first to confirm.",
+    )
+    if err:
+        return error_response(err)
     try:
         client.delete(f"/elements/{element_id}")
         return success_response(

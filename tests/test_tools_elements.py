@@ -418,6 +418,214 @@ class TestElementDelete(unittest.TestCase):
         self.assertIs(ann.idempotentHint, False)
 
 
+class TestElementsListBoolReject(unittest.TestCase):
+    """T3: _elements_list must reject bool values for int filter args."""
+
+    def test_page_id_true_rejected(self):
+        client = MagicMock()
+        result = et.call_tool("elements_list", {"page_id": True}, client)
+        client.get_all.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_page_id_false_rejected(self):
+        client = MagicMock()
+        result = et.call_tool("elements_list", {"page_id": False}, client)
+        client.get_all.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_language_id_true_rejected(self):
+        client = MagicMock()
+        result = et.call_tool("elements_list", {"language_id": True}, client)
+        client.get_all.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_language_id_false_rejected(self):
+        client = MagicMock()
+        result = et.call_tool("elements_list", {"language_id": False}, client)
+        client.get_all.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_element_definition_id_true_rejected(self):
+        client = MagicMock()
+        result = et.call_tool("elements_list", {"element_definition_id": True}, client)
+        client.get_all.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_element_definition_id_false_rejected(self):
+        client = MagicMock()
+        result = et.call_tool("elements_list", {"element_definition_id": False}, client)
+        client.get_all.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_valid_int_still_works(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        et.call_tool(
+            "elements_list", {"page_id": 7, "language_id": 2, "element_definition_id": 3}, client
+        )
+        client.get_all.assert_called_once()
+        params = client.get_all.call_args.kwargs["params"]
+        self.assertEqual(params["page_id"], 7)
+        self.assertEqual(params["language_id"], 2)
+        self.assertEqual(params["element_definition_id"], 3)
+
+    def test_error_message_format(self):
+        client = MagicMock()
+        result = et.call_tool("elements_list", {"page_id": True}, client)
+        msg = result.content[0].text
+        self.assertIn("elements_list", msg)
+        self.assertIn("page_id", msg)
+        self.assertIn("bool", msg)
+
+
+class TestElementGetBoolReject(unittest.TestCase):
+    """T3: _element_get must reject bool element_id."""
+
+    def test_element_id_true_rejected(self):
+        client = MagicMock()
+        result = et.call_tool("element_get", {"element_id": True}, client)
+        client.get.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_element_id_false_rejected(self):
+        client = MagicMock()
+        result = et.call_tool("element_get", {"element_id": False}, client)
+        client.get.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_valid_int_still_works(self):
+        client = MagicMock()
+        client.get.return_value = {"id": 5, "title": "T"}
+        et.call_tool("element_get", {"element_id": 5}, client)
+        client.get.assert_called_once_with("/elements/5")
+
+    def test_error_message_format(self):
+        client = MagicMock()
+        result = et.call_tool("element_get", {"element_id": True}, client)
+        msg = result.content[0].text
+        self.assertIn("element_get", msg)
+        self.assertIn("element_id", msg)
+        self.assertIn("bool", msg)
+
+
+class TestElementUpdateBoolReject(unittest.TestCase):
+    """T3: _element_update must reject bool element_id."""
+
+    def test_element_id_true_rejected(self):
+        client = MagicMock()
+        result = et.call_tool("element_update", {"element_id": True, "title": "X"}, client)
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_element_id_false_rejected(self):
+        client = MagicMock()
+        result = et.call_tool("element_update", {"element_id": False, "title": "X"}, client)
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_valid_int_still_works(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        et.call_tool("element_update", {"element_id": 5, "title": "Updated"}, client)
+        client.put.assert_called_once_with("/elements/5", {"title": "Updated"})
+
+    def test_error_message_format(self):
+        client = MagicMock()
+        result = et.call_tool("element_update", {"element_id": True, "title": "X"}, client)
+        msg = result.content[0].text
+        self.assertIn("element_update", msg)
+        self.assertIn("element_id", msg)
+        self.assertIn("bool", msg)
+
+
+class TestElementDeleteBoolReject(unittest.TestCase):
+    """T3: _element_delete must reject bool element_id."""
+
+    def test_element_id_true_rejected(self):
+        client = MagicMock()
+        result = et.call_tool("element_delete", {"element_id": True, "force": True}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_element_id_false_rejected(self):
+        client = MagicMock()
+        result = et.call_tool("element_delete", {"element_id": False, "force": True}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_valid_int_still_works(self):
+        client = MagicMock()
+        client.delete.return_value = None
+        et.call_tool("element_delete", {"element_id": 5, "force": True}, client)
+        client.delete.assert_called_once_with("/elements/5")
+
+    def test_error_message_format(self):
+        client = MagicMock()
+        result = et.call_tool("element_delete", {"element_id": True, "force": True}, client)
+        msg = result.content[0].text
+        self.assertIn("element_delete", msg)
+        self.assertIn("element_id", msg)
+        self.assertIn("bool", msg)
+
+
+class TestElementCreateMigratedChecks(unittest.TestCase):
+    """T3: migrated inline checks in _element_create now use require_int."""
+
+    def test_page_id_bool_true_rejected(self):
+        client = MagicMock()
+        result = et.call_tool(
+            "element_create",
+            {"element_definition_id": 3, "page_id": True, "title": "X"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_page_id_bool_false_rejected(self):
+        client = MagicMock()
+        result = et.call_tool(
+            "element_create",
+            {"element_definition_id": 3, "page_id": False, "title": "X"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_page_id_error_message_format(self):
+        client = MagicMock()
+        result = et.call_tool(
+            "element_create",
+            {"element_definition_id": 3, "page_id": True, "title": "X"},
+            client,
+        )
+        msg = result.content[0].text
+        self.assertIn("element_create", msg)
+        self.assertIn("page_id", msg)
+        self.assertIn("bool", msg)
+
+    def test_element_definition_id_bool_true_rejected(self):
+        client = MagicMock()
+        result = et.call_tool(
+            "element_create",
+            {"element_definition_id": True, "page_id": 7, "title": "X"},
+            client,
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_element_definition_id_error_message_format(self):
+        client = MagicMock()
+        result = et.call_tool(
+            "element_create",
+            {"element_definition_id": True, "page_id": 7, "title": "X"},
+            client,
+        )
+        msg = result.content[0].text
+        self.assertIn("element_create", msg)
+        self.assertIn("element_definition_id", msg)
+        self.assertIn("bool", msg)
+
+
 class TestServerToolRegistry(unittest.TestCase):
     def test_elements_in_tool_groups(self):
         from voog.mcp import server
