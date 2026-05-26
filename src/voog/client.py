@@ -8,9 +8,10 @@ from __future__ import annotations
 import json
 import logging
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
+
+import httpx
+
+import voog
 
 logger = logging.getLogger("voog.client")
 
@@ -50,7 +51,14 @@ def _parse_retry_after(header_value: str, fallback: float) -> float:
 
 
 class VoogClient:
-    """HTTP client for Voog Admin API and Ecommerce v1 API."""
+    """HTTP client for Voog Admin API and Ecommerce v1 API.
+
+    v1.4 — transport swapped from ``urllib.request`` to ``httpx.Client``.
+    Public surface is unchanged. ``self._http_client`` is the underlying
+    pool; one instance is constructed per ``VoogClient`` and reused for
+    every request (HTTP/2 keepalive, connection pool — primary win for
+    high-fanout snapshots).
+    """
 
     def __init__(self, host: str, api_token: str, *, timeout: int = 60, max_retries: int = 2):
         self.host = host
@@ -65,8 +73,17 @@ class VoogClient:
             "X-API-Token": api_token,
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "voog-mcp/1.3",
+            # N1: single source of truth — voog.__version__ in voog/__init__.py.
+            # Phase 5 S9 (per-tool UA suffix) and the v1.4 release tag both
+            # rely on this string flowing from one place.
+            "User-Agent": f"voog-mcp/{voog.__version__}",
         }
+        # httpx.Client owns the connection pool. http2=True opportunistically
+        # negotiates HTTP/2 with Voog/Cloudflare; falls back to HTTP/1.1 if
+        # the server doesn't advertise h2 in ALPN. Headers are attached to
+        # the client so every request inherits them (avoids passing on
+        # every call).
+        self._http_client = httpx.Client(http2=True, headers=self.headers)
 
     def _request(
         self,
@@ -80,10 +97,12 @@ class VoogClient:
         """Execute a single HTTP request, retrying on transient failures.
 
         Retries up to ``self.max_retries`` times on:
-          - ``urllib.error.HTTPError`` with status in ``_RETRYABLE_STATUS``
+          - ``httpx.HTTPStatusError`` with status in ``_RETRYABLE_STATUS``
             (429 rate limit + 5xx server errors)
-          - ``OSError`` (network connectivity — DNS, TCP reset, etc.) EXCEPT
-            ``socket.timeout`` / ``TimeoutError``, which propagate immediately
+          - ``httpx.NetworkError`` / ``httpx.ConnectError`` / similar
+            non-timeout transport errors EXCEPT ``httpx.TimeoutException``
+            (and its subclasses ReadTimeout/ConnectTimeout/etc.), which
+            propagate immediately re-raised as ``TimeoutError``.
 
         Does NOT retry on other 4xx (caller errors — same payload would fail
         again) or on timeouts (a hung Voog endpoint should surface, not wedge
@@ -101,32 +120,49 @@ class VoogClient:
         exponential: ``0.5 * 2^attempt`` seconds between attempts.
         """
         url = f"{base or self.base_url}{path}"
-        if params:
-            url += f"?{urllib.parse.urlencode(params)}"
-        payload = json.dumps(data).encode() if data is not None else None
-        req = urllib.request.Request(url, data=payload, headers=self.headers, method=method)
         logger.debug("%s %s", method, url)
 
         # POST / PATCH are not safe to retry — see _RETRYABLE_METHODS comment.
         retries = self.max_retries if method in _RETRYABLE_METHODS else 0
 
+        # httpx request kwargs — only forward `params` / `json` when set,
+        # so test mocks that assert "params kwarg absent" stay clean.
+        kwargs: dict = {
+            "method": method,
+            "url": url,
+            "timeout": self.timeout,
+        }
+        if params:
+            kwargs["params"] = params
+        if data is not None:
+            # JSON-encode at the boundary. Going through httpx's `json=`
+            # parameter sets Content-Type automatically, but our client
+            # already injects "application/json" on the session headers,
+            # and we want to keep the body shape identical to the urllib
+            # implementation (exact JSON bytes), so we serialise once and
+            # pass via `content=`.
+            kwargs["content"] = json.dumps(data).encode()
+
         for attempt in range(retries + 1):
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    body = resp.read()
-                    return json.loads(body) if body else None
-            except urllib.error.HTTPError as e:
-                if e.code not in _RETRYABLE_STATUS or attempt == retries:
+                resp = self._http_client.request(**kwargs)
+                # raise_for_status raises HTTPStatusError on 4xx/5xx.
+                resp.raise_for_status()
+                body = resp.content
+                return json.loads(body) if body else None
+            except httpx.HTTPStatusError as e:
+                code = e.response.status_code
+                if code not in _RETRYABLE_STATUS or attempt == retries:
                     raise
                 backoff = 0.5 * (2**attempt)
                 # 429 and 503 may carry Retry-After from Cloudflare/Voog.
-                if e.code in (429, 503) and e.headers:
-                    retry_after = e.headers.get("Retry-After")
+                if code in (429, 503):
+                    retry_after = e.response.headers.get("Retry-After")
                     if retry_after:
                         backoff = _parse_retry_after(retry_after, backoff)
                 logger.warning(
                     "HTTP %s on %s %s — retrying in %.1fs (attempt %d/%d)",
-                    e.code,
+                    code,
                     method,
                     url,
                     backoff,
@@ -134,12 +170,20 @@ class VoogClient:
                     retries,
                 )
                 time.sleep(backoff)
-            except TimeoutError:
+            except httpx.TimeoutException as e:
                 # Timeouts are NOT retried — a hung endpoint should surface
-                # immediately so the caller knows the request timed out rather
-                # than silently burning retries (each retry × timeout seconds).
-                raise
-            except OSError as e:
+                # immediately. Re-raise as TimeoutError so existing callers
+                # (and the audit-doc'd contract) keep working unchanged.
+                raise TimeoutError(str(e)) from e
+            except httpx.HTTPError as e:
+                # httpx.HTTPError covers NetworkError, ConnectError,
+                # RemoteProtocolError, etc. These are NOT OSError
+                # subclasses (empirically: NetworkError.__mro__ is
+                # NetworkError → TransportError → RequestError →
+                # HTTPError → Exception). The urllib-era `except OSError`
+                # branch is REPLACED by this `except httpx.HTTPError`
+                # branch, not extended. Apply the same "retry except on
+                # the last attempt" policy.
                 if attempt == retries:
                     raise
                 backoff = 0.5 * (2**attempt)
@@ -163,8 +207,18 @@ class VoogClient:
     def post(self, path: str, data, *, base: str | None = None, params: dict | None = None):
         return self._request("POST", path, base=base, data=data, params=params)
 
-    def patch(self, path: str, data=None, *, base: str | None = None):
-        return self._request("PATCH", path, base=base, data=data)
+    def patch(
+        self,
+        path: str,
+        data=None,
+        *,
+        base: str | None = None,
+        params: dict | None = None,
+    ):
+        # `params` added in v1.4 PR 1a to match get/put/post/delete; Phase 2
+        # S4 wires PATCH dispatch for `data` writes on pages/articles and
+        # needs the symmetric signature.
+        return self._request("PATCH", path, base=base, data=data, params=params)
 
     def delete(self, path: str, *, base: str | None = None, params: dict | None = None):
         return self._request("DELETE", path, base=base, params=params)
