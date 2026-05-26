@@ -28,6 +28,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import httpx
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog._concurrency import parallel_map
@@ -155,6 +156,14 @@ def _snapshot_filename_for(endpoint: str) -> str:
 
 
 def _format_skip(label: str, exc: Exception) -> str:
+    # Voog API errors now arrive as httpx.HTTPStatusError (post-S11); the
+    # public-HTML rendered capture in step 6 still uses raw urllib, so we
+    # keep the urllib branch as well.
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code == 404:
+            return f"{label}: endpoint not available (404)"
+        return f"{label}: HTTP {code} {exc.response.reason_phrase}"
     if isinstance(exc, urllib.error.HTTPError) and exc.code == 404:
         return f"{label}: endpoint not available (404)"
     if isinstance(exc, urllib.error.HTTPError):
