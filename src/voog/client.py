@@ -83,7 +83,16 @@ class VoogClient:
         # the server doesn't advertise h2 in ALPN. Headers are attached to
         # the client so every request inherits them (avoids passing on
         # every call).
-        self._http_client = httpx.Client(http2=True, headers=self.headers)
+        #
+        # follow_redirects=True preserves urllib parity: urllib.request.urlopen
+        # followed redirects silently (max 10), but httpx defaults to False
+        # which would cause 301/302 from Voog/Cloudflare (trailing slash,
+        # www↔apex, CDN host) to escalate via raise_for_status as a 3xx
+        # HTTPStatusError — a silent regression against pre-1.4 behaviour.
+        # httpx's default max_redirects=20 is the new ceiling (vs urllib's 10);
+        # TooManyRedirects is caught separately below to avoid wasting retries
+        # on a permanent loop.
+        self._http_client = httpx.Client(http2=True, headers=self.headers, follow_redirects=True)
 
     def _request(
         self,
@@ -175,6 +184,12 @@ class VoogClient:
                 # immediately. Re-raise as TimeoutError so existing callers
                 # (and the audit-doc'd contract) keep working unchanged.
                 raise TimeoutError(str(e)) from e
+            except httpx.TooManyRedirects:
+                # Permanent redirect loops are not transient — retrying just
+                # wastes the backoff budget. TooManyRedirects inherits from
+                # RequestError → HTTPError, so without this branch it would
+                # be caught below and retried max_retries times.
+                raise
             except httpx.HTTPError as e:
                 # httpx.HTTPError covers NetworkError, ConnectError,
                 # RemoteProtocolError, etc. These are NOT OSError

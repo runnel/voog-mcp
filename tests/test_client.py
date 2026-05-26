@@ -74,6 +74,37 @@ class TestHttpxClientLifecycle(unittest.TestCase):
         # (Pool reuse is the whole point of S11.)
         self.assertIs(client._http_client, client._http_client)
 
+    def test_http_client_follows_redirects(self):
+        """urllib parity: urlopen followed redirects by default (max 10).
+
+        httpx's default is ``follow_redirects=False`` — a 301/302 from
+        Voog/Cloudflare (trailing slash, www↔apex, asset-host CDN) would
+        otherwise escalate via ``raise_for_status`` as a 3xx
+        ``HTTPStatusError`` (302 is not in ``_RETRYABLE_STATUS``, so the
+        retry branch immediately re-raises). Pinning ``follow_redirects=True``
+        preserves the pre-1.4 behaviour callers rely on.
+        """
+        client = VoogClient(host="example.com", api_token="t")
+        self.assertTrue(client._http_client.follow_redirects)
+
+    def test_too_many_redirects_raises_immediately_no_retry(self):
+        """TooManyRedirects is permanent — retrying wastes 2 attempts.
+
+        ``httpx.TooManyRedirects`` inherits from ``RequestError`` →
+        ``HTTPError``, so without an explicit branch it would be caught
+        by ``except httpx.HTTPError`` in ``_request`` and retried up to
+        ``max_retries`` times. The dedicated ``except TooManyRedirects``
+        branch in ``_request`` re-raises immediately to short-circuit.
+        """
+        client = VoogClient(host="example.com", api_token="t")
+        req = httpx.Request("GET", "https://example.com/pages")
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.side_effect = httpx.TooManyRedirects("too many", request=req)
+            with self.assertRaises(httpx.TooManyRedirects):
+                client.get("/pages")
+        # Single attempt, no retries.
+        self.assertEqual(mock_req.call_count, 1)
+
 
 class TestVoogClientTimeout(unittest.TestCase):
     """HTTP timeout — long-running MCP server cannot afford to hang."""
