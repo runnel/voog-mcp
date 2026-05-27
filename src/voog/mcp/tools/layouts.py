@@ -483,12 +483,47 @@ def _layout_delete(arguments: dict, client: VoogClient) -> list[TextContent] | C
         return error_response(err)
     try:
         client.delete(f"/layouts/{layout_id}")
-        return success_response(
-            {"deleted": layout_id},
-            summary=f"🗑️  layout {layout_id} deleted",
-        )
     except Exception as e:
-        return error_response(f"layout_delete id={layout_id} failed: {e}")
+        original_msg = str(e)
+        # S15: on 422 the most likely cause is "layout still has pages
+        # assigned". Pre-flight a GET to surface the blocking page ids /
+        # titles / paths so the caller can reassign or delete them in
+        # one round-trip. urllib.error.HTTPError exposes `code`; a
+        # future httpx-based exception would expose `.response.status_code`
+        # — we tolerate both via getattr.
+        status = getattr(e, "code", None) or getattr(
+            getattr(e, "response", None), "status_code", None
+        )
+        if status == 422:
+            blocking_pages: list[dict] = []
+            try:
+                pages = client.get_all(
+                    "/pages",
+                    params={"q.page.layout_id.$eq": layout_id},
+                )
+                for p in pages:
+                    blocking_pages.append(
+                        {
+                            "id": p.get("id"),
+                            "title": p.get("title"),
+                            "path": p.get("path"),
+                        }
+                    )
+            except Exception:
+                # Pre-flight is best-effort — if the GET also fails (e.g.
+                # 503 during a Voog deploy), keep the original 422 as the
+                # primary error and omit blocking_pages from the payload.
+                blocking_pages = []
+            if blocking_pages:
+                return error_response(
+                    f"layout_delete id={layout_id} failed: {original_msg}",
+                    extra={"blocking_pages": blocking_pages},
+                )
+        return error_response(f"layout_delete id={layout_id} failed: {original_msg}")
+    return success_response(
+        {"deleted": layout_id},
+        summary=f"🗑️  layout {layout_id} deleted",
+    )
 
 
 def _layout_asset_create(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
