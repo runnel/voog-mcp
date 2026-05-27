@@ -41,6 +41,7 @@ from voog.mcp.tools import ecommerce_settings as ecommerce_settings_tools
 from voog.mcp.tools import elements as elements_tools
 from voog.mcp.tools import layouts as layouts_tools
 from voog.mcp.tools import layouts_sync as layouts_sync_tools
+from voog.mcp.tools import me as me_tools
 from voog.mcp.tools import multilingual as multilingual_tools
 from voog.mcp.tools import pages as pages_tools
 from voog.mcp.tools import pages_mutate as pages_mutate_tools
@@ -76,6 +77,13 @@ _REDACTED_KEYS = frozenset(
     }
 )
 _STRING_CAP = 500  # characters; any single string value longer than this is truncated
+
+# Tools that do NOT require a `site` argument — they either probe a
+# different resource (voog_list_sites returns config) or build a one-off
+# client from token+host (voog_list_my_sites). The dispatcher in
+# handle_call_tool bypasses the standard "site is required" gate for
+# these tool names and dispatches without a client lookup.
+_BUILTIN_NO_SITE_TOOLS = frozenset({"voog_list_sites", "voog_list_my_sites"})
 
 
 def _redact_arguments(arguments: object) -> dict:
@@ -113,6 +121,7 @@ TOOL_GROUPS = [
     elements_tools,
     layouts_tools,
     layouts_sync_tools,
+    me_tools,
     multilingual_tools,
     pages_tools,
     pages_mutate_tools,
@@ -228,6 +237,14 @@ async def run_server(global_cfg: GlobalConfig, env: dict[str, str]):
         group = tool_dispatch.get(name)
         if group is None:
             return error_response(f"Unknown tool: {name}")
+        if name in _BUILTIN_NO_SITE_TOOLS:
+            # voog_list_my_sites builds its own client from token+host.
+            # Pass None as the client; the tool handler ignores it.
+            try:
+                return await asyncio.to_thread(group.call_tool, name, arguments, None)
+            except Exception:
+                logger.exception("tool %r raised an unhandled exception", name)
+                raise
         site_name = arguments.get("site")
         if not site_name:
             return error_response(

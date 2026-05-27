@@ -914,6 +914,9 @@ class TestServerToolRegistry(unittest.TestCase):
             layouts_sync as layouts_sync_t,
         )
         from voog.mcp.tools import (
+            me as me_t,
+        )
+        from voog.mcp.tools import (
             multilingual as multilingual_t,
         )
         from voog.mcp.tools import (
@@ -961,6 +964,7 @@ class TestServerToolRegistry(unittest.TestCase):
             elements_t,
             layouts_t,
             layouts_sync_t,
+            me_t,
             multilingual_t,
             pages_t,
             pages_mutate_t,
@@ -979,6 +983,9 @@ class TestServerToolRegistry(unittest.TestCase):
 
 
 class TestAllToolsRequireSite(unittest.TestCase):
+    # voog_list_my_sites is intentional exception (uses token+host, not site config).
+    _NO_SITE_ALLOWLIST = frozenset({"voog_list_my_sites"})
+
     def test_all_tools_require_site(self):
         from voog.mcp.tools import snapshot as mod
 
@@ -988,6 +995,25 @@ class TestAllToolsRequireSite(unittest.TestCase):
                 tool.inputSchema.get("required", []),
                 f"tool {tool.name} must require 'site'",
             )
+
+    def test_no_site_allowlist_drift(self):
+        # Defense in depth: enumerate ALL tools across ALL groups, and
+        # assert that any tool missing `site` from required is in the
+        # allowlist. Catches regressions if a new tool forgets to
+        # require `site` and isn't a legitimate exception.
+        from voog.mcp import server
+
+        offenders: list[str] = []
+        for group in server.TOOL_GROUPS:
+            for tool in group.get_tools():
+                if "site" not in tool.inputSchema.get("required", []):
+                    if tool.name not in self._NO_SITE_ALLOWLIST:
+                        offenders.append(tool.name)
+        self.assertEqual(
+            offenders,
+            [],
+            f"Tools missing 'site' from required and not in allowlist: {offenders}",
+        )
 
 
 if __name__ == "__main__":
