@@ -23,7 +23,13 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import build_list_params, require_force, require_int, strip_site
+from voog.mcp.tools._helpers import (
+    build_list_params,
+    require_force,
+    require_int,
+    strip_site,
+    validate_filters,
+)
 from voog.projections import simplify_element_definitions, simplify_elements
 
 # elements_list filter args forwarded as Voog query-string params.
@@ -98,6 +104,17 @@ def get_tools() -> list[Tool]:
                             "values clutter list views; use element_get "
                             "for full per-element shape."
                         ),
+                    },
+                    "filters": {
+                        "type": "object",
+                        "description": (
+                            "Escape hatch for Voog filter keys not exposed "
+                            "as typed args. Keys MUST match "
+                            "q.element.<attr>.(\\$eq|\\$cont|\\$gteq|\\$lteq|"
+                            "\\$gt|\\$lt|\\$in|\\$nin|\\$starts|\\$ends|"
+                            "\\$null|\\$has)."
+                        ),
+                        "additionalProperties": {"type": ["string", "integer", "boolean"]},
                     },
                 },
                 "required": ["site"],
@@ -281,7 +298,13 @@ def _elements_list(arguments: dict, client: VoogClient) -> list[TextContent] | C
             err = require_int(int_field, val, tool_name="elements_list")
             if err:
                 return error_response(err)
+    filters = arguments.get("filters")
+    err = validate_filters(filters, resource="element", tool_name="elements_list")
+    if err:
+        return error_response(err)
     params = build_list_params(arguments, plain=_ELEMENTS_LIST_FILTERS)
+    if filters:
+        params.update(filters)
     try:
         elements = client.get_all("/elements", params=params or None)
         # PR #116 review: thread include_values through to the projection

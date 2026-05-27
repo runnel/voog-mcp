@@ -631,6 +631,101 @@ class TestLayoutDelete(unittest.TestCase):
         client.delete.assert_called_once_with("/layouts/5")
 
 
+class TestLayoutDeleteBlockingPagesPreflight(unittest.TestCase):
+    """S15 — on 422, layout_delete fetches blocking pages and surfaces them."""
+
+    def test_422_surfaces_blocking_pages(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.delete.side_effect = urllib.error.HTTPError(
+            "https://example.com/admin/api/layouts/7",
+            422,
+            "layout has assigned pages",
+            {},
+            None,
+        )
+        client.get_all.return_value = [
+            {"id": 11, "title": "About", "path": "/about", "layout_id": 7},
+            {"id": 12, "title": "Contact", "path": "/contact", "layout_id": 7},
+        ]
+        result = layouts_tools.call_tool(
+            "layout_delete",
+            {"layout_id": 7, "force": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        # Original Voog error preserved.
+        self.assertIn("422", payload["error"])
+        # Blocking pages surfaced.
+        self.assertIn("blocking_pages", payload)
+        self.assertEqual(len(payload["blocking_pages"]), 2)
+        first = payload["blocking_pages"][0]
+        self.assertEqual(first["id"], 11)
+        self.assertEqual(first["title"], "About")
+        self.assertEqual(first["path"], "/about")
+        # Pre-flight GET used the S8 filter hatch.
+        client.get_all.assert_called_once_with(
+            "/pages",
+            params={"q.page.layout_id.$eq": 7},
+        )
+
+    def test_other_errors_no_preflight(self):
+        # On a non-422 error (e.g. 500), the wrapper must NOT do the
+        # pre-flight GET — surface the original error verbatim.
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.delete.side_effect = urllib.error.HTTPError("url", 500, "boom", {}, None)
+        result = layouts_tools.call_tool(
+            "layout_delete",
+            {"layout_id": 7, "force": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()
+        payload = json.loads(result.content[0].text)
+        self.assertNotIn("blocking_pages", payload)
+
+    def test_preflight_get_failure_does_not_mask_original_error(self):
+        # If the pre-flight GET itself fails, the original 422 must still
+        # be the primary error message — pre-flight is best-effort.
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.delete.side_effect = urllib.error.HTTPError(
+            "url", 422, "layout has assigned pages", {}, None
+        )
+        client.get_all.side_effect = urllib.error.HTTPError(
+            "url", 503, "Service Unavailable", {}, None
+        )
+        result = layouts_tools.call_tool(
+            "layout_delete",
+            {"layout_id": 7, "force": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("422", payload["error"])
+        # blocking_pages absent (pre-flight failed) — but no crash.
+        self.assertNotIn("blocking_pages", payload)
+
+    def test_success_path_unchanged(self):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.delete.return_value = None
+        result = layouts_tools.call_tool(
+            "layout_delete",
+            {"layout_id": 7, "force": True},
+            client,
+        )
+        self.assertFalse(getattr(result, "isError", False))
+        client.delete.assert_called_once_with("/layouts/7")
+        client.get_all.assert_not_called()
+
+
 class TestLayoutAssetCreate(unittest.TestCase):
     def test_create_text_asset(self):
         from voog.mcp.tools import layouts as layouts_tools

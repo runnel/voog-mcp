@@ -6,7 +6,12 @@ from typing import Any
 from mcp.types import CallToolResult, TextContent
 
 
-def error_response(message: str, *, details: dict[str, Any] | None = None) -> CallToolResult:
+def error_response(
+    message: str,
+    *,
+    details: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> CallToolResult:
     """Return a tool error response as a CallToolResult with isError=True.
 
     The MCP SDK's call_tool decorator (mcp.server.lowlevel.server.Server.call_tool)
@@ -16,10 +21,27 @@ def error_response(message: str, *, details: dict[str, Any] | None = None) -> Ca
     (handler short-circuits on isinstance(results, CallToolResult)), preserving
     isError=True so clients (Claude included) can distinguish errors from
     successes per spec § 7.
+
+    ``extra`` is folded into the top-level JSON payload alongside the ``error``
+    field — used by S15 (layout_delete blocking_pages pre-flight) to surface
+    structured supplementary data without polluting the error string.
+    ``details`` is the older nested-under-``details`` form, retained for
+    callers that prefer the namespaced shape.
     """
-    payload = {"error": message}
+    payload: dict[str, Any] = {"error": message}
     if details:
         payload["details"] = details
+    if extra:
+        # Defensive: `extra` flattens into the top-level payload, so a caller
+        # passing `extra={"error": "..."}` or `extra={"details": ...}` would
+        # silently clobber the canonical fields. Refuse the call instead.
+        overlap = set(extra) & {"error", "details"}
+        if overlap:
+            raise ValueError(
+                f"error_response: extra kwarg cannot override "
+                f"{sorted(overlap)}; use a distinct top-level key"
+            )
+        payload.update(extra)
     return CallToolResult(
         content=[TextContent(type="text", text=json.dumps(payload, indent=2, ensure_ascii=False))],
         isError=True,

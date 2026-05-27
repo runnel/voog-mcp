@@ -166,7 +166,12 @@ def get_tools() -> list[Tool]:
                 "parent_id, description, keywords, data must be supplied. "
                 "For just hidden / layout id, prefer the dedicated "
                 "page_set_hidden / page_set_layout — they're more explicit "
-                "in tool listings."
+                "in tool listings.\n"
+                "\n"
+                "`data` field is sent via PATCH (merge semantics) — only "
+                "the keys you pass are touched. To delete a key, use "
+                "page_delete_data. Calls without `data` route via PUT "
+                "(full-field replace) as before."
             ),
             inputSchema={
                 "type": "object",
@@ -471,11 +476,26 @@ def _page_update(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
             body[key] = arguments[key]
     if not body:
         return error_response(f"page_update: at least one of {PAGE_UPDATE_FIELDS} must be supplied")
+    # S4: `data` in the body routes via PATCH (merge semantics — Voog only
+    # touches keys you send). Without `data`, dispatch stays on PUT
+    # (full-field replace, which is what callers expect for the
+    # title/slug/layout/etc. surface). The page PATCH route is documented
+    # as merge-idempotent so we opt into the retry path via the documented
+    # kwarg on client.patch().
+    uses_patch = "data" in body
     try:
-        result = client.put(f"/pages/{page_id}", body)
+        if uses_patch:
+            result = client.patch(
+                f"/pages/{page_id}",
+                body,
+                _voog_documented_idempotent=True,
+            )
+        else:
+            result = client.put(f"/pages/{page_id}", body)
+        method_tag = " (PATCH/merge)" if uses_patch else ""
         return success_response(
             result,
-            summary=f"📄 page {page_id} updated: {sorted(body.keys())}",
+            summary=f"📄 page {page_id} updated{method_tag}: {sorted(body.keys())}",
         )
     except Exception as e:
         return error_response(f"page_update id={page_id} failed: {e}")
@@ -537,11 +557,23 @@ def _page_duplicate(arguments: dict, client: VoogClient) -> list[TextContent] | 
     try:
         result = client.post(f"/pages/{page_id}/duplicate", {})
         new_id = result.get("id")
+        new_path = result.get("path")
+        new_slug = result.get("slug")
         # Voog returns duplicated pages as hidden by default; surface that
         # so the LLM caller knows to call page_set_hidden(false) before the
         # duplicate is publicly visible.
-        suffix = " (hidden, use page_set_hidden(false) to publish)" if result.get("hidden") else ""
-        summary = f"📑 page {page_id} duplicated → {new_id}{suffix}"
+        hidden_suffix = (
+            " (hidden, use page_set_hidden(false) to publish)" if result.get("hidden") else ""
+        )
+        # S14: surface new_path + new_slug in the summary so the LLM can
+        # chain page_update(slug=...) without an extra page_get.
+        loc_parts = []
+        if new_path:
+            loc_parts.append(f"path={new_path}")
+        if new_slug:
+            loc_parts.append(f"slug={new_slug}")
+        loc = f" ({', '.join(loc_parts)})" if loc_parts else ""
+        summary = f"📑 page {page_id} duplicated → {new_id}{loc}{hidden_suffix}"
         return success_response(result, summary=summary)
     except Exception as e:
         return error_response(f"page_duplicate id={page_id} failed: {e}")

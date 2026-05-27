@@ -102,6 +102,7 @@ class VoogClient:
         base: str | None = None,
         data=None,
         params: dict | None = None,
+        _force_retryable: bool = False,
     ):
         """Execute a single HTTP request, retrying on transient failures.
 
@@ -131,8 +132,14 @@ class VoogClient:
         url = f"{base or self.base_url}{path}"
         logger.debug("%s %s", method, url)
 
-        # POST / PATCH are not safe to retry — see _RETRYABLE_METHODS comment.
-        retries = self.max_retries if method in _RETRYABLE_METHODS else 0
+        # POST / PATCH are not safe to retry by default — see
+        # _RETRYABLE_METHODS comment. PATCH can opt in per-call via
+        # _force_retryable=True; the page/article PATCH wrappers set it
+        # because Voog documents those routes as merge-idempotent.
+        if method in _RETRYABLE_METHODS or _force_retryable:
+            retries = self.max_retries
+        else:
+            retries = 0
 
         # httpx request kwargs — only forward `params` / `json` when set,
         # so test mocks that assert "params kwarg absent" stay clean.
@@ -229,11 +236,29 @@ class VoogClient:
         *,
         base: str | None = None,
         params: dict | None = None,
+        _voog_documented_idempotent: bool = False,
     ):
-        # `params` added in v1.4 PR 1a to match get/put/post/delete; Phase 2
-        # S4 wires PATCH dispatch for `data` writes on pages/articles and
-        # needs the symmetric signature.
-        return self._request("PATCH", path, base=base, data=data, params=params)
+        """PATCH /path with optional retry for Voog-documented-idempotent routes.
+
+        ``_voog_documented_idempotent=True`` opts THIS call into the same
+        retry loop as GET/PUT/DELETE. Default ``False`` preserves the v1.3
+        no-retry policy on PATCH (because the canonical Voog failure mode
+        — "request accepted, response lost" — would silently double-write
+        on retry for non-idempotent PATCH routes).
+
+        Set only for routes Voog docs explicitly mark merge-semantics-
+        idempotent (page PATCH, article PATCH today). Adding routes here
+        requires Voog-docs evidence in the PR description — the global
+        _RETRYABLE_METHODS frozen set is NOT modified by this flag.
+        """
+        return self._request(
+            "PATCH",
+            path,
+            base=base,
+            data=data,
+            params=params,
+            _force_retryable=_voog_documented_idempotent,
+        )
 
     def delete(self, path: str, *, base: str | None = None, params: dict | None = None):
         return self._request("DELETE", path, base=base, params=params)

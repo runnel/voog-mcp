@@ -738,3 +738,53 @@ class TestTimeoutNotRetried(unittest.TestCase):
                 result = client.get("/pages")
         self.assertEqual(result, {"ok": True})
         self.assertEqual(mock_req.call_count, 2)
+
+
+class TestPatchIdempotentRetry(unittest.TestCase):
+    """PATCH with _voog_documented_idempotent=True opts into the same retry
+    behaviour as GET/PUT/DELETE. Default PATCH (no flag) preserves the
+    v1.3 single-attempt policy.
+    """
+
+    def test_patch_default_no_retry_on_503(self):
+        # Without the flag, PATCH must NOT retry on a transient 503 —
+        # preserves v1.3 behaviour (POST/PATCH are not retryable by default
+        # because the canonical failure mode is "Voog accepted, response lost"
+        # which silently duplicates resources on retry).
+        client = VoogClient(host="example.com", api_token="t")
+        err_503 = _make_status_error(503, "Service Unavailable", method="PATCH")
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.side_effect = [err_503]
+            with patch("voog.client.time.sleep") as mock_sleep:
+                with self.assertRaises(httpx.HTTPStatusError):
+                    client.patch("/pages/5", {"data": {"a": 1}})
+        mock_req.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    def test_patch_with_idempotent_flag_retries_on_503(self):
+        # With _voog_documented_idempotent=True, PATCH joins the retry path
+        # for THIS call only. Module-level _RETRYABLE_METHODS is unchanged.
+        client = VoogClient(host="example.com", api_token="t", max_retries=2)
+        err_503 = _make_status_error(503, "Service Unavailable", method="PATCH")
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.side_effect = [err_503, _make_httpx_response()]
+            with patch("voog.client.time.sleep"):
+                result = client.patch(
+                    "/pages/5",
+                    {"data": {"a": 1}},
+                    _voog_documented_idempotent=True,
+                )
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(mock_req.call_count, 2)
+
+    def test_patch_idempotent_flag_does_not_pollute_module_state(self):
+        # A flagged call must not flip global _RETRYABLE_METHODS.
+        from voog.client import _RETRYABLE_METHODS
+
+        self.assertNotIn("PATCH", _RETRYABLE_METHODS)
+        client = VoogClient(host="example.com", api_token="t")
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            client.patch("/pages/5", {"data": {"x": 1}}, _voog_documented_idempotent=True)
+        # _RETRYABLE_METHODS still does not contain PATCH after a flagged call.
+        self.assertNotIn("PATCH", _RETRYABLE_METHODS)

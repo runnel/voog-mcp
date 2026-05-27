@@ -35,6 +35,26 @@ class TestErrorResponse(unittest.TestCase):
         # The raw text should NOT contain \u escape sequences
         self.assertIn("Tundmatu lehekülg: õ", result.content[0].text)
 
+    def test_error_response_with_extra(self):
+        # S15-style supplementary payload folded into the top-level dict.
+        result = error_response("422 conflict", extra={"blocking_pages": [{"id": 1}]})
+        payload = json.loads(result.content[0].text)
+        self.assertEqual(payload["error"], "422 conflict")
+        self.assertEqual(payload["blocking_pages"], [{"id": 1}])
+        self.assertNotIn("details", payload)
+
+    def test_error_response_extra_cannot_clobber_error(self):
+        # PR #124 review: `extra.update(payload)` runs after `error` is set;
+        # without a guard, a caller could replace the canonical error string.
+        with self.assertRaises(ValueError) as ctx:
+            error_response("real error", extra={"error": "fake error"})
+        self.assertIn("error", str(ctx.exception))
+
+    def test_error_response_extra_cannot_clobber_details(self):
+        with self.assertRaises(ValueError) as ctx:
+            error_response("oops", extra={"details": {"x": 1}})
+        self.assertIn("details", str(ctx.exception))
+
 
 class TestSuccessResponse(unittest.TestCase):
     def test_success_response_returns_list_of_text_content(self):

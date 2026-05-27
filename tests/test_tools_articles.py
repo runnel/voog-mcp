@@ -295,14 +295,15 @@ class TestArticleUpdate(unittest.TestCase):
         self.assertEqual(body["image_id"], 1234)
 
     def test_update_data_field(self):
+        # Phase 2 S4: `data` field routes via PATCH (merge), not PUT (clobber).
         client = MagicMock()
-        client.put.return_value = {"id": 99}
+        client.patch.return_value = {"id": 99}
         articles_tools.call_tool(
             "article_update",
             {"article_id": 99, "data": {"item_image": {"original_id": 7}}},
             client,
         )
-        body = client.put.call_args.args[1]
+        body = client.patch.call_args.args[1]
         self.assertEqual(body["data"]["item_image"]["original_id"], 7)
 
     def test_update_rejects_empty(self):
@@ -318,6 +319,66 @@ class TestArticleUpdate(unittest.TestCase):
         )
         self.assertTrue(result.isError)
         client.put.assert_not_called()
+
+    def test_update_data_field_dispatches_via_patch(self):
+        from voog.mcp.tools import articles as a
+
+        client = MagicMock()
+        client.patch.return_value = {"id": 42, "data": {"a": 1}}
+        a.call_tool(
+            "article_update",
+            {"article_id": 42, "data": {"a": 1}},
+            client,
+        )
+        client.put.assert_not_called()
+        client.patch.assert_called_once_with(
+            "/articles/42",
+            {"data": {"a": 1}},
+            _voog_documented_idempotent=True,
+        )
+
+    def test_update_data_with_other_fields_routes_via_patch(self):
+        from voog.mcp.tools import articles as a
+
+        client = MagicMock()
+        client.patch.return_value = {"id": 42}
+        a.call_tool(
+            "article_update",
+            {"article_id": 42, "title": "Uus", "data": {"foo": "bar"}},
+            client,
+        )
+        client.put.assert_not_called()
+        # title goes to autosaved_title per the existing _payloads mapping.
+        sent_path, sent_body = client.patch.call_args.args
+        sent_kwargs = client.patch.call_args.kwargs
+        self.assertEqual(sent_path, "/articles/42")
+        self.assertEqual(sent_body["data"], {"foo": "bar"})
+        self.assertEqual(sent_body["autosaved_title"], "Uus")
+        self.assertIs(sent_kwargs["_voog_documented_idempotent"], True)
+
+    def test_update_without_data_field_stays_on_put(self):
+        from voog.mcp.tools import articles as a
+
+        client = MagicMock()
+        client.put.return_value = {"id": 42}
+        a.call_tool(
+            "article_update",
+            {"article_id": 42, "title": "Uus"},
+            client,
+        )
+        client.patch.assert_not_called()
+        # autosaved_title mapping preserved on the PUT path.
+        sent_body = client.put.call_args.args[1]
+        self.assertEqual(sent_body["autosaved_title"], "Uus")
+
+    def test_article_update_tool_description_mentions_patch_merge(self):
+        from voog.mcp.tools import articles as a
+
+        tool = next(t for t in a.get_tools() if t.name == "article_update")
+        desc = tool.description.lower()
+        self.assertIn("patch", desc)
+        self.assertIn("merge", desc)
+        self.assertIn("article_delete_data", tool.description)
 
 
 class TestArticlePublish(unittest.TestCase):
@@ -701,3 +762,28 @@ class TestArticleDeleteData(unittest.TestCase):
         self.assertIs(ann.readOnlyHint, False)
         self.assertIs(ann.destructiveHint, True)
         self.assertIs(ann.idempotentHint, False)
+
+
+class TestArticlesListFilters(unittest.TestCase):
+    """S8 — filter escape hatch on articles_list."""
+
+    def test_filters_passed_to_voog(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        articles_tools.call_tool(
+            "articles_list",
+            {"filters": {"q.article.published_at.$gteq": "2026-01-01"}},
+            client,
+        )
+        kwargs = client.get_all.call_args.kwargs
+        self.assertEqual(kwargs["params"]["q.article.published_at.$gteq"], "2026-01-01")
+
+    def test_invalid_filter_key_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "articles_list",
+            {"filters": {"q.page.title.$cont": "x"}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()

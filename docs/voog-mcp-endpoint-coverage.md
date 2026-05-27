@@ -44,8 +44,8 @@ Per v1.4 design spec — every phase from v1.4 onward uses this column shape so 
 |---|---|---|---|---|---|---|
 | `/layouts` | ✓ (list+detail via `layouts_pull`) | ✓ (`layout_create`) | ✓ (`layout_rename`, `layout_update`, `asset_replace`, `layouts_push`) | — | ✓ (`layout_delete`, force-gated) | `include_body=true` on list (v1.4 S1) |
 | `/products` | ✓ (`products_list`, `product_get`) | ✓ (`product_create`) | ✓ (`product_update`, `product_set_images`) | — | — | List includes `variants,variant_types,translations` on snapshot path (v1.4 S2) |
-| `/pages` | ✓ (`pages_list`, `page_get`) | ✓ (`page_create`) | ✓ (`page_update`, `page_set_hidden`, `page_set_layout`, `page_set_data`) | (planned v1.4 S4 — `data` writes) | ✓ (`page_delete`, force-gated; `page_delete_data`, force-gated) | |
-| `/articles` | ✓ (`articles_list`, `article_get`) | ✓ (`article_create`) | ✓ (`article_update`, `article_publish`, `article_set_data`) | (planned v1.4 S4 — `data` writes) | ✓ (`article_delete`, force-gated; `article_delete_data`, force-gated) | |
+| `/pages` | ✓ (`pages_list`, `page_get`) | ✓ (`page_create`) | ✓ (`page_update`, `page_set_hidden`, `page_set_layout`, `page_set_data`) | ✓ (merge) — `page_update(data=...)` (v1.4 S4) | ✓ (`page_delete`, force-gated; `page_delete_data`, force-gated) | `page_update(data=...)` routes via PATCH (merge) — S4 |
+| `/articles` | ✓ (`articles_list`, `article_get`) | ✓ (`article_create`) | ✓ (`article_update`, `article_publish`, `article_set_data`) | ✓ (merge) — `article_update(data=...)` (v1.4 S4) | ✓ (`article_delete`, force-gated; `article_delete_data`, force-gated) | `article_update(data=...)` routes via PATCH (merge) — S4 |
 
 (Rows for `/elements`, `/webhooks`, `/redirect_rules`, `/nodes`, `/site`, `/texts`, `/content_partials`, `/languages`, `/layout_assets`, `/me`, ecommerce categories/orders/discounts/cart_rules/shipping/gateways added in subsequent v1.4 phases.)
 
@@ -90,3 +90,7 @@ module centralises these so CLI and MCP cannot drift.
 - Voog official docs index: <https://www.voog.com/developers/api>
 - Project memory (skill): `.claude/skills/voog/SKILL.md`
 - CHANGELOG entries for each tool: `CHANGELOG.md`
+
+---
+
+_Last verified against Voog API: 2026-05-26._

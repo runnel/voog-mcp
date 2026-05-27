@@ -30,6 +30,7 @@ from voog.mcp.tools._helpers import (
     require_force,
     require_int,
     strip_site,
+    validate_filters,
 )
 from voog.projections import simplify_articles
 
@@ -75,6 +76,17 @@ def get_tools() -> list[Tool]:
                             "Voog sort string: '<object>.<attr>.<$asc|$desc>'. "
                             "Example: 'article.created_at.$desc'."
                         ),
+                    },
+                    "filters": {
+                        "type": "object",
+                        "description": (
+                            "Escape hatch for Voog filter keys not exposed "
+                            "as typed args. Keys MUST match "
+                            "q.article.<attr>.(\\$eq|\\$cont|\\$gteq|\\$lteq|"
+                            "\\$gt|\\$lt|\\$in|\\$nin|\\$starts|\\$ends|"
+                            "\\$null|\\$has)."
+                        ),
+                        "additionalProperties": {"type": ["string", "integer", "boolean"]},
                     },
                 },
                 "required": ["site"],
@@ -165,7 +177,12 @@ def get_tools() -> list[Tool]:
                 "read-only — call article_publish to push autosaved → "
                 "published). description/path/image_id/tag_names/data are "
                 "non-autosaved fields and update directly. At least one "
-                "field must be supplied."
+                "field must be supplied.\n"
+                "\n"
+                "`data` field is sent via PATCH (merge semantics) — only "
+                "the keys you pass are touched. To delete a key, use "
+                "article_delete_data. Calls without `data` route via PUT "
+                "as before."
             ),
             inputSchema={
                 "type": "object",
@@ -353,11 +370,17 @@ def _articles_list(arguments: dict, client: VoogClient):
             err = require_int(int_field, val, tool_name="articles_list")
             if err:
                 return error_response(err)
+    filters = arguments.get("filters")
+    err = validate_filters(filters, resource="article", tool_name="articles_list")
+    if err:
+        return error_response(err)
     params = build_list_params(
         arguments,
         plain=_ARTICLES_PLAIN_PARAMS,
         sort_target="s",
     )
+    if filters:
+        params.update(filters)
     try:
         if params:
             articles = client.get_all("/articles", params=params)
@@ -414,11 +437,23 @@ def _article_update(arguments: dict, client: VoogClient):
             "article_update: at least one field (title, body, excerpt, "
             "description, path, image_id, tag_names, data) must be set"
         )
+    # S4: when the caller passes `data`, route via PATCH (merge — Voog
+    # only touches the keys we send). Without `data`, dispatch stays on
+    # PUT to preserve the v1.3 autosaved_* full-field semantics.
+    uses_patch = "data" in body
     try:
-        result = client.put(f"/articles/{article_id}", body)
+        if uses_patch:
+            result = client.patch(
+                f"/articles/{article_id}",
+                body,
+                _voog_documented_idempotent=True,
+            )
+        else:
+            result = client.put(f"/articles/{article_id}", body)
+        method_tag = " (PATCH/merge)" if uses_patch else ""
         return success_response(
             result,
-            summary=f"📝 article {article_id} updated: {sorted(body.keys())}",
+            summary=f"📝 article {article_id} updated{method_tag}: {sorted(body.keys())}",
         )
     except Exception as e:
         return error_response(f"article_update id={article_id} failed: {e}")
