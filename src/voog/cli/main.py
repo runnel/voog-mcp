@@ -41,6 +41,9 @@ from voog.cli.commands import (
     redirects as redirects_cmd,
 )
 from voog.cli.commands import (
+    search as search_cmd,
+)
+from voog.cli.commands import (
     serve as serve_cmd,
 )
 from voog.cli.commands import (
@@ -70,6 +73,7 @@ COMMANDS = [
     pages_cmd,
     layouts_cmd,
     redirects_cmd,
+    search_cmd,
     snapshot_cmd,
 ]
 
