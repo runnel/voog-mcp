@@ -399,6 +399,35 @@ class TestSiteSnapshot(unittest.TestCase):
         self.assertEqual(breakdown["articles_count"], 1)
         self.assertEqual(breakdown["products_count"], 1)
 
+    def test_site_snapshot_layouts_uses_include_body(self):
+        # S1 — site_snapshot must request include_body=true on /layouts.
+        client = _make_client()
+
+        def _get_all(path, **kwargs):
+            if path == "/layouts":
+                # Capture and assert the params kwarg here — easier than
+                # introspecting parallel_map call args.
+                self.assertEqual(kwargs.get("params"), {"include_body": "true"})
+                return [{"id": 1, "title": "default", "body": "<html>...</html>"}]
+            if path == "/products":
+                return []
+            return []
+
+        client.get_all.side_effect = _get_all
+        client.get.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+            # layouts.json written from the include_body call.
+            self.assertTrue((out / "layouts.json").exists())
+            layouts_data = json.loads((out / "layouts.json").read_text(encoding="utf-8"))
+            self.assertEqual(layouts_data[0]["body"], "<html>...</html>")
+
     def test_404_endpoints_skipped_not_fatal(self):
         # /elements often 404s on sites that don't use the elements feature.
         # Snapshot must continue, log the skip, but not fail.

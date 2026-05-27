@@ -43,7 +43,6 @@ SITE_SNAPSHOT_LIST_ENDPOINTS = [
     "/articles",
     "/elements",
     "/element_definitions",
-    "/layouts",
     "/layout_assets",
     "/languages",
     "/redirect_rules",
@@ -56,6 +55,12 @@ SITE_SNAPSHOT_LIST_ENDPOINTS = [
     "/assets",
     "/webhooks",
 ]
+
+# S1 (v1.4): /layouts gets fetched with include_body=true outside the bulk
+# parallel-map loop because the loop's worker (client.get_all) doesn't take
+# per-endpoint params overrides today. Pulled into a separate call so the
+# resulting layouts.json carries full bodies for downstream restore use.
+SITE_SNAPSHOT_LAYOUTS_PARAMS = {"include_body": "true"}
 
 # Standard /admin/api/ singletons (no list).
 SITE_SNAPSHOT_SINGLETONS = ["/site", "/me"]
@@ -276,6 +281,16 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
             pages_data = data
         elif endpoint == "/articles":
             articles_data = data
+
+    # S1: fetch /layouts with include_body=true (outside the bulk loop because
+    # parallel_map's worker can't take per-endpoint params today). Failure
+    # records as a regular skip; downstream snapshot remains functional.
+    try:
+        layouts_data = client.get_all("/layouts", params=SITE_SNAPSHOT_LAYOUTS_PARAMS)
+        write_json(out / "layouts.json", layouts_data)
+        files_written += 1
+    except Exception as e:
+        skipped.append({"file": "layouts.json", "reason": _format_skip("layouts.json", e)})
 
     # 2. Singletons — kept sequential (only 2 endpoints, parallel speedup is
     # not worth the extra moving part).
