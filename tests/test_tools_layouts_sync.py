@@ -429,6 +429,113 @@ class TestLayoutsPull(unittest.TestCase):
         self.assertEqual(breakdown["per_layout_errors"][0]["layout_id"], 2)
         self.assertIn("error", breakdown["per_layout_errors"][0])
 
+    def test_layouts_pull_uses_include_body(self):
+        # S1 — list call must request include_body=true.
+        client = _make_client()
+        client.get_all.return_value = [
+            {
+                "id": 1,
+                "title": "x",
+                "component": False,
+                "updated_at": "",
+                "body": "list-body-content",
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            layouts_sync_tools.call_tool(
+                "layouts_pull",
+                {"target_dir": str(target)},
+                client,
+            )
+        # Verify the params kwarg carried include_body=true.
+        client.get_all.assert_called_once()
+        args, kwargs = client.get_all.call_args
+        self.assertEqual(args, ("/layouts",))
+        self.assertEqual(kwargs.get("params"), {"include_body": "true"})
+
+    def test_layouts_pull_skips_detail_when_body_present_on_list(self):
+        # S1 — when list response carries `body`, no per-id detail fetch.
+        client = _make_client()
+        client.get_all.return_value = [
+            {
+                "id": 1,
+                "title": "x",
+                "component": False,
+                "updated_at": "",
+                "body": "<html>list-body</html>",
+            },
+            {
+                "id": 2,
+                "title": "header",
+                "component": True,
+                "updated_at": "",
+                "body": "<nav>list-component</nav>",
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            layouts_sync_tools.call_tool(
+                "layouts_pull",
+                {"target_dir": str(target)},
+                client,
+            )
+            # Files written from list-supplied bodies.
+            self.assertEqual(
+                (target / "layouts" / "x.tpl").read_text(encoding="utf-8"),
+                "<html>list-body</html>",
+            )
+            self.assertEqual(
+                (target / "components" / "header.tpl").read_text(encoding="utf-8"),
+                "<nav>list-component</nav>",
+            )
+        # No per-id detail fetches should have happened.
+        client.get.assert_not_called()
+
+    def test_layouts_pull_falls_back_to_detail_when_body_missing(self):
+        # S1 — older Voog deploys may not honor include_body; verify fallback.
+        client = _make_client()
+        client.get_all.return_value = [
+            {"id": 1, "title": "no-body", "component": False, "updated_at": ""},
+            {
+                "id": 2,
+                "title": "has-body",
+                "component": False,
+                "updated_at": "",
+                "body": "<html>list-body</html>",
+            },
+            {"id": 3, "title": "empty-body", "component": False, "updated_at": "", "body": ""},
+        ]
+        details = {
+            "/layouts/1": {"id": 1, "body": "<html>detail-1</html>"},
+            "/layouts/3": {"id": 3, "body": "<html>detail-3</html>"},
+        }
+        client.get.side_effect = lambda url: details[url]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            layouts_sync_tools.call_tool(
+                "layouts_pull",
+                {"target_dir": str(target)},
+                client,
+            )
+            # Layouts 1 and 3 took fallback detail path; layout 2 used list body.
+            self.assertEqual(
+                (target / "layouts" / "no-body.tpl").read_text(encoding="utf-8"),
+                "<html>detail-1</html>",
+            )
+            self.assertEqual(
+                (target / "layouts" / "has-body.tpl").read_text(encoding="utf-8"),
+                "<html>list-body</html>",
+            )
+            self.assertEqual(
+                (target / "layouts" / "empty-body.tpl").read_text(encoding="utf-8"),
+                "<html>detail-3</html>",
+            )
+        # Exactly 2 detail fetches — for layouts 1 and 3, not 2.
+        self.assertEqual(client.get.call_count, 2)
+        called_urls = sorted(c.args[0] for c in client.get.call_args_list)
+        self.assertEqual(called_urls, ["/layouts/1", "/layouts/3"])
+
 
 def _make_pulled_tree(target: Path, manifest: dict, contents: dict):
     """Materialize a fake pulled tree: manifest.json + per-rel-path files.

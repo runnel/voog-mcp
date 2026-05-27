@@ -98,6 +98,81 @@ class TestSiteSnapshotEndpoints(unittest.TestCase):
             ]
             self.assertTrue(any("/products" in c.args for c in ecommerce_calls))
 
+    def test_cli_site_snapshot_writes_layouts_with_include_body(self):
+        # S1 (v1.4): CLI must mirror the MCP tool — separate /layouts call
+        # with include_body=true so layouts.json is written (was silently
+        # dropped when /layouts was pulled out of SITE_SNAPSHOT_LIST_ENDPOINTS).
+        client = _make_client()
+        captured_layouts_params = {}
+
+        def get_all_dispatch(endpoint, **kwargs):
+            if endpoint == "/layouts":
+                captured_layouts_params.update(kwargs.get("params") or {})
+                return [{"id": 1, "title": "default", "body": "<html>...</html>"}]
+            return []
+
+        client.get_all.side_effect = get_all_dispatch
+        client.get.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "snap"
+            args = MagicMock()
+            args.output_dir = out
+            with patch("sys.stdout"):
+                with patch("urllib.request.urlopen"):
+                    rc = snap_cmd.cmd_site_snapshot(args, client)
+            self.assertEqual(rc, 0)
+            self.assertTrue((out / "layouts.json").exists())
+            layouts_data = json.loads((out / "layouts.json").read_text(encoding="utf-8"))
+            self.assertEqual(layouts_data[0]["body"], "<html>...</html>")
+        self.assertEqual(captured_layouts_params, {"include_body": "true"})
+
+    def test_cli_site_snapshot_products_uses_include_and_skips_detail_fanout(self):
+        # S2 (v1.4): CLI mirrors MCP tool — products list with
+        # ?include=variants,variant_types,translations, no per-product GET.
+        client = _make_client()
+        captured_products_params = {}
+
+        def get_all_dispatch(endpoint, **kwargs):
+            if endpoint == "/products":
+                captured_products_params.update(kwargs.get("params") or {})
+                return [
+                    {"id": 500, "name": "A", "translations": {}, "variants": []},
+                    {"id": 501, "name": "B", "translations": {}, "variants": []},
+                ]
+            return []
+
+        client.get_all.side_effect = get_all_dispatch
+        get_calls: list = []
+
+        def _get(path, **kwargs):
+            get_calls.append(path)
+            return {}
+
+        client.get.side_effect = _get
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "snap"
+            args = MagicMock()
+            args.output_dir = out
+            with patch("sys.stdout"):
+                with patch("urllib.request.urlopen"):
+                    rc = snap_cmd.cmd_site_snapshot(args, client)
+            self.assertEqual(rc, 0)
+            # Per-product files still written, from list data.
+            self.assertTrue((out / "product_500.json").exists())
+            self.assertTrue((out / "product_501.json").exists())
+            detail = json.loads((out / "product_500.json").read_text(encoding="utf-8"))
+            self.assertEqual(detail["id"], 500)
+        # Include set on the products list call.
+        self.assertEqual(
+            captured_products_params.get("include"),
+            "variants,variant_types,translations",
+        )
+        # No /products/{id} fetches — S2 drops the per-id fan-out entirely.
+        product_detail_calls = [p for p in get_calls if p.startswith("/products/")]
+        self.assertEqual(product_detail_calls, [])
+
     def test_failed_list_endpoint_does_not_abort(self):
         client = _make_client()
 

@@ -35,26 +35,34 @@ from voog._concurrency import parallel_map
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site, validate_output_dir, write_json
-from voog.projections import PRODUCTS_DETAIL_INCLUDE
+from voog.projections import LAYOUTS_INCLUDE_BODY, PRODUCTS_DETAIL_INCLUDE
 
 # Standard /admin/api/ list endpoints. Each is paginated via client.get_all.
-SITE_SNAPSHOT_LIST_ENDPOINTS = [
-    "/pages",
-    "/articles",
-    "/elements",
-    "/element_definitions",
-    "/layouts",
-    "/layout_assets",
-    "/languages",
-    "/redirect_rules",
-    "/nodes",
-    "/texts",
-    "/content_partials",
-    "/tags",
-    "/forms",
-    "/media_sets",
-    "/assets",
-    "/webhooks",
+# Shape: ``(endpoint, params_or_None)`` tuples. ``params=None`` means the
+# default (no query-string params beyond pagination). Endpoints that need
+# a specific ``?include=`` or other modifier carry their params here so the
+# constant represents *all* list endpoints in the snapshot — no sibling
+# constants, no separate post-loop fetches, no drift trap for CLI vs MCP
+# consumers (v1.4 design fix surfacing during PR #123 review).
+SITE_SNAPSHOT_LIST_ENDPOINTS: list[tuple[str, dict | None]] = [
+    ("/pages", None),
+    ("/articles", None),
+    ("/elements", None),
+    ("/element_definitions", None),
+    # S1 (v1.4): /layouts list includes bodies inline so the snapshot's
+    # layouts.json is restore-ready without per-id fetches.
+    ("/layouts", LAYOUTS_INCLUDE_BODY),
+    ("/layout_assets", None),
+    ("/languages", None),
+    ("/redirect_rules", None),
+    ("/nodes", None),
+    ("/texts", None),
+    ("/content_partials", None),
+    ("/tags", None),
+    ("/forms", None),
+    ("/media_sets", None),
+    ("/assets", None),
+    ("/webhooks", None),
 ]
 
 # Standard /admin/api/ singletons (no list).
@@ -260,12 +268,19 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
     # 1. Standard list endpoints (paginated) — parallelized read-only fetches.
     # Sequencing: pages_data / articles_data are consumed by loops 3+4 below,
     # so we still await this loop's completion before fanning out per-resource.
+    # Items are ``(endpoint, params_or_None)`` tuples; the worker unpacks and
+    # forwards params (None → bare list call). Keeps /layouts (which needs
+    # ``include_body=true``) inside the parallel batch — no serial fallout.
+    def _fetch_list(item: tuple[str, dict | None]):
+        endpoint, params = item
+        return client.get_all(endpoint, params=params)
+
     list_results = parallel_map(
-        client.get_all,
+        _fetch_list,
         SITE_SNAPSHOT_LIST_ENDPOINTS,
         max_workers=8,
     )
-    for endpoint, data, exc in list_results:
+    for (endpoint, _params), data, exc in list_results:
         filename = _snapshot_filename_for(endpoint)
         if exc is not None:
             skipped.append({"file": filename, "reason": _format_skip(filename, exc)})
@@ -323,9 +338,27 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         files_written += 1
         article_detail_count += 1
 
-    # 5. Ecommerce: products list + per-product details (parallelized).
+    # 5. Ecommerce: products list with include=variants,variant_types,translations
+    # — list response carries the full detail shape, so the per-product detail
+    # fan-out (one GET per product) is eliminated. S2 in v1.4.
+    #
+    # Asymmetric vs S1 by design: no per-id fallback if Voog silently strips
+    # the include from the list response. PRODUCTS_DETAIL_INCLUDE's docstring
+    # in voog.projections explicitly cites Voog's documented contract that
+    # `?include=` applies equally to list and detail responses, so silent
+    # stripping would be a Voog regression rather than a legacy-deploy
+    # variance (the S1 case). If that contract breaks, the right fix is to
+    # revert S2 — not to add a fuzzy detection heuristic that can't
+    # distinguish "Voog ignored include" from "this product genuinely has
+    # no variants." A 4xx rejection of the include lands in `skipped[]`
+    # below; downstream `voog site-snapshot` continues without products
+    # (same behaviour as any other list endpoint failure).
     try:
-        products_data = client.get_all("/products", base=client.ecommerce_url)
+        products_data = client.get_all(
+            "/products",
+            base=client.ecommerce_url,
+            params={"include": PRODUCTS_DETAIL_INCLUDE},
+        )
     except Exception as e:
         skipped.append({"file": "products.json", "reason": _format_skip("products.json", e)})
         products_data = []
@@ -333,26 +366,14 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
     if products_data:
         write_json(out / "products.json", products_data)
         files_written += 1
-        product_ids = [prod.get("id") for prod in products_data if prod.get("id")]
-
-        def _fetch_product_detail(pid):
-            return client.get(
-                f"/products/{pid}",
-                base=client.ecommerce_url,
-                params={"include": PRODUCTS_DETAIL_INCLUDE},
-            )
-
-        product_detail_results = parallel_map(
-            _fetch_product_detail,
-            product_ids,
-            max_workers=8,
-        )
-        for pid, detail, exc in product_detail_results:
-            filename = f"product_{pid}.json"
-            if exc is not None:
-                skipped.append({"file": filename, "reason": _format_skip(filename, exc)})
+        # S2: per-product files come from the list response directly — no
+        # per-id GET fan-out. Each item already carries variants /
+        # variant_types / translations via the list-level ?include.
+        for product in products_data:
+            pid = product.get("id")
+            if not pid:
                 continue
-            write_json(out / filename, detail)
+            write_json(out / f"product_{pid}.json", product)
             files_written += 1
 
     # 6. Rendered HTML samples for VoogStyle capture (best-effort).

@@ -39,6 +39,7 @@ from voog._concurrency import parallel_map
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site, validate_output_dir, write_json
+from voog.projections import LAYOUTS_INCLUDE_BODY
 
 
 def get_tools() -> list[Tool]:
@@ -145,7 +146,11 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
 
     try:
         target.mkdir(parents=True, exist_ok=True)
-        layouts = client.get_all("/layouts")
+        # S1 (v1.4): include_body=true gives us the layout body inline on the
+        # list response, avoiding a per-id detail GET fan-out. Older Voog
+        # deploys may not honor this param — we fall back to per-id fetches
+        # selectively below for any layout that arrives without a body.
+        layouts = client.get_all("/layouts", params=LAYOUTS_INCLUDE_BODY)
     except Exception as e:
         return error_response(f"layouts_pull failed: {e}")
 
@@ -157,9 +162,9 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
     layouts_dir = target / "layouts"
     components_dir = target / "components"
 
-    # Phase A — validate layouts list, then fetch every valid /layouts/{id}
-    # detail body in parallel. /layouts list endpoint omits body, so each
-    # detail is its own GET. max_workers=8 per spec § 4.3 (read-only fetches).
+    # Phase A — validate layouts list, then fetch /layouts/{id} detail bodies
+    # for layouts whose list response arrived without a body. max_workers=8
+    # per spec § 4.3 (read-only fetches).
     valid_layouts: list = []
     for layout in layouts:
         lid = layout.get("id")
@@ -169,13 +174,35 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
             continue
         valid_layouts.append(layout)
 
-    detail_urls = [f"/layouts/{layout['id']}" for layout in valid_layouts]
+    # S1 (v1.4): partition into "already has body" (no fetch needed) and
+    # "body missing/empty" (per-id fallback). Layouts whose list response
+    # already carried a body via include_body=true take the fast path.
+    layouts_with_body: list = []
+    layouts_needing_fetch: list = []
+    for layout in valid_layouts:
+        body = layout.get("body")
+        if body:  # non-empty string
+            layouts_with_body.append(layout)
+        else:
+            layouts_needing_fetch.append(layout)
+
+    detail_urls = [f"/layouts/{layout['id']}" for layout in layouts_needing_fetch]
+    # parallel_map returns [] on empty input — no short-circuit needed.
     fetch_results = parallel_map(client.get, detail_urls, max_workers=8)
+
+    # Compose a unified iterator: each layout paired with its (detail, exc).
+    # Layouts with list-supplied bodies get (layout-as-detail, None).
+    detail_by_id: dict = {}
+    for layout, (_url, detail, exc) in zip(layouts_needing_fetch, fetch_results, strict=True):
+        detail_by_id[layout["id"]] = (detail, exc)
+    for layout in layouts_with_body:
+        detail_by_id[layout["id"]] = (layout, None)
 
     # Phase B — sequential write loop. Sync filesystem I/O is fast; serial
     # writes keep manifest assembly atomic and avoid mkdir/write races with
     # no measurable speedup if parallelized.
-    for layout, (_url, detail, exc) in zip(valid_layouts, fetch_results, strict=True):
+    for layout in valid_layouts:
+        detail, exc = detail_by_id[layout["id"]]
         lid = layout["id"]
         title = layout["title"]
         if exc is not None:

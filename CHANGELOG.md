@@ -6,7 +6,16 @@ versioning: [PEP 440](https://peps.python.org/pep-0440/).
 
 ## [Unreleased]
 
-(no changes yet)
+### Changed
+- **S11 (PR 1a):** Replaced ``urllib.request`` HTTP transport with ``httpx.Client`` in ``voog.client.VoogClient``. HTTP/2 keepalive + connection pool. All public method signatures (``get`` / ``post`` / ``put`` / ``patch`` / ``delete`` / ``get_all``) are unchanged. Retry semantics preserved: ``_RETRYABLE_METHODS = {GET, PUT, DELETE}``, ``_RETRYABLE_STATUS = {429, 500, 502, 503, 504}``, Retry-After parsing, no-retry-on-``httpx.TimeoutException`` (re-raised as ``TimeoutError`` for callers). ``snapshot._format_skip`` recognises both ``httpx.HTTPStatusError`` and the residual ``urllib.error.HTTPError`` from the public-HTML rendered-capture loop. New runtime dependency: ``httpx[http2]>=0.27`` (the ``[http2]`` extra pulls in ``h2>=4.0``, required by ``httpx.Client(http2=True)``).
+- **N1 (PR 1a):** User-Agent string is now derived from ``voog.__version__`` at ``VoogClient`` construction time (``"voog-mcp/{version}"``) instead of a hardcoded ``"voog-mcp/1.3"`` literal. Phase 5 S9 (per-tool UA suffix) and the v1.4 release tag both flow from this single source. ``src/voog/__init__.py`` ``__version__`` aligned with ``pyproject.toml`` (was drifting since v1.1.1).
+- **MD1 (PR 1b):** ``VoogClient.get_all`` default ``per_page`` raised from 200 → 250 (Voog's documented server-side max). Caller overrides via ``params={"per_page": N}`` continue to work. ~20% fewer round-trips on large-list endpoints (`pages`, `articles`, `products`).
+- **S1 (PR 1b):** ``layouts_pull`` requests ``include_body=true`` on its ``/layouts`` list call. Layouts whose list response carries a body skip the per-id detail fetch entirely (drops ~60 requests → 1–2 on a typical site). Older Voog deploys that don't honor the param fall back to per-id detail fetches selectively. ``site_snapshot`` likewise requests ``include_body=true`` on ``/layouts``, so the dumped ``layouts.json`` carries full bodies for downstream restore-style tooling.
+- **S2 (PR 1b):** ``site_snapshot`` requests ``?include=variants,variant_types,translations`` on the ``/products`` list call (the existing ``PRODUCTS_DETAIL_INCLUDE`` constant). The per-product detail-fan-out (one ``GET /products/{id}`` per product) is removed — list responses already carry the full detail shape. Per-product ``product_{id}.json`` files still get written; their content now comes from the list response.
+
+### Added
+- ``VoogClient.patch()`` accepts an optional ``params=`` kwarg, matching ``get`` / ``put`` / ``post`` / ``delete``. Required by Phase 2 S4 (PATCH routing for ``data`` writes on pages/articles).
+- ``docs/voog-mcp-endpoint-coverage.md`` — new "Endpoint × verb matrix" section with ``GET | POST | PUT | PATCH | DELETE | Notes`` column shape. Per the v1.4 design spec, every subsequent phase uses this column structure so coverage edits don't break earlier rows. Phase 1 seeds the matrix with rows for ``/layouts``, ``/products``, ``/pages``, ``/articles``; phases 2–7 fill in the rest.
 
 ## [1.3] — 2026-05-08
 

@@ -9,7 +9,7 @@ update this doc when a tool is added or a new endpoint quirk is discovered.
 - **Admin API** — `https://{host}/admin/api/*`
 - **Ecommerce v1 API** — `https://{host}/admin/api/ecommerce/v1/*`
 - Auth: `X-API-Token: <token>` header (already handled by `VoogClient`)
-- Pagination default: 50 / max 250; `voog.client.VoogClient.get_all` defaults to 200 per page (v1.3; was 100)
+- Pagination default: 50 / max 250; `voog.client.VoogClient.get_all` defaults to **250** per page (v1.4 MD1; was 200 in v1.3, 100 pre-1.3)
 - Filter syntax: `q.<obj>.<attr>.<comp>=value` (`$eq`, `$cont`, `$gt`, …)
 - Response shaping: `include=foo,bar`, `language_code=<iso>`
 
@@ -35,6 +35,21 @@ update this doc when a tool is added or a new endpoint quirk is discovered.
 | Content partials | (none — use `layouts_pull` to read) | `content_partial_update` | PUT to `/content_partials/{id}`. Flat body (`body` and/or `metainfo`). Requires at least one field. Avoids `layouts_pull`/`layouts_push` filesystem detour for targeted fragment edits. |
 | Articles (data) | (via `article_get`) | `article_set_data`, `article_delete_data` | Symmetric with `page_set_data`/`page_delete_data`. Same `_validate_data_key` helper (rejects empty/whitespace, `internal_*` prefix, traversal chars). `article_delete_data` requires `force=true`. |
 | **Everything else** | `voog_admin_api_call(method, path, ...)` | `voog_ecommerce_api_call(method, path, ...)` | Generic passthrough — same auth, same timeout, no envelope assumed. Use for orders, carts, discounts, gateways, shipping_methods, forms, tickets, tags, media_sets, templates, bulk update, imports, search. |
+
+## Endpoint × verb matrix
+
+Per v1.4 design spec — every phase from v1.4 onward uses this column shape so coverage edits don't break earlier rows. ✓ = typed MCP tool exists; ✓ (merge) = PATCH route with merge semantics; — = no typed tool (use passthrough). Phase 1 only seeds the matrix shape; phases 2–7 fill in rows.
+
+| Endpoint | GET | POST | PUT | PATCH | DELETE | Notes |
+|---|---|---|---|---|---|---|
+| `/layouts` | ✓ (list+detail via `layouts_pull`) | ✓ (`layout_create`) | ✓ (`layout_rename`, `layout_update`, `asset_replace`, `layouts_push`) | — | ✓ (`layout_delete`, force-gated) | `include_body=true` on list (v1.4 S1) |
+| `/products` | ✓ (`products_list`, `product_get`) | ✓ (`product_create`) | ✓ (`product_update`, `product_set_images`) | — | — | List includes `variants,variant_types,translations` on snapshot path (v1.4 S2) |
+| `/pages` | ✓ (`pages_list`, `page_get`) | ✓ (`page_create`) | ✓ (`page_update`, `page_set_hidden`, `page_set_layout`, `page_set_data`) | (planned v1.4 S4 — `data` writes) | ✓ (`page_delete`, force-gated; `page_delete_data`, force-gated) | |
+| `/articles` | ✓ (`articles_list`, `article_get`) | ✓ (`article_create`) | ✓ (`article_update`, `article_publish`, `article_set_data`) | (planned v1.4 S4 — `data` writes) | ✓ (`article_delete`, force-gated; `article_delete_data`, force-gated) | |
+
+(Rows for `/elements`, `/webhooks`, `/redirect_rules`, `/nodes`, `/site`, `/texts`, `/content_partials`, `/languages`, `/layout_assets`, `/me`, ecommerce categories/orders/discounts/cart_rules/shipping/gateways added in subsequent v1.4 phases.)
+
+Last verified against Voog API: 2026-05-26.
 
 ## Envelope conventions
 

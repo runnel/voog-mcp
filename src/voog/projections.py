@@ -22,7 +22,28 @@ PRODUCTS_LIST_INCLUDE = "translations"
 # only `variant_types` definitions, not the per-variant `stock` /
 # `reserved_quantity` / `variant_attributes_text` fields needed to answer
 # "what's the stock on this 9-variant tote" (issue #104).
+#
+# Voog API docs: <https://www.voog.com/developers/api/resources/products>
+# — the `?include=` query param is documented to apply equally to list
+# (`GET /products`) and detail (`GET /products/{id}`) responses, returning
+# the same per-item shape. v1.4 S2 relies on the list-level guarantee to
+# drop the per-product detail fan-out in site_snapshot.
+# Last verified against Voog API: 2026-05-26 (see docs/voog-mcp-endpoint-coverage.md).
 PRODUCTS_DETAIL_INCLUDE = "variants,variant_types,translations"
+
+# Voog ?include_body=true on /layouts — list response carries the full
+# layout body inline, letting layouts_pull skip the per-id detail fan-out
+# (and letting site_snapshot dump layouts.json with bodies for restore
+# tooling). v1.4 S1. Centralized here so the snapshot module and the
+# layouts_sync tool share a single source of truth.
+#
+# Voog API docs: <https://www.voog.com/developers/api/resources/layouts>
+# — `?include_body=true` returns the same `body` string the per-id
+# `GET /layouts/{id}` would return (no truncation, no escaping diff).
+# Older Voog deploys that don't honor the param return layouts without a
+# `body` field; layouts_pull falls back to per-id fetches selectively.
+# Last verified against Voog API: 2026-05-26 (see docs/voog-mcp-endpoint-coverage.md).
+LAYOUTS_INCLUDE_BODY = {"include_body": "true"}
 
 
 def simplify_pages(pages: list) -> list:
