@@ -192,4 +192,16 @@ def call_tool(name: str, arguments: dict | None, client) -> list[TextContent] | 
     handler = _DISPATCH.get(name)
     if handler is None:
         return error_response(f"Unknown tool: {name}")
-    return handler(arguments, client)
+    # S9: tag every HTTP request inside this handler with X-MCP-Tool +
+    # shared X-Request-Id. ``voog_list_my_sites`` is the only tool that
+    # accepts ``client=None`` — the handler constructs its own client
+    # from a token because it pre-dates the per-site session model.
+    # When the outer client is None, skip the wrap: the handler's
+    # internal client is single-use and doesn't fan out, so missing
+    # tracking headers on its one call is acceptable. (Future: thread
+    # the token through with_tool's internal client constructor —
+    # deferred to v1.5.)
+    if client is None:
+        return handler(arguments, client)
+    with client.with_tool(name):
+        return handler(arguments, client)

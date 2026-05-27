@@ -42,7 +42,7 @@ from pathlib import Path
 
 from mcp.types import CallToolResult, TextContent, Tool
 
-from voog._concurrency import parallel_map
+from voog._concurrency import parallel_map, propagate_tool_context
 from voog._upload_validation import _validate_upload_url
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
@@ -118,7 +118,12 @@ def call_tool(
     arguments = strip_site(arguments or {})
 
     if name == "product_set_images":
-        return _product_set_images(arguments, client)
+        # S9: tag every HTTP request inside this handler with X-MCP-Tool +
+        # shared X-Request-Id. The parallel asset uploads inside
+        # _product_set_images use propagate_tool_context for thread
+        # propagation. See VoogClient.with_tool docstring.
+        with client.with_tool(name):
+            return _product_set_images(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 
@@ -177,8 +182,12 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
     # caps net I/O at ~15 MB for typical 5 MB images (spec § 4.3).
     uploaded: list[dict] = []
     failed: list[dict] = []
+    # S9d: wrap with propagate_tool_context so each upload worker thread
+    # carries the with_tool scope's X-MCP-Tool: product_set_images +
+    # X-Request-Id headers on its 3-step upload requests (asset POST →
+    # presigned PUT → confirm PUT).
     upload_results = parallel_map(
-        lambda p: _upload_asset(p, client),
+        propagate_tool_context(client, lambda p: _upload_asset(p, client)),
         paths,
         max_workers=3,
     )

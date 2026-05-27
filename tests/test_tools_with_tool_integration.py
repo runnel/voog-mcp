@@ -22,19 +22,30 @@ from unittest.mock import MagicMock, patch
 from voog.client import VoogClient
 from voog.mcp.tools import (
     articles,
+    cart_rules,
+    categories,
+    comments,
     content_partials,
+    discounts,
     ecommerce_settings,
     elements,
     layouts,
     layouts_sync,
+    me,
     multilingual,
+    orders,
     pages,
     pages_mutate,
     products,
+    products_images,
     raw,
     redirects,
+    search,
+    shipping,
     snapshot,
+    tags,
     texts,
+    webhooks,
 )
 from voog.mcp.tools import site as site_mod
 
@@ -204,6 +215,121 @@ class TestSweepBatch3(unittest.TestCase):
     def test_texts_first_tool_enters_with_tool(self):
         tools = texts.get_tools()
         _assert_with_tool_invoked(self, texts, tools[0].name, {})
+
+
+class TestSweepBatch4(unittest.TestCase):
+    """Batch 4: products_images, webhooks + the 9 Phase 4 ecommerce modules
+    (cart_rules, categories, comments, discounts, me, orders, search,
+    shipping, tags). All use the standard ``_DISPATCH`` shape so the wrap
+    is mechanical — one test per module to catch the drift case where a
+    future module is added without the wrap."""
+
+    def test_products_images_enters_with_tool(self):
+        # Missing 'files' → handler short-circuits with error, but call_tool's
+        # with_tool wrap fires unconditionally. That's by design.
+        _assert_with_tool_invoked(
+            self,
+            products_images,
+            "product_set_images",
+            {"product_id": 1, "files": []},
+        )
+
+    def test_webhooks_first_tool_enters_with_tool(self):
+        tools = webhooks.get_tools()
+        _assert_with_tool_invoked(self, webhooks, tools[0].name, {})
+
+    def test_cart_rules_first_tool_enters_with_tool(self):
+        tools = cart_rules.get_tools()
+        _assert_with_tool_invoked(self, cart_rules, tools[0].name, {})
+
+    def test_categories_first_tool_enters_with_tool(self):
+        tools = categories.get_tools()
+        _assert_with_tool_invoked(self, categories, tools[0].name, {})
+
+    def test_comments_first_tool_enters_with_tool(self):
+        tools = comments.get_tools()
+        _assert_with_tool_invoked(self, comments, tools[0].name, {})
+
+    def test_discounts_first_tool_enters_with_tool(self):
+        tools = discounts.get_tools()
+        _assert_with_tool_invoked(self, discounts, tools[0].name, {})
+
+    def test_me_first_tool_enters_with_tool(self):
+        tools = me.get_tools()
+        _assert_with_tool_invoked(self, me, tools[0].name, {})
+
+    def test_orders_first_tool_enters_with_tool(self):
+        tools = orders.get_tools()
+        _assert_with_tool_invoked(self, orders, tools[0].name, {})
+
+    def test_search_first_tool_enters_with_tool(self):
+        tools = search.get_tools()
+        _assert_with_tool_invoked(self, search, tools[0].name, {})
+
+    def test_shipping_first_tool_enters_with_tool(self):
+        tools = shipping.get_tools()
+        _assert_with_tool_invoked(self, shipping, tools[0].name, {})
+
+    def test_tags_first_tool_enters_with_tool(self):
+        tools = tags.get_tools()
+        _assert_with_tool_invoked(self, tags, tools[0].name, {})
+
+
+class TestEveryToolModuleHasWithToolSweep(unittest.TestCase):
+    """Drift guard — every module registered in server.TOOL_GROUPS must be
+    covered by one of the TestSweepBatch* classes above. If a new tool
+    module ships without a sweep test, this test FAILS with a clear list
+    of the modules whose call_tool wraps aren't being asserted.
+
+    Detects the silent regression where someone adds a new tool module
+    but forgets the ``with client.with_tool(name):`` wrap. The per-module
+    sweep tests would catch a wrap regression on a tested module, but
+    only this meta-test catches the case of a brand-new untested module.
+    """
+
+    def test_all_tool_modules_have_a_sweep_test(self):
+        from voog.mcp import server
+
+        covered_modules = {
+            articles,
+            cart_rules,
+            categories,
+            comments,
+            content_partials,
+            discounts,
+            ecommerce_settings,
+            elements,
+            layouts,
+            layouts_sync,
+            me,
+            multilingual,
+            orders,
+            pages,
+            pages_mutate,
+            products,
+            products_images,
+            raw,
+            redirects,
+            search,
+            shipping,
+            site_mod,
+            snapshot,
+            tags,
+            texts,
+            webhooks,
+        }
+        registered = set(server.TOOL_GROUPS)
+        missing = registered - covered_modules
+        # Reverse drift: a module in covered_modules but not registered
+        # would mean we test a dead module (acceptable to ignore — covers
+        # don't hurt). Surfaces only the dangerous direction.
+        self.assertEqual(
+            missing,
+            set(),
+            f"tool modules registered in server.TOOL_GROUPS but NOT covered "
+            f"by a TestSweepBatch* test (will silently ship without with_tool "
+            f"wrap if untested): {[m.__name__ for m in missing]}",
+        )
 
 
 class TestParallelMapPropagation(unittest.TestCase):
