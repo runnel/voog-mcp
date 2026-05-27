@@ -24,6 +24,11 @@ from voog.mcp.tools import (
     ecommerce_settings,
     elements,
     layouts,
+    layouts_sync,
+    multilingual,
+    pages,
+    pages_mutate,
+    products,
 )
 
 
@@ -87,3 +92,52 @@ class TestSweepBatch1(unittest.TestCase):
     def test_layouts_first_tool_enters_with_tool(self):
         tools = layouts.get_tools()
         _assert_with_tool_invoked(self, layouts, tools[0].name, {})
+
+
+class TestSweepBatch2(unittest.TestCase):
+    """Batch 2: layouts_sync, multilingual, pages, pages_mutate, products."""
+
+    def test_layouts_pull_enters_with_tool(self):
+        # layouts_sync is filesystem-touching; supply a fake dir so the
+        # handler reaches the with_tool entry (wrap fires BEFORE handler
+        # validation, so even an invalid target_dir would enter — but
+        # using a valid one for symmetry with production usage).
+        _assert_with_tool_invoked(
+            self, layouts_sync, "layouts_pull", {"target_dir": "/tmp/no-op-test-only"}
+        )
+
+    def test_layouts_push_enters_with_tool(self):
+        _assert_with_tool_invoked(
+            self, layouts_sync, "layouts_push", {"source_dir": "/tmp/no-op-test-only"}
+        )
+
+    def test_layouts_sync_unknown_does_not_enter_with_tool(self):
+        client = _mock_client()
+        with patch.object(client, "with_tool", wraps=client.with_tool) as spy:
+            result = layouts_sync.call_tool("layouts_typo", {}, client)
+            spy.assert_not_called()
+            self.assertTrue(getattr(result, "isError", False))
+
+    def test_multilingual_first_tool_enters_with_tool(self):
+        tools = multilingual.get_tools()
+        _assert_with_tool_invoked(self, multilingual, tools[0].name, {})
+
+    def test_pages_list_enters_with_tool(self):
+        _assert_with_tool_invoked(self, pages, "pages_list", {})
+
+    def test_page_get_enters_with_tool(self):
+        _assert_with_tool_invoked(self, pages, "page_get", {"page_id": 1})
+
+    def test_pages_unknown_does_not_enter_with_tool(self):
+        client = _mock_client()
+        with patch.object(client, "with_tool", wraps=client.with_tool) as spy:
+            result = pages.call_tool("page_typo", {}, client)
+            spy.assert_not_called()
+            self.assertTrue(getattr(result, "isError", False))
+
+    def test_pages_mutate_first_tool_enters_with_tool(self):
+        tools = pages_mutate.get_tools()
+        _assert_with_tool_invoked(self, pages_mutate, tools[0].name, {})
+
+    def test_products_list_enters_with_tool(self):
+        _assert_with_tool_invoked(self, products, "products_list", {})
