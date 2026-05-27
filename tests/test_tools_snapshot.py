@@ -944,6 +944,9 @@ class TestServerToolRegistry(unittest.TestCase):
             snapshot as snapshot_t,
         )
         from voog.mcp.tools import (
+            tags as tags_t,
+        )
+        from voog.mcp.tools import (
             texts as texts_t,
         )
         from voog.mcp.tools import (
@@ -968,6 +971,7 @@ class TestServerToolRegistry(unittest.TestCase):
             search_t,
             site_t,
             snapshot_t,
+            tags_t,
             texts_t,
             webhooks_t,
         }

@@ -51,6 +51,7 @@ from voog.mcp.tools import redirects as redirects_tools
 from voog.mcp.tools import search as search_tools
 from voog.mcp.tools import site as site_tools
 from voog.mcp.tools import snapshot as snapshot_tools
+from voog.mcp.tools import tags as tags_tools
 from voog.mcp.tools import texts as texts_tools
 from voog.mcp.tools import webhooks as webhooks_tools
 
@@ -122,6 +123,7 @@ TOOL_GROUPS = [
     search_tools,
     site_tools,
     snapshot_tools,
+    tags_tools,
     texts_tools,
     webhooks_tools,
 ]
