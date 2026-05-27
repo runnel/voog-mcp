@@ -97,3 +97,42 @@ class TestListMySitesCLI(unittest.TestCase):
                 rc = me_cmd.run(self._args(token="vk"))
         self.assertEqual(rc, 1)
         self.assertIn("unexpected", err.getvalue().lower())
+
+
+class TestListMySitesCLIHostSSRFDefense(unittest.TestCase):
+    """Defense-in-depth: CLI path also runs validate_host. Threat model
+    is operator-typed (not LLM), but CLI is scriptable — host can come
+    from an env var or config file that itself was sourced from
+    elsewhere. The validator's logic is just as right here.
+    """
+
+    def _args(self, host, **overrides):
+        defaults = {"token_env": None, "token": "vk", "host": host}
+        defaults.update(overrides)
+        return type("Args", (), defaults)()
+
+    def _assert_rejected(self, host):
+        with patch("voog.cli.commands.me.VoogClient") as MockClient:
+            with patch("sys.stderr", new_callable=StringIO) as err:
+                rc = me_cmd.run(self._args(host))
+        self.assertEqual(rc, 1, f"host {host!r} should be rejected")
+        # Validator never reaches VoogClient construction.
+        MockClient.assert_not_called()
+        self.assertIn("error", err.getvalue().lower())
+
+    def test_rejects_localhost(self):
+        self._assert_rejected("localhost")
+
+    def test_rejects_raw_ipv4(self):
+        self._assert_rejected("169.254.169.254")  # AWS metadata
+        self._assert_rejected("127.0.0.1")
+
+    def test_rejects_url_scheme(self):
+        self._assert_rejected("http://evil.com")
+
+    def test_rejects_embedded_port(self):
+        self._assert_rejected("evil.com:8080")
+
+    def test_rejects_private_tld(self):
+        self._assert_rejected("router.local")
+        self._assert_rejected("evil.onion")

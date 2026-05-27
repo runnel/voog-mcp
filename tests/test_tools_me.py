@@ -156,16 +156,23 @@ class TestHostSSRFDefense(unittest.TestCase):
     """
 
     def _assert_rejected(self, host):
-        # No mock — validation runs before VoogClient is constructed.
-        result = mt.call_tool(
-            "voog_list_my_sites",
-            {"token": "vk", "host": host},
-            None,
-        )
+        # Mock VoogClient as a guard rail: if a future regression
+        # makes validate_host return None for a host that should
+        # be rejected, this test would otherwise fall through to
+        # a real network call (and pass for the wrong reason —
+        # network failure on a bogus host also surfaces as isError).
+        # MockClient.assert_not_called() catches that drift.
+        with patch("voog.mcp.tools.me.VoogClient") as MockClient:
+            result = mt.call_tool(
+                "voog_list_my_sites",
+                {"token": "vk", "host": host},
+                None,
+            )
         self.assertTrue(
             result.isError,
             f"host {host!r} should be rejected by SSRF defense",
         )
+        MockClient.assert_not_called()
 
     def test_rejects_localhost(self):
         self._assert_rejected("localhost")

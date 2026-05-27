@@ -7,6 +7,7 @@ import os
 import sys
 from pathlib import Path
 
+from voog._security import validate_host
 from voog.client import VoogClient
 from voog.config import (
     ConfigError,
@@ -74,6 +75,21 @@ def init(args) -> int:
             sys.stderr.write(f"error: api_key for '{name}' cannot be empty.\n")
             return 1
         if getattr(args, "bootstrap_from_token", False):
+            # SSRF defense: validate the operator-typed host before
+            # shipping the token in an X-API-Token header to it. The
+            # probe is opt-in; an invalid host turns it into a warning
+            # rather than aborting init — the token may still work
+            # for the host as-typed in voog.json (e.g. the operator
+            # might fix it after init).
+            host_err = validate_host(host, tool_name="config init probe")
+            if host_err:
+                sys.stderr.write(
+                    f"    warning: skipping /me/sites probe — {host_err}\n"
+                    f"    (Continuing — voog.json will still be written; "
+                    f"the probe is a sanity check.)\n"
+                )
+                sites[name] = {"host": host, "api_key": token}
+                continue
             try:
                 probe_client = VoogClient(host=host, api_token=token)
                 probe_resp = probe_client.get("/me/sites")

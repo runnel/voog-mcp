@@ -12,6 +12,7 @@ import json
 import os
 import sys
 
+from voog._security import validate_host
 from voog.client import VoogClient
 
 _DEFAULT_HOST = "www.voog.com"
@@ -74,6 +75,16 @@ def run(args) -> int:
         return 1
 
     host = (args.host or _DEFAULT_HOST).strip()
+    # Defense-in-depth: same SSRF-defensive validator the MCP tool
+    # uses. The CLI threat model is different (operator-typed, not
+    # LLM-supplied) but the validator's logic — reject loopback,
+    # private TLDs, raw IPs — is just as right here. The CLI is
+    # also scriptable, so the host could come from an env var or
+    # config file that itself was sourced from elsewhere.
+    err = validate_host(host, tool_name="voog list-my-sites")
+    if err:
+        sys.stderr.write(f"error: {err}\n")
+        return 1
     try:
         client = VoogClient(host=host, api_token=token)
         sites = client.get("/me/sites")
