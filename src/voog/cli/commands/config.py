@@ -7,6 +7,7 @@ import os
 import sys
 from pathlib import Path
 
+from voog._security import validate_host
 from voog.client import VoogClient
 from voog.config import (
     ConfigError,
@@ -25,6 +26,17 @@ def add_arguments(subparsers):
     sub = p.add_subparsers(dest="config_action", required=True)
 
     init_p = sub.add_parser("init", help="Interactively create voog.json with inline tokens")
+    init_p.add_argument(
+        "--bootstrap-from-token",
+        action="store_true",
+        default=False,
+        dest="bootstrap_from_token",
+        help=(
+            "After prompting for each site's token, probe /admin/api/me/sites "
+            "and print the discovered name + primary_domain + feature_flags "
+            "as a sanity check before writing voog.json."
+        ),
+    )
     init_p.set_defaults(func=init)
 
     list_p = sub.add_parser("list-sites", help="List configured sites")
@@ -62,6 +74,47 @@ def init(args) -> int:
         if not token:
             sys.stderr.write(f"error: api_key for '{name}' cannot be empty.\n")
             return 1
+        if getattr(args, "bootstrap_from_token", False):
+            # SSRF defense: validate the operator-typed host before
+            # shipping the token in an X-API-Token header to it. The
+            # probe is opt-in; an invalid host turns it into a warning
+            # rather than aborting init — the token may still work
+            # for the host as-typed in voog.json (e.g. the operator
+            # might fix it after init).
+            host_err = validate_host(host, tool_name="config init probe")
+            if host_err:
+                sys.stderr.write(
+                    f"    warning: skipping /me/sites probe — {host_err}\n"
+                    f"    (Continuing — voog.json will still be written; "
+                    f"the probe is a sanity check.)\n"
+                )
+                sites[name] = {"host": host, "api_key": token}
+                continue
+            try:
+                probe_client = VoogClient(host=host, api_token=token)
+                probe_resp = probe_client.get("/me/sites")
+                if isinstance(probe_resp, list) and probe_resp:
+                    info = probe_resp[0]
+                    discovered_name = info.get("name", "?")
+                    discovered_primary = info.get("primary_domain", "?")
+                    flags = info.get("feature_flags") or []
+                    flags_str = ",".join(flags) if isinstance(flags, list) else str(flags)
+                    print(
+                        f"    ✓ Token verified — site={discovered_name!r}, "
+                        f"primary_domain={discovered_primary!r}, "
+                        f"feature_flags=[{flags_str}]"
+                    )
+                else:
+                    print(
+                        "    warning: /me/sites returned an unexpected shape — "
+                        "token may not have the expected access. Continuing anyway."
+                    )
+            except Exception as exc:
+                sys.stderr.write(
+                    f"    warning: /me/sites probe failed for '{name}': {exc}\n"
+                    f"    (Continuing — token may still work, the probe is a "
+                    f"sanity check.)\n"
+                )
         sites[name] = {"host": host, "api_key": token}
 
     if not sites:

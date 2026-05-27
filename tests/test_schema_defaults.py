@@ -193,6 +193,28 @@ class TestForceFlagSchemaDefaults(unittest.TestCase):
         client.delete.assert_not_called()
         self.assertTrue(result.isError)
 
+    def test_comment_delete_force_default_false(self):
+        from voog.mcp.tools import comments as comments_tools
+
+        tools = {t.name: t for t in comments_tools.get_tools()}
+        self.assertIs(_schema_default(tools["comment_delete"], "force"), False)
+        client = MagicMock()
+        result = comments_tools.call_tool(
+            "comment_delete", {"article_id": 1, "comment_id": 1}, client
+        )
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_tag_delete_force_default_false(self):
+        from voog.mcp.tools import tags as tags_tools
+
+        tools = {t.name: t for t in tags_tools.get_tools()}
+        self.assertIs(_schema_default(tools["tag_delete"], "force"), False)
+        client = MagicMock()
+        result = tags_tools.call_tool("tag_delete", {"tag_id": 1}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
 
 if __name__ == "__main__":
     unittest.main()

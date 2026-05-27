@@ -35,11 +35,13 @@ from voog.mcp.resources import pages as pages_resources
 from voog.mcp.resources import products as products_resources
 from voog.mcp.resources import redirects as redirects_resources
 from voog.mcp.tools import articles as articles_tools
+from voog.mcp.tools import comments as comments_tools
 from voog.mcp.tools import content_partials as content_partials_tools
 from voog.mcp.tools import ecommerce_settings as ecommerce_settings_tools
 from voog.mcp.tools import elements as elements_tools
 from voog.mcp.tools import layouts as layouts_tools
 from voog.mcp.tools import layouts_sync as layouts_sync_tools
+from voog.mcp.tools import me as me_tools
 from voog.mcp.tools import multilingual as multilingual_tools
 from voog.mcp.tools import pages as pages_tools
 from voog.mcp.tools import pages_mutate as pages_mutate_tools
@@ -47,8 +49,10 @@ from voog.mcp.tools import products as products_tools
 from voog.mcp.tools import products_images as products_images_tools
 from voog.mcp.tools import raw as raw_tools
 from voog.mcp.tools import redirects as redirects_tools
+from voog.mcp.tools import search as search_tools
 from voog.mcp.tools import site as site_tools
 from voog.mcp.tools import snapshot as snapshot_tools
+from voog.mcp.tools import tags as tags_tools
 from voog.mcp.tools import texts as texts_tools
 from voog.mcp.tools import webhooks as webhooks_tools
 
@@ -70,9 +74,25 @@ _REDACTED_KEYS = frozenset(
         "translations",  # per-language string maps on products / variants
         "attributes",  # product create/update attributes dict (price, stock, etc.)
         "fields",  # legacy product fields
+        # PR #125 — voog_list_my_sites raw-token fallback. The tool's
+        # own description acknowledges "transcripts and host logs" as
+        # exposure surfaces; this redacts the **host logs** half (the
+        # transcript half is owned by the MCP host's UI). `token_env`
+        # is intentionally NOT redacted — it's just an env-var NAME,
+        # not a secret, and seeing it in the log is useful operationally.
+        "token",
+        "api_token",
+        "api_key",
     }
 )
 _STRING_CAP = 500  # characters; any single string value longer than this is truncated
+
+# Tools that do NOT require a `site` argument — they either probe a
+# different resource (voog_list_sites returns config) or build a one-off
+# client from token+host (voog_list_my_sites). The dispatcher in
+# handle_call_tool bypasses the standard "site is required" gate for
+# these tool names and dispatches without a client lookup.
+_BUILTIN_NO_SITE_TOOLS = frozenset({"voog_list_sites", "voog_list_my_sites"})
 
 
 def _redact_arguments(arguments: object) -> dict:
@@ -104,11 +124,13 @@ def _redact_arguments(arguments: object) -> dict:
 
 TOOL_GROUPS = [
     articles_tools,
+    comments_tools,
     content_partials_tools,
     ecommerce_settings_tools,
     elements_tools,
     layouts_tools,
     layouts_sync_tools,
+    me_tools,
     multilingual_tools,
     pages_tools,
     pages_mutate_tools,
@@ -116,8 +138,10 @@ TOOL_GROUPS = [
     products_images_tools,
     raw_tools,
     redirects_tools,
+    search_tools,
     site_tools,
     snapshot_tools,
+    tags_tools,
     texts_tools,
     webhooks_tools,
 ]
@@ -222,6 +246,14 @@ async def run_server(global_cfg: GlobalConfig, env: dict[str, str]):
         group = tool_dispatch.get(name)
         if group is None:
             return error_response(f"Unknown tool: {name}")
+        if name in _BUILTIN_NO_SITE_TOOLS:
+            # voog_list_my_sites builds its own client from token+host.
+            # Pass None as the client; the tool handler ignores it.
+            try:
+                return await asyncio.to_thread(group.call_tool, name, arguments, None)
+            except Exception:
+                logger.exception("tool %r raised an unhandled exception", name)
+                raise
         site_name = arguments.get("site")
         if not site_name:
             return error_response(
