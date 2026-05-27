@@ -31,6 +31,7 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
     import urllib.request
 
     from voog.mcp.tools.snapshot import (
+        SITE_SNAPSHOT_LAYOUTS_PARAMS,
         SITE_SNAPSHOT_LIST_ENDPOINTS,
         SITE_SNAPSHOT_SINGLETONS,
         _pick_sample_page_paths,
@@ -73,6 +74,17 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
             pages_data = data
         elif endpoint == "/articles":
             articles_data = data
+
+    # 1b. /layouts fetched separately with include_body=true so layouts.json
+    # carries full bodies for restore-style tooling — mirrors the MCP tool's
+    # S1 (v1.4) split out of the bulk list loop.
+    try:
+        layouts_data = client.get_all("/layouts", params=SITE_SNAPSHOT_LAYOUTS_PARAMS)
+        _write_json(out / "layouts.json", layouts_data)
+        print(f"  layouts.json ({len(layouts_data)})")
+        written += 1
+    except Exception as e:
+        print(f"  skipped layouts.json: {e}")
 
     # 2. Singletons
     for endpoint in SITE_SNAPSHOT_SINGLETONS:
@@ -122,9 +134,15 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
     if article_detail_count:
         print(f"  article details x {article_detail_count}")
 
-    # 5. Ecommerce: products list + per-product details (parallelized).
+    # 5. Ecommerce: products list with include=variants,variant_types,translations
+    # — list response carries the full detail shape, so the per-product detail
+    # fan-out (one GET per product) is eliminated. Mirrors MCP tool S2 (v1.4).
     try:
-        products_data = client.get_all("/products", base=client.ecommerce_url)
+        products_data = client.get_all(
+            "/products",
+            base=client.ecommerce_url,
+            params={"include": PRODUCTS_DETAIL_INCLUDE},
+        )
     except Exception as e:
         print(f"  skipped products.json: {e}")
         products_data = []
@@ -133,26 +151,15 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
         _write_json(out / "products.json", products_data)
         print(f"  products.json ({len(products_data)})")
         written += 1
-        product_ids = [prod.get("id") for prod in products_data if prod.get("id")]
-
-        def _fetch_product_detail(pid):
-            return client.get(
-                f"/products/{pid}",
-                base=client.ecommerce_url,
-                params={"include": PRODUCTS_DETAIL_INCLUDE},
-            )
-
-        product_detail_results = parallel_map(
-            _fetch_product_detail,
-            product_ids,
-            max_workers=8,
-        )
+        # S2: per-product files come from the list response directly — no
+        # per-id GET fan-out. Each item already carries variants /
+        # variant_types / translations via the list-level ?include.
         product_detail_count = 0
-        for pid, detail, exc in product_detail_results:
-            if exc is not None:
-                print(f"  warning: product {pid}: {exc}")
+        for product in products_data:
+            pid = product.get("id")
+            if not pid:
                 continue
-            _write_json(out / f"product_{pid}.json", detail)
+            _write_json(out / f"product_{pid}.json", product)
             written += 1
             product_detail_count += 1
         if product_detail_count:
