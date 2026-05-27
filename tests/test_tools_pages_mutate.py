@@ -890,5 +890,40 @@ class TestPageDuplicate(unittest.TestCase):
         self.assertIn("page_set_hidden", summary_text)
 
 
+class TestPageDuplicateSummary(unittest.TestCase):
+    """S14 — page_duplicate summary surfaces new_path + new_slug."""
+
+    def test_summary_includes_new_path_and_new_slug(self):
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.post.return_value = {
+            "id": 99,
+            "path": "/about-copy",
+            "slug": "about-copy",
+            "hidden": True,
+        }
+        result = pm.call_tool("page_duplicate", {"page_id": 5}, client)
+        # Summary line is the first TextContent in the success_response shape.
+        summary = result[0].text
+        self.assertIn("/about-copy", summary)
+        self.assertIn("about-copy", summary)
+        # JSON body still carries the full response.
+        body = json.loads(result[1].text)
+        self.assertEqual(body["id"], 99)
+
+    def test_summary_handles_missing_path_slug_gracefully(self):
+        # If Voog's response omits path/slug (defensive — should not happen
+        # but verify we don't crash on missing keys).
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.post.return_value = {"id": 99}
+        result = pm.call_tool("page_duplicate", {"page_id": 5}, client)
+        self.assertFalse(getattr(result, "isError", False))
+        # Summary still references the new id even if path/slug missing.
+        self.assertIn("99", result[0].text)
+
+
 if __name__ == "__main__":
     unittest.main()
