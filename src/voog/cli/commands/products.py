@@ -23,6 +23,12 @@ CONTENT_TYPES = {
 
 def add_arguments(subparsers):
     list_p = subparsers.add_parser("products", help="List all products")
+    list_p.add_argument(
+        "--category-id",
+        dest="category_id",
+        type=int,
+        help="Filter to products in this category",
+    )
     list_p.set_defaults(func=cmd_list)
 
     info_p = subparsers.add_parser("product", help="Get or update a product")
@@ -41,12 +47,41 @@ def add_arguments(subparsers):
     img_p.add_argument("files", nargs="+", type=Path)
     img_p.set_defaults(func=cmd_product_image)
 
+    del_p = subparsers.add_parser("product-delete", help="Delete a product (requires --force)")
+    del_p.add_argument("product_id", type=int)
+    del_p.add_argument("--force", action="store_true")
+    del_p.set_defaults(func=cmd_product_delete)
+
+    dup_p = subparsers.add_parser("product-duplicate", help="Duplicate a product")
+    dup_p.add_argument("product_id", type=int)
+    dup_p.set_defaults(func=cmd_product_duplicate)
+
+    bulk_p = subparsers.add_parser(
+        "products-bulk-action",
+        help=("Apply same actions to many products. --actions and --target-ids both required."),
+    )
+    bulk_p.add_argument(
+        "--actions",
+        required=True,
+        help=('JSON array, e.g. \'[{"target_field":"status","action":"set","value":"draft"}]\''),
+    )
+    bulk_p.add_argument(
+        "--target-ids",
+        dest="target_ids",
+        required=True,
+        help=("Comma-separated product ids, OR the literal string 'all' to target every product."),
+    )
+    bulk_p.set_defaults(func=cmd_products_bulk_action)
+
 
 def cmd_list(args, client: VoogClient) -> int:
+    params: dict = {"include": "translations"}
+    if getattr(args, "category_id", None) is not None:
+        params["q.product.category_ids.$in"] = args.category_id
     products = client.get_all(
         "/products",
         base=client.ecommerce_url,
-        params={"include": "translations"},
+        params=params,
     )
     print(f"{'ID':<12} {'Slug':<40} Name")
     print("-" * 80)
@@ -240,3 +275,47 @@ def _upload_asset(path: Path, client: VoogClient) -> dict:
         "width": confirmed.get("width") if confirmed else None,
         "height": confirmed.get("height") if confirmed else None,
     }
+
+
+def cmd_product_delete(args, client: VoogClient) -> int:
+    if not args.force:
+        sys.stderr.write(f"error: refusing to delete product {args.product_id} without --force\n")
+        return 2
+    client.delete(f"/products/{args.product_id}", base=client.ecommerce_url)
+    print(f"  deleted product {args.product_id}")
+    return 0
+
+
+def cmd_product_duplicate(args, client: VoogClient) -> int:
+    result = client.post(f"/products/{args.product_id}/duplicate", {}, base=client.ecommerce_url)
+    new_id = result.get("id") if isinstance(result, dict) else None
+    print(
+        f"  duplicated product {args.product_id} -> {new_id} "
+        f"(status='draft' — voog product {new_id} status=live to publish)"
+    )
+    return 0
+
+
+def cmd_products_bulk_action(args, client: VoogClient) -> int:
+    try:
+        actions = json.loads(args.actions)
+    except json.JSONDecodeError as e:
+        sys.stderr.write(f"error: --actions must be valid JSON: {e}\n")
+        return 2
+    # Parse target-ids.
+    raw = args.target_ids.strip()
+    if raw == "all":
+        target_ids: list[int] | str = "all"
+    else:
+        try:
+            target_ids = [int(p) for p in raw.split(",") if p.strip()]
+        except ValueError:
+            sys.stderr.write("error: --target-ids must be comma-separated ints or 'all'\n")
+            return 2
+        if not target_ids:
+            sys.stderr.write("error: --target-ids is empty\n")
+            return 2
+    body = {"actions": actions, "target_ids": target_ids}
+    result = client.put("/products", body, base=client.ecommerce_url)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    return 0

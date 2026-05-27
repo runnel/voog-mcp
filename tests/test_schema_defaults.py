@@ -215,6 +215,46 @@ class TestForceFlagSchemaDefaults(unittest.TestCase):
         client.delete.assert_not_called()
         self.assertTrue(result.isError)
 
+    def test_product_delete_force_default_false(self):
+        from voog.mcp.tools import products as products_tools
+
+        tools = {t.name: t for t in products_tools.get_tools()}
+        self.assertIs(_schema_default(tools["product_delete"], "force"), False)
+        client = MagicMock()
+        result = products_tools.call_tool("product_delete", {"product_id": 1}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_category_delete_force_default_false(self):
+        from voog.mcp.tools import categories as categories_tools
+
+        tools = {t.name: t for t in categories_tools.get_tools()}
+        self.assertIs(_schema_default(tools["category_delete"], "force"), False)
+        client = MagicMock()
+        result = categories_tools.call_tool("category_delete", {"category_id": 1}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_discount_delete_force_default_false(self):
+        from voog.mcp.tools import discounts as discounts_tools
+
+        tools = {t.name: t for t in discounts_tools.get_tools()}
+        self.assertIs(_schema_default(tools["discount_delete"], "force"), False)
+        client = MagicMock()
+        result = discounts_tools.call_tool("discount_delete", {"discount_id": 1}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_cart_rule_delete_force_default_false(self):
+        from voog.mcp.tools import cart_rules as cart_rules_tools
+
+        tools = {t.name: t for t in cart_rules_tools.get_tools()}
+        self.assertIs(_schema_default(tools["cart_rule_delete"], "force"), False)
+        client = MagicMock()
+        result = cart_rules_tools.call_tool("cart_rule_delete", {"cart_rule_id": 1}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -896,10 +896,19 @@ class TestServerToolRegistry(unittest.TestCase):
             articles as articles_t,
         )
         from voog.mcp.tools import (
+            cart_rules as cart_rules_t,
+        )
+        from voog.mcp.tools import (
+            categories as categories_t,
+        )
+        from voog.mcp.tools import (
             comments as comments_t,
         )
         from voog.mcp.tools import (
             content_partials as content_partials_t,
+        )
+        from voog.mcp.tools import (
+            discounts as discounts_t,
         )
         from voog.mcp.tools import (
             ecommerce_settings as ecommerce_settings_t,
@@ -918,6 +927,9 @@ class TestServerToolRegistry(unittest.TestCase):
         )
         from voog.mcp.tools import (
             multilingual as multilingual_t,
+        )
+        from voog.mcp.tools import (
+            orders as orders_t,
         )
         from voog.mcp.tools import (
             pages as pages_t,
@@ -941,6 +953,9 @@ class TestServerToolRegistry(unittest.TestCase):
             search as search_t,
         )
         from voog.mcp.tools import (
+            shipping as shipping_t,
+        )
+        from voog.mcp.tools import (
             site as site_t,
         )
         from voog.mcp.tools import (
@@ -958,14 +973,18 @@ class TestServerToolRegistry(unittest.TestCase):
 
         expected = {
             articles_t,
+            cart_rules_t,
+            categories_t,
             comments_t,
             content_partials_t,
+            discounts_t,
             ecommerce_settings_t,
             elements_t,
             layouts_t,
             layouts_sync_t,
             me_t,
             multilingual_t,
+            orders_t,
             pages_t,
             pages_mutate_t,
             products_t,
@@ -973,6 +992,7 @@ class TestServerToolRegistry(unittest.TestCase):
             raw_t,
             redirects_t,
             search_t,
+            shipping_t,
             site_t,
             snapshot_t,
             tags_t,

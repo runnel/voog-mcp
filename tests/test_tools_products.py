@@ -10,11 +10,20 @@ from voog.mcp.tools import products as products_tools
 
 
 class TestGetTools(unittest.TestCase):
-    def test_get_tools_returns_four(self):
+    def test_get_tools_returns_seven(self):
         tools = products_tools.get_tools()
         names = [t.name for t in tools]
         self.assertEqual(
-            names, ["products_list", "product_get", "product_update", "product_create"]
+            names,
+            [
+                "products_list",
+                "product_get",
+                "product_update",
+                "product_create",
+                "product_delete",
+                "product_duplicate",
+                "products_bulk_action",
+            ],
         )
 
     def test_products_list_schema(self):
@@ -1039,6 +1048,308 @@ class TestProductCreate(unittest.TestCase):
         )
         client.post.assert_not_called()
         self.assertTrue(result.isError)
+
+
+class TestProductsListCategoryId(unittest.TestCase):
+    def test_with_category_id_adds_q_filter(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://stella.example.com/admin/api/ecommerce/v1"
+        client.get_all.return_value = []
+        products_tools.call_tool("products_list", {"category_id": 99}, client)
+        called_params = client.get_all.call_args[1]["params"]
+        self.assertEqual(called_params["q.product.category_ids.$in"], 99)
+        self.assertEqual(called_params["include"], "translations")
+
+    def test_omitted_category_id_no_filter(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://stella.example.com/admin/api/ecommerce/v1"
+        client.get_all.return_value = []
+        products_tools.call_tool("products_list", {}, client)
+        called_params = client.get_all.call_args[1]["params"]
+        self.assertNotIn("q.product.category_ids.$in", called_params)
+
+    def test_category_id_bool_rejected(self):
+        client = MagicMock()
+        result = products_tools.call_tool("products_list", {"category_id": True}, client)
+        client.get_all.assert_not_called()
+        self.assertTrue(result.isError)
+
+
+class TestProductDelete(unittest.TestCase):
+    def test_in_get_tools(self):
+        names = {t.name for t in products_tools.get_tools()}
+        self.assertIn("product_delete", names)
+
+    def test_requires_force(self):
+        client = MagicMock()
+        result = products_tools.call_tool("product_delete", {"product_id": 7}, client)
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_with_force_calls_client(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://stella.example.com/admin/api/ecommerce/v1"
+        client.delete.return_value = None
+        products_tools.call_tool("product_delete", {"product_id": 7, "force": True}, client)
+        client.delete.assert_called_once_with("/products/7", base=client.ecommerce_url)
+
+    def test_product_id_bool_rejected(self):
+        client = MagicMock()
+        result = products_tools.call_tool(
+            "product_delete", {"product_id": True, "force": True}, client
+        )
+        client.delete.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_annotations(self):
+        tools = {t.name: t for t in products_tools.get_tools()}
+        ann = tools["product_delete"].annotations
+        self.assertIs(_ann_get(ann, "readOnlyHint", "readOnlyHint"), False)
+        self.assertIs(_ann_get(ann, "destructiveHint", "destructiveHint"), True)
+        self.assertIs(_ann_get(ann, "idempotentHint", "idempotentHint"), False)
+
+
+class TestProductDuplicate(unittest.TestCase):
+    def test_in_get_tools(self):
+        names = {t.name for t in products_tools.get_tools()}
+        self.assertIn("product_duplicate", names)
+
+    def test_posts_to_duplicate_endpoint(self):
+        from pathlib import Path
+
+        fixture_path = (
+            Path(__file__).resolve().parent / "fixtures" / "ecommerce" / "products_duplicate.json"
+        )
+        with open(fixture_path, encoding="utf-8") as f:
+            fixture = json.load(f)["response"]
+
+        client = MagicMock()
+        client.ecommerce_url = "https://stella.example.com/admin/api/ecommerce/v1"
+        client.post.return_value = fixture
+        result = products_tools.call_tool("product_duplicate", {"product_id": 42}, client)
+        client.post.assert_called_once_with("/products/42/duplicate", {}, base=client.ecommerce_url)
+        self.assertFalse(getattr(result, "isError", False))
+        body = json.loads(result[1].text)
+        self.assertEqual(body.get("id"), fixture.get("id"))
+
+    def test_product_id_bool_rejected(self):
+        client = MagicMock()
+        result = products_tools.call_tool("product_duplicate", {"product_id": True}, client)
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_annotations(self):
+        tools = {t.name: t for t in products_tools.get_tools()}
+        ann = tools["product_duplicate"].annotations
+        self.assertIs(_ann_get(ann, "readOnlyHint", "readOnlyHint"), False)
+        self.assertIs(_ann_get(ann, "destructiveHint", "destructiveHint"), False)
+        self.assertIs(_ann_get(ann, "idempotentHint", "idempotentHint"), False)
+
+
+class TestProductsBulkAction(unittest.TestCase):
+    def _client(self):
+        c = MagicMock()
+        c.ecommerce_url = "https://stella.example.com/admin/api/ecommerce/v1"
+        c.put.return_value = {
+            "counters": {"processed": 1, "failed": 0},
+            "processed_ids": [1],
+            "failed_ids": [],
+        }
+        return c
+
+    def test_in_get_tools(self):
+        names = {t.name for t in products_tools.get_tools()}
+        self.assertIn("products_bulk_action", names)
+
+    def test_requires_non_empty_actions(self):
+        client = self._client()
+        result = products_tools.call_tool(
+            "products_bulk_action",
+            {"actions": [], "target_ids": [1]},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_action_missing_target_field(self):
+        client = self._client()
+        result = products_tools.call_tool(
+            "products_bulk_action",
+            {"actions": [{"action": "set", "value": "draft"}], "target_ids": [1]},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_unknown_action_verb_rejected(self):
+        client = self._client()
+        result = products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [{"target_field": "status", "action": "publish", "value": "x"}],
+                "target_ids": [1],
+            },
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_target_ids_bool_rejected(self):
+        client = self._client()
+        result = products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [{"target_field": "status", "action": "set", "value": "draft"}],
+                "target_ids": [True],
+            },
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_target_ids_empty_list_rejected(self):
+        client = self._client()
+        result = products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [{"target_field": "status", "action": "set", "value": "draft"}],
+                "target_ids": [],
+            },
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_target_ids_invalid_string_rejected(self):
+        client = self._client()
+        result = products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [{"target_field": "status", "action": "set", "value": "draft"}],
+                "target_ids": "drafts",
+            },
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_target_ids_all_requires_force(self):
+        # 'all' is high blast radius - without force=true the handler must
+        # refuse and NOT touch the client.
+        client = self._client()
+        result = products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [{"target_field": "status", "action": "set", "value": "draft"}],
+                "target_ids": "all",
+            },
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_target_ids_all_with_force_accepted(self):
+        client = self._client()
+        products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [{"target_field": "status", "action": "set", "value": "draft"}],
+                "target_ids": "all",
+                "force": True,
+            },
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertEqual(sent_body["target_ids"], "all")
+        self.assertEqual(len(sent_body["actions"]), 1)
+
+    def test_target_ids_list_no_force_needed(self):
+        # Explicit-id lists don't need force - the caller has named the rows.
+        client = self._client()
+        products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [{"target_field": "status", "action": "set", "value": "draft"}],
+                "target_ids": [1, 2, 3],
+            },
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertEqual(sent_body["target_ids"], [1, 2, 3])
+
+    def test_target_ids_list_length_cap(self):
+        from voog.mcp.tools.products import _BULK_TARGET_IDS_SOFT_CAP
+
+        client = self._client()
+        oversized = list(range(_BULK_TARGET_IDS_SOFT_CAP + 1))
+        result = products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [{"target_field": "status", "action": "set", "value": "draft"}],
+                "target_ids": oversized,
+            },
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_target_ids_list_payload_shape(self):
+        client = self._client()
+        products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [
+                    {
+                        "target_field": "price",
+                        "action": "increase_by_percent",
+                        "value": 10,
+                    }
+                ],
+                "target_ids": [101, 102, 103],
+            },
+            client,
+        )
+        sent = client.put.call_args
+        self.assertEqual(sent[0][0], "/products")
+        self.assertEqual(sent[1]["base"], client.ecommerce_url)
+        body = sent[0][1]
+        self.assertEqual(body["actions"][0]["target_field"], "price")
+        self.assertEqual(body["actions"][0]["action"], "increase_by_percent")
+        self.assertEqual(body["target_ids"], [101, 102, 103])
+
+    def test_response_passthrough_uses_fixture_shape(self):
+        from pathlib import Path
+
+        fixture_path = (
+            Path(__file__).resolve().parent / "fixtures" / "ecommerce" / "products_bulk_update.json"
+        )
+        with open(fixture_path, encoding="utf-8") as f:
+            fixture = json.load(f)["response"]
+
+        client = self._client()
+        client.put.return_value = fixture
+        result = products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [{"target_field": "status", "action": "set", "value": "draft"}],
+                "target_ids": [9001],
+            },
+            client,
+        )
+        body = json.loads(result[1].text)
+        self.assertIn("counters", body)
+        self.assertIn("processed_ids", body)
+        self.assertIn("failed_ids", body)
+
+    def test_annotations(self):
+        tools = {t.name: t for t in products_tools.get_tools()}
+        ann = tools["products_bulk_action"].annotations
+        self.assertIs(_ann_get(ann, "readOnlyHint", "readOnlyHint"), False)
+        # destructiveHint=True because target_ids='all' can wipe the whole
+        # shop's status / stock / pricing in one call. MCP hosts should
+        # prompt for confirmation.
+        self.assertIs(_ann_get(ann, "destructiveHint", "destructiveHint"), True)
+        self.assertIs(_ann_get(ann, "idempotentHint", "idempotentHint"), False)
 
 
 if __name__ == "__main__":

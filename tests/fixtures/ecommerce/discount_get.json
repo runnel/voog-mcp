@@ -1,0 +1,32 @@
+{
+  "_meta": {
+    "captured_at": "2026-05-27T13:29:46+00:00",
+    "source_site": "stella-old",
+    "voog_host": "stellasoomlais.voog.com",
+    "endpoint": "/discounts/21274",
+    "method": "GET",
+    "sanitisation_version": 1,
+    "gotchas": []
+  },
+  "response": {
+    "id": 9001,
+    "name": "Karlova Kohv",
+    "description": null,
+    "code": "KARLOVAKOHV",
+    "status": "open",
+    "applies_to": "cart",
+    "discount_type": "percentage",
+    "amount": "20.0",
+    "amount_mode": "net",
+    "stackable": false,
+    "currency": "EUR",
+    "redemption_count": 0,
+    "redemption_limit": null,
+    "valid_from": "2024-04-29",
+    "valid_to": "2026-12-31",
+    "created_at": "2024-04-29T18:06:05.000Z",
+    "updated_at": "2024-04-29T18:06:05.000Z",
+    "redeemable": true,
+    "orders_count": 0
+  }
+}

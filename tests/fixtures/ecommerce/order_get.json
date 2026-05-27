@@ -1,0 +1,236 @@
+{
+  "_meta": {
+    "captured_at": "2026-05-27T13:29:46+00:00",
+    "source_site": "stella-old",
+    "voog_host": "stellasoomlais.voog.com",
+    "endpoint": "/orders/522050",
+    "method": "GET",
+    "sanitisation_version": 1,
+    "gotchas": [
+      "sanitised: customer email/name/address replaced"
+    ]
+  },
+  "response": {
+    "id": 9001,
+    "uuid": "90c91ebe-f04d-4c06-bae0-751621205a6b",
+    "code": "#4378",
+    "status": "created",
+    "payment_status": "paid",
+    "shipping_status": "not_dispatched",
+    "currency": "EUR",
+    "shipping_method_id": 9002,
+    "shipping_method_option": null,
+    "shipment_id": null,
+    "external_shipment_attrs": null,
+    "gateway_code": "voogpay",
+    "gateway_name": "Voogpay",
+    "payment_method": "card",
+    "items_subtotal_amount": "24.6",
+    "items_original_amount": "24.6",
+    "items_tax_amount": "5.41",
+    "shipping_subtotal_amount": "0.0",
+    "shipping_original_amount": "0.0",
+    "shipping_original_total_amount": "0.0",
+    "shipping_tax_amount": "0.0",
+    "shipping_total_amount": "0.0",
+    "shipping_tax_rate": "22.0",
+    "total_amount": "30.01",
+    "total_discount_amount": "0.0",
+    "item_amounts": [
+      {
+        "subtotal_amount": "24.6",
+        "original_amount": "24.6",
+        "tax_rate": "22.0",
+        "tax_amount": "5.41",
+        "total_amount": "30.01"
+      }
+    ],
+    "tax_amounts": [
+      {
+        "subtotal_amount": "24.6",
+        "tax_rate": "22.0",
+        "tax_amount": "5.41"
+      }
+    ],
+    "return_url": "https://stellasoomlais.com/aksessuaarid/lisad/rihmad/leather-grip",
+    "note": null,
+    "issued_date": "2024-05-08",
+    "value_date": "2024-05-09",
+    "paid_at": "2024-05-08T20:29:12.000Z",
+    "completed_at": null,
+    "gateway_transaction_id": "pi_3PEH6mQuDBUKPUhi04GCexrh",
+    "cart_rules_applied": false,
+    "custom_field_values": {
+      "paki-voib-saata-kasutatud-pakendis-1632983424196": true
+    },
+    "custom_field_metadata": {
+      "paki-voib-saata-kasutatud-pakendis-1632983424196": {
+        "label": "Võib saata kasutatud pakendis.",
+        "kind": "checkbox"
+      }
+    },
+    "created_at": "2024-05-08T20:28:59.000Z",
+    "updated_at": "2024-05-08T20:29:12.000Z",
+    "shipping_method": {
+      "id": 9003,
+      "name": "Järele tulemisega, €0.–",
+      "description": "Pakile saab tulla järele meie stuudiosse (Telliskivi 60A/1, Tallinn) ",
+      "amount": "0.0",
+      "tax_rate": "22.0",
+      "delivery_method": null,
+      "option": null
+    },
+    "billing_address": {
+      "name": "Test Customer",
+      "company_name": "Test Customer",
+      "vat_code": null,
+      "address1": "<sanitised address1>",
+      "address2": null,
+      "city": "<sanitised city>",
+      "zip_code": "<sanitised zip_code>",
+      "state": null,
+      "country_code": "<sanitised country_code>",
+      "phone": "+372 5000 0000",
+      "instructions": null
+    },
+    "shipping_address": {
+      "name": "Test Customer",
+      "company_name": "Test Customer",
+      "vat_code": null,
+      "address1": "<sanitised address1>",
+      "address2": null,
+      "city": "<sanitised city>",
+      "zip_code": "<sanitised zip_code>",
+      "state": null,
+      "country_code": "<sanitised country_code>",
+      "phone": "+372 5000 0000",
+      "instructions": null,
+      "delivery_method_code": null,
+      "delivery_method_external_code": null,
+      "pod_name": null
+    },
+    "customer": {
+      "name": "Test Customer",
+      "email": "customer+1@example.com",
+      "phone": "+372 5000 0000",
+      "language": "et",
+      "consent": false,
+      "marketing_consents": []
+    },
+    "items": [
+      {
+        "id": 9004,
+        "kind": "payment",
+        "status": "unpaid",
+        "product_id": 9005,
+        "note": null,
+        "price": "12.299",
+        "effective_price": "12.299",
+        "original_price": "12.299",
+        "quantity": 2,
+        "amount": "30.0096",
+        "subtotal_amount": "24.598",
+        "tax_amount": "5.4116",
+        "tax_rate": "22.0",
+        "created_at": "2024-05-08T20:28:59.000Z",
+        "updated_at": "2024-05-08T20:28:59.000Z",
+        "has_item_discount": false,
+        "product": {
+          "id": 9006,
+          "price": "12.299",
+          "sale_price": null,
+          "effective_price": "12.299",
+          "is_variant": true,
+          "available": true,
+          "sku": null,
+          "parent_id": 9007,
+          "name": "Leather Grip nahast rihm",
+          "variant_attributes_text": "Värv: Must, Metalldetailid: 1 – Nikkel, Karabiin: Soovin",
+          "variant_attributes": [
+            {
+              "variant_type": {
+                "id": 9008,
+                "name": "Värv"
+              },
+              "variant_value": {
+                "id": 9009,
+                "name": "Must"
+              }
+            },
+            {
+              "variant_type": {
+                "id": 9010,
+                "name": "Metalldetailid"
+              },
+              "variant_value": {
+                "id": 9011,
+                "name": "1 – Nikkel"
+              }
+            },
+            {
+              "variant_type": {
+                "id": 9012,
+                "name": "Karabiin"
+              },
+              "variant_value": {
+                "id": 9013,
+                "name": "Soovin"
+              }
+            }
+          ],
+          "physical_properties": {
+            "dimensions": {
+              "length": null,
+              "width": null,
+              "height": null,
+              "unit": "m",
+              "display_unit": "cm"
+            },
+            "weight": {
+              "weight": null,
+              "unit": "kg",
+              "display_unit": "kg"
+            }
+          },
+          "image_id": 9014,
+          "image": {
+            "content_type": "image/jpeg",
+            "size": 9015,
+            "width": 9016,
+            "height": 472,
+            "id": 9017,
+            "url": "https://media.voog.com/0000/0048/1986/photos/wd-cover.jpg",
+            "thumbnail": {
+              "content_type": "image/jpeg",
+              "size": 9018,
+              "width": 150,
+              "height": 59,
+              "url": "https://media.voog.com/0000/0048/1986/photos/wd-cover_medium.jpg"
+            },
+            "sizes": [
+              {
+                "content_type": "image/jpeg",
+                "size": 9019,
+                "width": 600,
+                "height": 236,
+                "url": "https://media.voog.com/0000/0048/1986/photos/wd-cover_block.jpg"
+              },
+              {
+                "content_type": "image/jpeg",
+                "size": 9020,
+                "width": 9021,
+                "height": 472,
+                "url": "https://media.voog.com/0000/0048/1986/photos/wd-cover.jpg"
+              }
+            ]
+          }
+        },
+        "product_name": "Leather Grip nahast rihm"
+      }
+    ],
+    "urls": {
+      "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/orders/522050",
+      "invoice_url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/invoices/90c91ebe-f04d-4c06-bae0-751621205a6b"
+    }
+  }
+}

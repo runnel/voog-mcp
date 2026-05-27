@@ -1,0 +1,148 @@
+{
+  "_meta": {
+    "captured_at": "2026-05-27T13:29:48+00:00",
+    "source_site": "stella-old",
+    "voog_host": "stellasoomlais.voog.com",
+    "endpoint": "/products/{id}/duplicate",
+    "method": "POST",
+    "sanitisation_version": 1,
+    "gotchas": [
+      "duplicate inherits status=draft per Voog docs"
+    ]
+  },
+  "response": {
+    "id": 9001,
+    "price": "1147.54",
+    "price_min": "1147.54",
+    "price_max": "1147.54",
+    "sale_price": null,
+    "effective_price": "1147.54",
+    "effective_price_min": "1147.54",
+    "effective_price_max": "1147.54",
+    "tax_rate": "22.0",
+    "status": "live",
+    "stock": null,
+    "reserved_quantity": 0,
+    "sku": null,
+    "uses_variants": false,
+    "variants_count": 0,
+    "created_at": "2026-05-27T13:29:48.379Z",
+    "updated_at": "2026-05-27T13:29:48.379Z",
+    "in_stock": true,
+    "on_sale": false,
+    "name": "Roheline seljakott Go to the Library Maxi",
+    "slug": "roheline-seljakott-go-to-the-library-maxi-1",
+    "description": null,
+    "physical_properties": {
+      "dimensions": {
+        "length": null,
+        "width": null,
+        "height": null,
+        "unit": "m",
+        "display_unit": "cm"
+      },
+      "weight": {
+        "weight": null,
+        "unit": "kg",
+        "display_unit": "kg"
+      }
+    },
+    "image_id": 9002,
+    "asset_ids": [
+      9003
+    ],
+    "image": {
+      "content_type": "image/jpeg",
+      "size": 9004,
+      "width": 9005,
+      "height": 9006,
+      "id": 9007,
+      "url": "https://media.voog.com/0000/0048/1986/photos/IMG_3144.jpg",
+      "thumbnail": {
+        "content_type": "image/jpeg",
+        "size": 9008,
+        "width": 108,
+        "height": 150,
+        "url": "https://media.voog.com/0000/0048/1986/photos/IMG_3144_medium.jpg"
+      },
+      "sizes": [
+        {
+          "content_type": "image/jpeg",
+          "size": 9009,
+          "width": 432,
+          "height": 600,
+          "url": "https://media.voog.com/0000/0048/1986/photos/IMG_3144_block.jpg"
+        },
+        {
+          "content_type": "image/jpeg",
+          "size": 9010,
+          "width": 921,
+          "height": 9011,
+          "url": "https://media.voog.com/0000/0048/1986/photos/IMG_3144_large.jpg"
+        },
+        {
+          "content_type": "image/jpeg",
+          "size": 9012,
+          "width": 9013,
+          "height": 9014,
+          "url": "https://media.voog.com/0000/0048/1986/photos/IMG_3144_huge.jpg"
+        },
+        {
+          "content_type": "image/jpeg",
+          "size": 9015,
+          "width": 9016,
+          "height": 9017,
+          "url": "https://media.voog.com/0000/0048/1986/photos/IMG_3144.jpg"
+        }
+      ]
+    },
+    "assets": [
+      {
+        "content_type": "image/jpeg",
+        "size": 9018,
+        "width": 9019,
+        "height": 9020,
+        "id": 9021,
+        "url": "https://media.voog.com/0000/0048/1986/photos/IMG_3144.jpg",
+        "thumbnail": {
+          "content_type": "image/jpeg",
+          "size": 9022,
+          "width": 108,
+          "height": 150,
+          "url": "https://media.voog.com/0000/0048/1986/photos/IMG_3144_medium.jpg"
+        },
+        "sizes": [
+          {
+            "content_type": "image/jpeg",
+            "size": 9023,
+            "width": 432,
+            "height": 600,
+            "url": "https://media.voog.com/0000/0048/1986/photos/IMG_3144_block.jpg"
+          },
+          {
+            "content_type": "image/jpeg",
+            "size": 9024,
+            "width": 921,
+            "height": 9025,
+            "url": "https://media.voog.com/0000/0048/1986/photos/IMG_3144_large.jpg"
+          },
+          {
+            "content_type": "image/jpeg",
+            "size": 9026,
+            "width": 9027,
+            "height": 9028,
+            "url": "https://media.voog.com/0000/0048/1986/photos/IMG_3144_huge.jpg"
+          },
+          {
+            "content_type": "image/jpeg",
+            "size": 9029,
+            "width": 9030,
+            "height": 9031,
+            "url": "https://media.voog.com/0000/0048/1986/photos/IMG_3144.jpg"
+          }
+        ]
+      }
+    ],
+    "canonical_url": "https://stellasoomlais.voog.com/et/products/roheline-seljakott-go-to-the-library-maxi-1"
+  }
+}
