@@ -17,13 +17,25 @@ import sys
 from pathlib import Path
 
 from voog.cli.commands import (
+    cart_rules as cart_rules_cmd,
+)
+from voog.cli.commands import (
+    categories as categories_cmd,
+)
+from voog.cli.commands import (
     config as config_cmd,
+)
+from voog.cli.commands import (
+    discounts as discounts_cmd,
 )
 from voog.cli.commands import (
     layouts as layouts_cmd,
 )
 from voog.cli.commands import (
     list as list_cmd,
+)
+from voog.cli.commands import (
+    orders as orders_cmd,
 )
 from voog.cli.commands import (
     pages as pages_cmd,
@@ -42,6 +54,9 @@ from voog.cli.commands import (
 )
 from voog.cli.commands import (
     serve as serve_cmd,
+)
+from voog.cli.commands import (
+    shipping as shipping_cmd,
 )
 from voog.cli.commands import (
     snapshot as snapshot_cmd,
@@ -71,6 +86,11 @@ COMMANDS = [
     layouts_cmd,
     redirects_cmd,
     snapshot_cmd,
+    categories_cmd,
+    orders_cmd,
+    discounts_cmd,
+    cart_rules_cmd,
+    shipping_cmd,
 ]
 
 
