@@ -288,6 +288,52 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": False,
             },
         ),
+        Tool(
+            name="element_move",
+            description=(
+                "Re-order or re-parent an element instance "
+                "(`PUT /elements/{element_id}/move`). Body is FLAT: "
+                "`{position: int, parent_id: int}` (either or both — at "
+                "least one is required). "
+                "SCOPE NOTE: this operates on element INSTANCES inside a "
+                "definition, not on element_definitions (the schema). "
+                "element_definition mutations remain passthrough — "
+                "different resource. Use elements_list to find element "
+                "ids; use element_definitions_list for schema discovery. "
+                "Idempotent: same payload twice yields the same end state."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "element_id": {
+                        "type": "integer",
+                        "description": "Voog element id (from elements_list)",
+                    },
+                    "position": {
+                        "type": "integer",
+                        "description": (
+                            "New position (1-indexed) within the parent. "
+                            "Optional; supply with or without parent_id."
+                        ),
+                    },
+                    "parent_id": {
+                        "type": "integer",
+                        "description": (
+                            "New parent element id, or null/omit to keep "
+                            "the current parent. Note: parent_id is an "
+                            "ELEMENT id (sibling parent), not a page_id."
+                        ),
+                    },
+                },
+                "required": ["site", "element_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": True,
+            },
+        ),
     ]
 
 
@@ -451,6 +497,34 @@ def _element_delete(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response(f"element_delete id={element_id} failed: {e}")
 
 
+_ELEMENT_MOVE_FIELDS = ("position", "parent_id")
+
+
+def _element_move(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    element_id = arguments.get("element_id")
+    err = require_int("element_id", element_id, tool_name="element_move")
+    if err:
+        return error_response(err)
+    body: dict = {}
+    for key in _ELEMENT_MOVE_FIELDS:
+        val = arguments.get(key)
+        if val is not None:
+            err = require_int(key, val, tool_name="element_move")
+            if err:
+                return error_response(err)
+            body[key] = val
+    if not body:
+        return error_response("element_move: supply at least one of position / parent_id")
+    try:
+        result = client.put(f"/elements/{element_id}/move", body)
+        return success_response(
+            result,
+            summary=f"🧩 element {element_id} moved: {sorted(body.keys())}",
+        )
+    except Exception as e:
+        return error_response(f"element_move id={element_id} failed: {e}")
+
+
 _DISPATCH = {
     "elements_list": _elements_list,
     "element_get": _element_get,
@@ -458,6 +532,7 @@ _DISPATCH = {
     "element_create": _element_create,
     "element_update": _element_update,
     "element_delete": _element_delete,
+    "element_move": _element_move,
 }
 
 

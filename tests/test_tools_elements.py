@@ -8,7 +8,7 @@ from voog.mcp.tools import elements as et
 
 
 class TestGetTools(unittest.TestCase):
-    def test_six_tools_registered(self):
+    def test_seven_tools_registered(self):
         names = sorted(t.name for t in et.get_tools())
         self.assertEqual(
             names,
@@ -17,6 +17,7 @@ class TestGetTools(unittest.TestCase):
                 "element_definitions_list",
                 "element_delete",
                 "element_get",
+                "element_move",
                 "element_update",
                 "elements_list",
             ],
@@ -655,3 +656,76 @@ class TestElementsListFilters(unittest.TestCase):
             client,
         )
         self.assertTrue(result.isError)
+
+
+class TestElementMove(unittest.TestCase):
+    def test_in_get_tools(self):
+        names = {t.name for t in et.get_tools()}
+        self.assertIn("element_move", names)
+
+    def test_position_only(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 5, "position": 3}
+        et.call_tool(
+            "element_move",
+            {"element_id": 5, "position": 3},
+            client,
+        )
+        client.put.assert_called_once_with(
+            "/elements/5/move",
+            {"position": 3},
+        )
+
+    def test_parent_id_only(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 5, "parent_id": 99}
+        et.call_tool(
+            "element_move",
+            {"element_id": 5, "parent_id": 99},
+            client,
+        )
+        client.put.assert_called_once_with(
+            "/elements/5/move",
+            {"parent_id": 99},
+        )
+
+    def test_both_fields(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        et.call_tool(
+            "element_move",
+            {"element_id": 5, "position": 1, "parent_id": 99},
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertEqual(sent_body["position"], 1)
+        self.assertEqual(sent_body["parent_id"], 99)
+
+    def test_requires_at_least_one_field(self):
+        client = MagicMock()
+        result = et.call_tool("element_move", {"element_id": 5}, client)
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_rejects_bool_position(self):
+        client = MagicMock()
+        result = et.call_tool(
+            "element_move",
+            {"element_id": 5, "position": True},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_requires_element_id(self):
+        client = MagicMock()
+        result = et.call_tool("element_move", {"position": 1}, client)
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_annotations(self):
+        tools = {t.name: t for t in et.get_tools()}
+        ann = tools["element_move"].annotations
+        self.assertIs(ann.readOnlyHint, False)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, True)
