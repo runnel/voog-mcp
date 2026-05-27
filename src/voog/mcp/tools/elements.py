@@ -1,6 +1,6 @@
 """MCP tools for Voog elements (structured catalog content).
 
-Six tools (audit I6):
+Seven tools (audit I6 + v1.4 Phase 3 S13):
 
   - elements_list             — GET /elements (filterable)
   - element_get               — GET /elements/{id}
@@ -8,15 +8,20 @@ Six tools (audit I6):
   - element_create            — POST /elements
   - element_update            — PUT /elements/{id} (partial)
   - element_delete            — DELETE /elements/{id} (force gate)
+  - element_move              — PUT /elements/{id}/move (query-string params)
 
-Bodies are FLAT (no envelope). Element_create requires either
-element_definition_id OR element_definition_title (id takes precedence
+Bodies for CRUD ops are FLAT (no envelope). `element_create` requires either
+`element_definition_id` OR `element_definition_title` (id takes precedence
 per Voog docs). element_definition mutation endpoints exist server-side
-but are deferred — they're schema-level power-user ops; passthrough
-handles when needed.
+but are deferred — schema-level power-user ops; passthrough handles when
+needed. N5 scope note: `element_move` operates on element INSTANCES,
+not on element_definitions.
 
-Element-move (PUT /elements/{id}/move) is also deferred — niche, and
-the audit's "minimal set" listing doesn't include it.
+`element_move` is a special shape: per Voog docs it takes its inputs
+as QUERY-STRING params (mirrors `node_move`), NOT a JSON body. Params:
+`page_id` (new parent page id), `before` (element id to position
+before), `after` (element id to position after). Docs:
+https://www.voog.com/developers/api/resources/elements
 """
 
 from mcp.types import CallToolResult, TextContent, Tool
@@ -292,15 +297,19 @@ def get_tools() -> list[Tool]:
             name="element_move",
             description=(
                 "Re-order or re-parent an element instance "
-                "(`PUT /elements/{element_id}/move`). Body is FLAT: "
-                "`{position: int, parent_id: int}` (either or both — at "
-                "least one is required). "
+                "(`PUT /elements/{element_id}/move`). Inputs travel as "
+                "QUERY-STRING params per Voog docs (mirrors node_move). "
+                "All params optional; supply at least one of `page_id`, "
+                "`before`, or `after`. `page_id` = new parent page id "
+                "(integer); `before` / `after` = existing element id "
+                "for positional placement on current or new parent page. "
                 "SCOPE NOTE: this operates on element INSTANCES inside a "
                 "definition, not on element_definitions (the schema). "
                 "element_definition mutations remain passthrough — "
                 "different resource. Use elements_list to find element "
                 "ids; use element_definitions_list for schema discovery. "
-                "Idempotent: same payload twice yields the same end state."
+                "Voog docs: "
+                "https://www.voog.com/developers/api/resources/elements"
             ),
             inputSchema={
                 "type": "object",
@@ -310,19 +319,29 @@ def get_tools() -> list[Tool]:
                         "type": "integer",
                         "description": "Voog element id (from elements_list)",
                     },
-                    "position": {
+                    "page_id": {
                         "type": "integer",
                         "description": (
-                            "New position (1-indexed) within the parent. "
-                            "Optional; supply with or without parent_id."
+                            "New parent PAGE id. Omit to keep the "
+                            "current parent page. Note: parent is a "
+                            "PAGE id (`page.id` from pages_list), "
+                            "not an element id."
                         ),
                     },
-                    "parent_id": {
+                    "before": {
                         "type": "integer",
                         "description": (
-                            "New parent element id, or null/omit to keep "
-                            "the current parent. Note: parent_id is an "
-                            "ELEMENT id (sibling parent), not a page_id."
+                            "Existing ELEMENT id; the moved element "
+                            "is placed before it. Mutually exclusive "
+                            "with `after`."
+                        ),
+                    },
+                    "after": {
+                        "type": "integer",
+                        "description": (
+                            "Existing ELEMENT id; the moved element "
+                            "is placed after it. Mutually exclusive "
+                            "with `before`."
                         ),
                     },
                 },
@@ -497,7 +516,7 @@ def _element_delete(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response(f"element_delete id={element_id} failed: {e}")
 
 
-_ELEMENT_MOVE_FIELDS = ("position", "parent_id")
+_ELEMENT_MOVE_FIELDS = ("page_id", "before", "after")
 
 
 def _element_move(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
@@ -505,21 +524,25 @@ def _element_move(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
     err = require_int("element_id", element_id, tool_name="element_move")
     if err:
         return error_response(err)
-    body: dict = {}
+    params: dict = {}
     for key in _ELEMENT_MOVE_FIELDS:
         val = arguments.get(key)
         if val is not None:
             err = require_int(key, val, tool_name="element_move")
             if err:
                 return error_response(err)
-            body[key] = val
-    if not body:
-        return error_response("element_move: supply at least one of position / parent_id")
+            params[key] = val
+    if not params:
+        return error_response("element_move: supply at least one of page_id / before / after")
+    if "before" in params and "after" in params:
+        return error_response(
+            "element_move: `before` and `after` are mutually exclusive — pick one"
+        )
     try:
-        result = client.put(f"/elements/{element_id}/move", body)
+        result = client.put(f"/elements/{element_id}/move", params=params)
         return success_response(
             result,
-            summary=f"🧩 element {element_id} moved: {sorted(body.keys())}",
+            summary=f"🧩 element {element_id} moved: {sorted(params.keys())}",
         )
     except Exception as e:
         return error_response(f"element_move id={element_id} failed: {e}")

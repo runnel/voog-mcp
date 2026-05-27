@@ -659,47 +659,97 @@ class TestElementsListFilters(unittest.TestCase):
 
 
 class TestElementMove(unittest.TestCase):
+    """Voog `PUT /elements/{id}/move` uses QUERY-STRING params, not body.
+
+    Verified against the Voog API docs
+    (https://www.voog.com/developers/api/resources/elements):
+
+      "Reorders or moves element around elements list of current page
+       and/or some other page. Example request: PUT .../move?before=1"
+
+    Params: page_id (new parent page id), before / after (element id
+    for positional placement). Mirrors `node_move` shape — both endpoints
+    take their inputs in the URL, not the body.
+    """
+
     def test_in_get_tools(self):
         names = {t.name for t in et.get_tools()}
         self.assertIn("element_move", names)
 
-    def test_position_only(self):
-        client = MagicMock()
-        client.put.return_value = {"id": 5, "position": 3}
-        et.call_tool(
-            "element_move",
-            {"element_id": 5, "position": 3},
-            client,
-        )
-        client.put.assert_called_once_with(
-            "/elements/5/move",
-            {"position": 3},
-        )
-
-    def test_parent_id_only(self):
-        client = MagicMock()
-        client.put.return_value = {"id": 5, "parent_id": 99}
-        et.call_tool(
-            "element_move",
-            {"element_id": 5, "parent_id": 99},
-            client,
-        )
-        client.put.assert_called_once_with(
-            "/elements/5/move",
-            {"parent_id": 99},
-        )
-
-    def test_both_fields(self):
+    def test_page_id_only(self):
         client = MagicMock()
         client.put.return_value = {"id": 5}
         et.call_tool(
             "element_move",
-            {"element_id": 5, "position": 1, "parent_id": 99},
+            {"element_id": 5, "page_id": 99},
             client,
         )
-        sent_body = client.put.call_args[0][1]
-        self.assertEqual(sent_body["position"], 1)
-        self.assertEqual(sent_body["parent_id"], 99)
+        # Voog requires query-string, not body — assert path + params.
+        client.put.assert_called_once_with(
+            "/elements/5/move",
+            params={"page_id": 99},
+        )
+
+    def test_before_only(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        et.call_tool(
+            "element_move",
+            {"element_id": 5, "before": 3},
+            client,
+        )
+        client.put.assert_called_once_with(
+            "/elements/5/move",
+            params={"before": 3},
+        )
+
+    def test_after_only(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        et.call_tool(
+            "element_move",
+            {"element_id": 5, "after": 7},
+            client,
+        )
+        client.put.assert_called_once_with(
+            "/elements/5/move",
+            params={"after": 7},
+        )
+
+    def test_page_id_and_before(self):
+        # Docs example: ?page_id=1&before=1 — relocating to a different
+        # page AND positioning relative to a sibling there is valid.
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        et.call_tool(
+            "element_move",
+            {"element_id": 5, "page_id": 1, "before": 8},
+            client,
+        )
+        sent_params = client.put.call_args.kwargs["params"]
+        self.assertEqual(sent_params["page_id"], 1)
+        self.assertEqual(sent_params["before"], 8)
+
+    def test_before_and_after_mutually_exclusive(self):
+        client = MagicMock()
+        result = et.call_tool(
+            "element_move",
+            {"element_id": 5, "before": 3, "after": 7},
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_no_body_argument_sent(self):
+        # Regression guard: never send a JSON body. Voog returns 422
+        # for body+/move endpoints — node_move docs warn likewise.
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        et.call_tool("element_move", {"element_id": 5, "page_id": 1}, client)
+        call = client.put.call_args
+        # client.put signature: (path, data=None, *, base, params)
+        # positional args should be path only — no body in args[1].
+        self.assertEqual(len(call.args), 1)
 
     def test_requires_at_least_one_field(self):
         client = MagicMock()
@@ -707,11 +757,11 @@ class TestElementMove(unittest.TestCase):
         client.put.assert_not_called()
         self.assertTrue(result.isError)
 
-    def test_rejects_bool_position(self):
+    def test_rejects_bool_before(self):
         client = MagicMock()
         result = et.call_tool(
             "element_move",
-            {"element_id": 5, "position": True},
+            {"element_id": 5, "before": True},
             client,
         )
         client.put.assert_not_called()
@@ -719,7 +769,7 @@ class TestElementMove(unittest.TestCase):
 
     def test_requires_element_id(self):
         client = MagicMock()
-        result = et.call_tool("element_move", {"position": 1}, client)
+        result = et.call_tool("element_move", {"before": 1}, client)
         client.put.assert_not_called()
         self.assertTrue(result.isError)
 
