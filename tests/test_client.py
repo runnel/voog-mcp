@@ -209,7 +209,7 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
     def test_no_params_uses_only_pagination(self):
         client = self._make_client()
         client.get_all("/pages")
-        client.get.assert_called_once_with("/pages", base=None, params={"per_page": 200, "page": 1})
+        client.get.assert_called_once_with("/pages", base=None, params={"per_page": 250, "page": 1})
 
     def test_caller_params_merged_with_pagination(self):
         client = self._make_client()
@@ -217,7 +217,7 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
         client.get.assert_called_once_with(
             "/products",
             base=None,
-            params={"per_page": 200, "page": 1, "include": "translations"},
+            params={"per_page": 250, "page": 1, "include": "translations"},
         )
 
     def test_base_kwarg_passed_through(self):
@@ -236,8 +236,8 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
         client = VoogClient(host="example.com", api_token="t")
         client.get = MagicMock(
             side_effect=[
-                [{"id": i} for i in range(200)],
-                [{"id": 200}],
+                [{"id": i} for i in range(250)],
+                [{"id": 250}],
             ]
         )
         client.get_all("/x", params={"page": 99})
@@ -250,12 +250,12 @@ class TestGetAllParamsPassthrough(unittest.TestCase):
         client = VoogClient(host="example.com", api_token="t")
         client.get = MagicMock(
             side_effect=[
-                [{"id": i} for i in range(200)],
-                [{"id": 200}],
+                [{"id": i} for i in range(250)],
+                [{"id": 250}],
             ]
         )
         result = client.get_all("/x", params={"include": "y"})
-        self.assertEqual(len(result), 201)
+        self.assertEqual(len(result), 251)
         first_call = client.get.call_args_list[0]
         second_call = client.get.call_args_list[1]
         self.assertEqual(first_call.kwargs["params"]["page"], 1)
@@ -294,14 +294,16 @@ class TestGetAllPagination(unittest.TestCase):
         self.assertEqual(results, [])
         mock_get.assert_called_once()
 
-    def test_default_per_page_is_200(self):
-        # NOTE: MD1 in PR 1b bumps this to 250 and renames the test.
+    def test_default_per_page_is_250(self):
+        # MD1: default per_page raised to 250 (Voog's documented server-side
+        # max). Was 200 in v1.3. Halves the round-trip count vs the v1.2.x
+        # 100 default, with another 20% drop on top of v1.3.
         client = VoogClient(host="example.com", api_token="t")
         with patch.object(client, "get") as mock_get:
             mock_get.return_value = []
             client.get_all("/pages")
         _, kwargs = mock_get.call_args
-        self.assertEqual(kwargs["params"]["per_page"], 200)
+        self.assertEqual(kwargs["params"]["per_page"], 250)
 
     def test_caller_per_page_override_wins(self):
         client = VoogClient(host="example.com", api_token="t")

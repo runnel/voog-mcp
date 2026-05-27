@@ -257,7 +257,7 @@ class VoogClient:
         results = []
         page = 1
         while True:
-            page_params = {"per_page": 200, **(params or {}), "page": page}
+            page_params = {"per_page": 250, **(params or {}), "page": page}
             per_page_resolved = page_params["per_page"]
             data = self.get(path, base=base, params=page_params)
             if not data:
