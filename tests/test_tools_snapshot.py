@@ -896,6 +896,9 @@ class TestServerToolRegistry(unittest.TestCase):
             articles as articles_t,
         )
         from voog.mcp.tools import (
+            cart_rules as cart_rules_t,
+        )
+        from voog.mcp.tools import (
             categories as categories_t,
         )
         from voog.mcp.tools import (
@@ -955,6 +958,7 @@ class TestServerToolRegistry(unittest.TestCase):
 
         expected = {
             articles_t,
+            cart_rules_t,
             categories_t,
             content_partials_t,
             discounts_t,
