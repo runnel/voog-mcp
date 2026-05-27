@@ -944,6 +944,9 @@ class TestServerToolRegistry(unittest.TestCase):
             redirects as redirects_t,
         )
         from voog.mcp.tools import (
+            shipping as shipping_t,
+        )
+        from voog.mcp.tools import (
             site as site_t,
         )
         from voog.mcp.tools import (
@@ -974,6 +977,7 @@ class TestServerToolRegistry(unittest.TestCase):
             products_images_t,
             raw_t,
             redirects_t,
+            shipping_t,
             site_t,
             snapshot_t,
             texts_t,

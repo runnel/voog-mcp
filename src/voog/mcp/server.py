@@ -51,6 +51,7 @@ from voog.mcp.tools import products as products_tools
 from voog.mcp.tools import products_images as products_images_tools
 from voog.mcp.tools import raw as raw_tools
 from voog.mcp.tools import redirects as redirects_tools
+from voog.mcp.tools import shipping as shipping_tools
 from voog.mcp.tools import site as site_tools
 from voog.mcp.tools import snapshot as snapshot_tools
 from voog.mcp.tools import texts as texts_tools
@@ -124,6 +125,7 @@ TOOL_GROUPS = [
     products_images_tools,
     raw_tools,
     redirects_tools,
+    shipping_tools,
     site_tools,
     snapshot_tools,
     texts_tools,
