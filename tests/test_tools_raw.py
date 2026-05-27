@@ -9,11 +9,16 @@ from voog.mcp.tools import raw as raw_tools
 
 
 class TestGetTools(unittest.TestCase):
-    def test_two_tools_registered(self):
+    def test_four_tools_registered(self):
         names = [t.name for t in raw_tools.get_tools()]
         self.assertEqual(
             sorted(names),
-            ["voog_admin_api_call", "voog_ecommerce_api_call"],
+            [
+                "voog_admin_api_call",
+                "voog_admin_api_read",
+                "voog_ecommerce_api_call",
+                "voog_ecommerce_api_read",
+            ],
         )
 
     def test_admin_call_annotations(self):
@@ -295,3 +300,179 @@ class TestEcommerceApiCall(unittest.TestCase):
             body["settings"]["translations"]["products_url_slug"]["en"],
             "products",
         )
+
+
+class TestAdminApiRead(unittest.TestCase):
+    """voog_admin_api_read — readOnlyHint=true GET-only passthrough (S3)."""
+
+    def test_in_get_tools(self):
+        names = {t.name for t in raw_tools.get_tools()}
+        self.assertIn("voog_admin_api_read", names)
+
+    def test_annotations(self):
+        tools = {t.name: t for t in raw_tools.get_tools()}
+        ann = tools["voog_admin_api_read"].annotations
+        self.assertIs(ann.readOnlyHint, True)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, True)
+
+    def test_get_passthrough(self):
+        client = MagicMock()
+        client.base_url = "https://example.com/admin/api"
+        client.get.return_value = [{"id": 1}]
+        result = raw_tools.call_tool(
+            "voog_admin_api_read",
+            {"path": "/forms"},
+            client,
+        )
+        client.get.assert_called_once_with(
+            "/forms",
+            base="https://example.com/admin/api",
+            params=None,
+        )
+        body = json.loads(result[1].text)
+        self.assertEqual(body, [{"id": 1}])
+
+    def test_get_with_params(self):
+        client = MagicMock()
+        client.base_url = "https://example.com/admin/api"
+        client.get.return_value = {"ok": True}
+        raw_tools.call_tool(
+            "voog_admin_api_read",
+            {"path": "/articles", "params": {"q.article.title.$cont": "kuju"}},
+            client,
+        )
+        client.get.assert_called_once_with(
+            "/articles",
+            base="https://example.com/admin/api",
+            params={"q.article.title.$cont": "kuju"},
+        )
+
+    def test_rejects_path_traversal(self):
+        client = MagicMock()
+        result = raw_tools.call_tool(
+            "voog_admin_api_read",
+            {"path": "/../../etc/passwd"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
+
+    def test_response_does_not_carry_deprecation_prefix(self):
+        # The NEW read tool is non-deprecated — response body must not
+        # start with "DEPRECATED:".
+        client = MagicMock()
+        client.base_url = "https://example.com/admin/api"
+        client.get.return_value = []
+        result = raw_tools.call_tool(
+            "voog_admin_api_read",
+            {"path": "/forms"},
+            client,
+        )
+        self.assertFalse(result[0].text.startswith("DEPRECATED:"))
+
+
+class TestEcommerceApiRead(unittest.TestCase):
+    def test_in_get_tools(self):
+        names = {t.name for t in raw_tools.get_tools()}
+        self.assertIn("voog_ecommerce_api_read", names)
+
+    def test_uses_ecommerce_base(self):
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        client.get.return_value = []
+        raw_tools.call_tool(
+            "voog_ecommerce_api_read",
+            {"path": "/orders"},
+            client,
+        )
+        client.get.assert_called_once_with(
+            "/orders",
+            base="https://example.com/admin/api/ecommerce/v1",
+            params=None,
+        )
+
+    def test_annotations(self):
+        tools = {t.name: t for t in raw_tools.get_tools()}
+        ann = tools["voog_ecommerce_api_read"].annotations
+        self.assertIs(ann.readOnlyHint, True)
+        self.assertIs(ann.destructiveHint, False)
+        self.assertIs(ann.idempotentHint, True)
+
+
+class TestAdminApiCallGetDeprecation(unittest.TestCase):
+    """voog_admin_api_call(method='GET', ...) emits deprecation on two
+    channels: Python warnings.warn (visible to CLI/tests/stderr) AND a
+    TextContent body prefix (visible to MCP host / LLM)."""
+
+    def test_get_emits_python_warning(self):
+        import warnings
+
+        client = MagicMock()
+        client.base_url = "https://example.com/admin/api"
+        client.get.return_value = []
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            raw_tools.call_tool(
+                "voog_admin_api_call",
+                {"method": "GET", "path": "/forms"},
+                client,
+            )
+        self.assertEqual(len(caught), 1)
+        self.assertTrue(issubclass(caught[0].category, DeprecationWarning))
+        self.assertIn("voog_admin_api_read", str(caught[0].message))
+        self.assertIn("v1.5", str(caught[0].message))
+
+    def test_get_response_starts_with_deprecation_prefix(self):
+        client = MagicMock()
+        client.base_url = "https://example.com/admin/api"
+        client.get.return_value = [{"id": 1}]
+        result = raw_tools.call_tool(
+            "voog_admin_api_call",
+            {"method": "GET", "path": "/forms"},
+            client,
+        )
+        # First TextContent in the success_response shape carries the summary
+        # — that's where the MCP host surfaces the human-readable banner.
+        self.assertTrue(result[0].text.startswith("DEPRECATED:"))
+        self.assertIn("voog_admin_api_read", result[0].text)
+        self.assertIn("v1.5", result[0].text)
+        # JSON body still parses cleanly (prefix is in summary, not body).
+        body = json.loads(result[1].text)
+        self.assertEqual(body, [{"id": 1}])
+
+    def test_non_get_method_no_deprecation(self):
+        # POST/PUT/PATCH/DELETE on the old tool stay non-deprecated in v1.4
+        # — only GET is being migrated to the read tool.
+        import warnings
+
+        client = MagicMock()
+        client.base_url = "https://example.com/admin/api"
+        client.post.return_value = {"id": 7}
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = raw_tools.call_tool(
+                "voog_admin_api_call",
+                {"method": "POST", "path": "/articles", "body": {"x": 1}},
+                client,
+            )
+        self.assertEqual(len(caught), 0)
+        self.assertFalse(result[0].text.startswith("DEPRECATED:"))
+
+
+class TestEcommerceApiCallGetDeprecation(unittest.TestCase):
+    def test_get_emits_python_warning(self):
+        import warnings
+
+        client = MagicMock()
+        client.ecommerce_url = "https://example.com/admin/api/ecommerce/v1"
+        client.get.return_value = []
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            raw_tools.call_tool(
+                "voog_ecommerce_api_call",
+                {"method": "GET", "path": "/orders"},
+                client,
+            )
+        self.assertEqual(len(caught), 1)
+        self.assertIn("voog_ecommerce_api_read", str(caught[0].message))
