@@ -932,6 +932,9 @@ class TestServerToolRegistry(unittest.TestCase):
             redirects as redirects_t,
         )
         from voog.mcp.tools import (
+            search as search_t,
+        )
+        from voog.mcp.tools import (
             site as site_t,
         )
         from voog.mcp.tools import (
@@ -958,6 +961,7 @@ class TestServerToolRegistry(unittest.TestCase):
             products_images_t,
             raw_t,
             redirects_t,
+            search_t,
             site_t,
             snapshot_t,
             texts_t,
