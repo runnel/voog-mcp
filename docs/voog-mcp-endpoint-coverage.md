@@ -52,7 +52,7 @@ Per v1.4 design spec — every phase from v1.4 onward uses this column shape so 
 | `/articles` | ✓ (`articles_list`, `article_get`) | ✓ (`article_create`) | ✓ (`article_update`, `article_publish`, `article_set_data`) | ✓ (merge) — `article_update(data=...)` (v1.4 S4) | ✓ (`article_delete`, force-gated; `article_delete_data`, force-gated) | `article_update(data=...)` routes via PATCH (merge) — S4 |
 | `/articles/{id}/comments` | ✓ (`comments_list`) | — | — | — | — | List comments on an article (read-only) — v1.4 S12. |
 | `/articles/{id}/comments/{cid}` | — | — | ✓ (`comment_toggle_spam`) | — | ✓ (`comment_delete`, force-gated) | Spam-toggle PUT body `{is_spam: bool}` (flat); delete force-gated — v1.4 S12. |
-| `/elements/{id}/move` | — | — | ✓ (`element_move`) | — | — | Instance reorder/reparent. Body `{position?, parent_id?}` — at least one required; idempotent — v1.4 S13/N5. |
+| `/elements/{id}/move` | — | — | ✓ (`element_move`) | — | — | Instance reorder/reparent. QUERY-STRING params (NOT body, mirrors node_move): `page_id` (new parent page), `before` / `after` (sibling element id; mutually exclusive). At least one required. Idempotent — v1.4 S13/N5. Voog docs: https://www.voog.com/developers/api/resources/elements |
 | `/me/sites` | ✓ (`voog_list_my_sites`) | — | — | — | — | Site-scoped — array length 1 always. `token_env=` preferred — v1.4 S6/R6. |
 | `/search` | ✓ (`voog_search`) | — | — | — | — | Scope enum `pages\|articles\|elements\|products\|all`; MD5 sentinel detects indexing-off — v1.4 S5/MD5. |
 | `/tags` | ✓ (`tags_list`) | — | — | — | — | Read-only listing — v1.4 S12. |

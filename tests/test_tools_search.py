@@ -148,6 +148,16 @@ class TestVoogSearch(unittest.TestCase):
         self.assertIs(ann.destructiveHint, False)
         self.assertIs(ann.idempotentHint, True)
 
+    def test_per_page_schema_enforces_voog_max(self):
+        # MD1 silent-cap mitigation — schema declares the bound so
+        # JSON-Schema-aware MCP hosts reject `per_page=1000` before
+        # the round-trip, surfacing the cap to the LLM in a useful
+        # way rather than letting Voog silently truncate at 250.
+        tools = {t.name: t for t in st.get_tools()}
+        prop = tools["voog_search"].inputSchema["properties"]["per_page"]
+        self.assertEqual(prop["maximum"], 250)
+        self.assertEqual(prop["minimum"], 1)
+
 
 class TestServerToolRegistry(unittest.TestCase):
     def test_search_in_tool_groups(self):

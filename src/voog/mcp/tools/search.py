@@ -73,7 +73,14 @@ def get_tools() -> list[Tool]:
                     },
                     "per_page": {
                         "type": "integer",
-                        "description": "Result cap (Voog default 25, server-side max 250)",
+                        "minimum": 1,
+                        "maximum": 250,
+                        "description": (
+                            "Result cap (Voog default 25, server-side "
+                            "max 250). Schema enforces the bound so "
+                            "callers see the cap before Voog silently "
+                            "truncates (mirrors MD1 pattern)."
+                        ),
                     },
                 },
                 "required": ["site", "q"],
