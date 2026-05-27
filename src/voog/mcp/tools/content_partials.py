@@ -67,7 +67,10 @@ def call_tool(
     arguments = strip_site(arguments or {})
 
     if name == "content_partial_update":
-        return _content_partial_update(arguments, client)
+        # S9: tag every HTTP request inside this handler with X-MCP-Tool +
+        # shared X-Request-Id. See VoogClient.with_tool docstring.
+        with client.with_tool(name):
+            return _content_partial_update(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 

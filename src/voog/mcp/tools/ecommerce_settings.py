@@ -77,52 +77,66 @@ def get_tools() -> list[Tool]:
     ]
 
 
+_KNOWN_TOOLS = frozenset({"ecommerce_settings_get", "ecommerce_settings_update"})
+
+
 def call_tool(
     name: str, arguments: dict | None, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
-    if name == "ecommerce_settings_get":
-        try:
-            data = client.get(
-                "/settings",
-                base=client.ecommerce_url,
-                params={"include": "translations"},
-            )
-            return success_response(data)
-        except Exception as e:
-            return error_response(f"ecommerce_settings_get failed: {e}")
+    if name not in _KNOWN_TOOLS:
+        return error_response(f"Unknown tool: {name}")
 
-    if name == "ecommerce_settings_update":
-        attributes = arguments.get("attributes") or {}
-        translations = arguments.get("translations") or {}
-        if not (attributes or translations):
-            return error_response("ecommerce_settings_update: attributes or translations required")
-        for field, langs in translations.items():
-            if field not in TRANSLATABLE_SETTINGS:
-                return error_response(
-                    f"ecommerce_settings_update: translations field {field!r} "
-                    f"not supported. Allowed: {sorted(TRANSLATABLE_SETTINGS)}"
+    # S9: tag every HTTP request inside this dispatch with X-MCP-Tool +
+    # shared X-Request-Id. See VoogClient.with_tool docstring. Wrapping
+    # the whole dispatch (rather than per-branch) is safe because the
+    # ``name not in _KNOWN_TOOLS`` early-return above keeps with_tool
+    # from entering with an unknown / typo'd tool name.
+    with client.with_tool(name):
+        if name == "ecommerce_settings_get":
+            try:
+                data = client.get(
+                    "/settings",
+                    base=client.ecommerce_url,
+                    params={"include": "translations"},
                 )
-            shape_err = validate_translations_shape(
-                field, langs, tool_name="ecommerce_settings_update"
-            )
-            if shape_err:
-                return error_response(shape_err)
-        body: dict = dict(attributes)
-        if translations:
-            body["translations"] = translations
-        try:
-            data = client.put(
-                "/settings",
-                build_settings_payload(body),
-                base=client.ecommerce_url,
-            )
-            return success_response(
-                data,
-                summary=f"ecommerce settings updated: {sorted(body.keys())}",
-            )
-        except Exception as e:
-            return error_response(f"ecommerce_settings_update failed: {e}")
+                return success_response(data)
+            except Exception as e:
+                return error_response(f"ecommerce_settings_get failed: {e}")
+
+        if name == "ecommerce_settings_update":
+            attributes = arguments.get("attributes") or {}
+            translations = arguments.get("translations") or {}
+            if not (attributes or translations):
+                return error_response(
+                    "ecommerce_settings_update: attributes or translations required"
+                )
+            for field, langs in translations.items():
+                if field not in TRANSLATABLE_SETTINGS:
+                    return error_response(
+                        f"ecommerce_settings_update: translations field {field!r} "
+                        f"not supported. Allowed: {sorted(TRANSLATABLE_SETTINGS)}"
+                    )
+                shape_err = validate_translations_shape(
+                    field, langs, tool_name="ecommerce_settings_update"
+                )
+                if shape_err:
+                    return error_response(shape_err)
+            body: dict = dict(attributes)
+            if translations:
+                body["translations"] = translations
+            try:
+                data = client.put(
+                    "/settings",
+                    build_settings_payload(body),
+                    base=client.ecommerce_url,
+                )
+                return success_response(
+                    data,
+                    summary=f"ecommerce settings updated: {sorted(body.keys())}",
+                )
+            except Exception as e:
+                return error_response(f"ecommerce_settings_update failed: {e}")
 
     return error_response(f"Unknown tool: {name}")
