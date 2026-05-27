@@ -166,7 +166,12 @@ def get_tools() -> list[Tool]:
                 "parent_id, description, keywords, data must be supplied. "
                 "For just hidden / layout id, prefer the dedicated "
                 "page_set_hidden / page_set_layout — they're more explicit "
-                "in tool listings."
+                "in tool listings.\n"
+                "\n"
+                "`data` field is sent via PATCH (merge semantics) — only "
+                "the keys you pass are touched. To delete a key, use "
+                "page_delete_data. Calls without `data` route via PUT "
+                "(full-field replace) as before."
             ),
             inputSchema={
                 "type": "object",
@@ -471,11 +476,26 @@ def _page_update(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
             body[key] = arguments[key]
     if not body:
         return error_response(f"page_update: at least one of {PAGE_UPDATE_FIELDS} must be supplied")
+    # S4: `data` in the body routes via PATCH (merge semantics — Voog only
+    # touches keys you send). Without `data`, dispatch stays on PUT
+    # (full-field replace, which is what callers expect for the
+    # title/slug/layout/etc. surface). The page PATCH route is documented
+    # as merge-idempotent so we opt into the retry path via the documented
+    # kwarg on client.patch().
+    uses_patch = "data" in body
     try:
-        result = client.put(f"/pages/{page_id}", body)
+        if uses_patch:
+            result = client.patch(
+                f"/pages/{page_id}",
+                body,
+                _voog_documented_idempotent=True,
+            )
+        else:
+            result = client.put(f"/pages/{page_id}", body)
+        method_tag = " (PATCH/merge)" if uses_patch else ""
         return success_response(
             result,
-            summary=f"📄 page {page_id} updated: {sorted(body.keys())}",
+            summary=f"📄 page {page_id} updated{method_tag}: {sorted(body.keys())}",
         )
     except Exception as e:
         return error_response(f"page_update id={page_id} failed: {e}")

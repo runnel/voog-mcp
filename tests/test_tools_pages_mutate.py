@@ -705,6 +705,73 @@ class TestPageUpdate(unittest.TestCase):
         self.assertIn("error", payload)
         self.assertIn("parent_id", payload["error"])
 
+    def test_update_data_field_dispatches_via_patch(self):
+        # S4: `data` field is sent via PATCH (merge), not PUT (clobber).
+        # The page/article PATCH routes are Voog-docs-idempotent so the
+        # wrapper opts in to the retry path via the documented kwarg.
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.patch.return_value = {"id": 5, "data": {"a": 1, "b": 2}}
+        pm.call_tool(
+            "page_update",
+            {"page_id": 5, "data": {"a": 1}},
+            client,
+        )
+        client.put.assert_not_called()
+        client.patch.assert_called_once_with(
+            "/pages/5",
+            {"data": {"a": 1}},
+            _voog_documented_idempotent=True,
+        )
+
+    def test_update_data_with_other_fields_routes_via_patch(self):
+        # Mixed body (data + title in the same call): the presence of
+        # `data` forces PATCH dispatch — Voog merges `data` AND the other
+        # fields are written under PATCH-merge semantics, which is the
+        # documented Voog behaviour for the route. No PUT branch.
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.patch.return_value = {"id": 5}
+        pm.call_tool(
+            "page_update",
+            {"page_id": 5, "title": "New", "data": {"foo": "bar"}},
+            client,
+        )
+        client.put.assert_not_called()
+        client.patch.assert_called_once_with(
+            "/pages/5",
+            {"title": "New", "data": {"foo": "bar"}},
+            _voog_documented_idempotent=True,
+        )
+
+    def test_update_without_data_field_stays_on_put(self):
+        # No `data` in the args → dispatch is unchanged (PUT). PR #110
+        # retry-policy contract preserved.
+        from voog.mcp.tools import pages_mutate as pm
+
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        pm.call_tool(
+            "page_update",
+            {"page_id": 5, "title": "New"},
+            client,
+        )
+        client.patch.assert_not_called()
+        client.put.assert_called_once_with("/pages/5", {"title": "New"})
+
+    def test_page_update_tool_description_mentions_patch_merge(self):
+        # The LLM-visible description must spell out the PUT-vs-PATCH
+        # split so callers know how to delete a key from `data`.
+        from voog.mcp.tools import pages_mutate as pm
+
+        tool = next(t for t in pm.get_tools() if t.name == "page_update")
+        desc = tool.description.lower()
+        self.assertIn("patch", desc)
+        self.assertIn("merge", desc)
+        self.assertIn("page_delete_data", tool.description)
+
 
 class TestPageSetData(unittest.TestCase):
     def test_set_single_data_key(self):

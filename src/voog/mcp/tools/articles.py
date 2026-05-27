@@ -165,7 +165,12 @@ def get_tools() -> list[Tool]:
                 "read-only — call article_publish to push autosaved → "
                 "published). description/path/image_id/tag_names/data are "
                 "non-autosaved fields and update directly. At least one "
-                "field must be supplied."
+                "field must be supplied.\n"
+                "\n"
+                "`data` field is sent via PATCH (merge semantics) — only "
+                "the keys you pass are touched. To delete a key, use "
+                "article_delete_data. Calls without `data` route via PUT "
+                "as before."
             ),
             inputSchema={
                 "type": "object",
@@ -414,11 +419,23 @@ def _article_update(arguments: dict, client: VoogClient):
             "article_update: at least one field (title, body, excerpt, "
             "description, path, image_id, tag_names, data) must be set"
         )
+    # S4: when the caller passes `data`, route via PATCH (merge — Voog
+    # only touches the keys we send). Without `data`, dispatch stays on
+    # PUT to preserve the v1.3 autosaved_* full-field semantics.
+    uses_patch = "data" in body
     try:
-        result = client.put(f"/articles/{article_id}", body)
+        if uses_patch:
+            result = client.patch(
+                f"/articles/{article_id}",
+                body,
+                _voog_documented_idempotent=True,
+            )
+        else:
+            result = client.put(f"/articles/{article_id}", body)
+        method_tag = " (PATCH/merge)" if uses_patch else ""
         return success_response(
             result,
-            summary=f"📝 article {article_id} updated: {sorted(body.keys())}",
+            summary=f"📝 article {article_id} updated{method_tag}: {sorted(body.keys())}",
         )
     except Exception as e:
         return error_response(f"article_update id={article_id} failed: {e}")
