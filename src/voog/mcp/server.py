@@ -35,6 +35,7 @@ from voog.mcp.resources import pages as pages_resources
 from voog.mcp.resources import products as products_resources
 from voog.mcp.resources import redirects as redirects_resources
 from voog.mcp.tools import articles as articles_tools
+from voog.mcp.tools import categories as categories_tools
 from voog.mcp.tools import content_partials as content_partials_tools
 from voog.mcp.tools import ecommerce_settings as ecommerce_settings_tools
 from voog.mcp.tools import elements as elements_tools
@@ -104,6 +105,7 @@ def _redact_arguments(arguments: object) -> dict:
 
 TOOL_GROUPS = [
     articles_tools,
+    categories_tools,
     content_partials_tools,
     ecommerce_settings_tools,
     elements_tools,
