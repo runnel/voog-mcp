@@ -17,6 +17,9 @@ import sys
 from pathlib import Path
 
 from voog.cli.commands import (
+    articles as articles_cmd,
+)
+from voog.cli.commands import (
     cart_rules as cart_rules_cmd,
 )
 from voog.cli.commands import (
@@ -29,10 +32,16 @@ from voog.cli.commands import (
     discounts as discounts_cmd,
 )
 from voog.cli.commands import (
+    elements as elements_cmd,
+)
+from voog.cli.commands import (
     layouts as layouts_cmd,
 )
 from voog.cli.commands import (
     list as list_cmd,
+)
+from voog.cli.commands import (
+    me as me_cmd,
 )
 from voog.cli.commands import (
     orders as orders_cmd,
@@ -53,6 +62,9 @@ from voog.cli.commands import (
     redirects as redirects_cmd,
 )
 from voog.cli.commands import (
+    search as search_cmd,
+)
+from voog.cli.commands import (
     serve as serve_cmd,
 )
 from voog.cli.commands import (
@@ -60,6 +72,9 @@ from voog.cli.commands import (
 )
 from voog.cli.commands import (
     snapshot as snapshot_cmd,
+)
+from voog.cli.commands import (
+    tags as tags_cmd,
 )
 from voog.client import VoogClient
 from voog.config import (
@@ -76,7 +91,9 @@ from voog.config import (
 )
 
 COMMANDS = [
+    articles_cmd,
     config_cmd,
+    elements_cmd,
     pull_cmd,
     push_cmd,
     list_cmd,
@@ -84,8 +101,11 @@ COMMANDS = [
     products_cmd,
     pages_cmd,
     layouts_cmd,
+    me_cmd,
     redirects_cmd,
+    search_cmd,
     snapshot_cmd,
+    tags_cmd,
     categories_cmd,
     orders_cmd,
     discounts_cmd,
@@ -173,8 +193,9 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    # `config` subcommands don't need a client (config init creates it).
-    if args.command == "config":
+    # `config` and `list-my-sites` subcommands don't need a client
+    # (config init creates it; list-my-sites takes token+host args).
+    if args.command in ("config", "list-my-sites"):
         sys.exit(args.func(args))
 
     try:

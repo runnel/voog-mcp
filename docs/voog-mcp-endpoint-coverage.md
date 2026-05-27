@@ -35,11 +35,15 @@ update this doc when a tool is added or a new endpoint quirk is discovered.
 | Cart rules | `cart_rules_list`, `cart_rule_get` (v1.4 P4 E6b) | `cart_rule_create`, `cart_rule_update`, `cart_rule_delete` (force-gated) (v1.4 P4 E6b) | Envelope `{cart_rule: {...}}`. Required on create: `kind`, `target_kind`, `target_id`, `conditions[]`, `result{}`. Inner shapes pass-through to Voog: `conditions: [{value, comparator, field, value_type}, ...]`, `result: {value, field, value_type}`. Common partial updates: toggle `enabled`, change `position`. |
 | Shipping | `shipping_methods_list`, `gateways_list` (v1.4 P4 E7) | (passthrough — create/update/delete are infrequent) | `shipping_methods_list` returns full `options[]` nested list for parcel-machine carriers (Omniva, SmartPost) — expect multi-KB payloads per method. `gateways_list` includes `code`, `name`, `enabled`, `enabled_methods[]`, `all_payment_methods[]`, `url`. |
 | Ecommerce settings | `ecommerce_settings_get` | `ecommerce_settings_update` | Per-language `products_url_slug` lives in `translations`. |
-| Elements | `elements_list`, `element_get`, `element_definitions_list` | `element_create`, `element_update`, `element_delete` | Bodies are FLAT (no envelope wrapper) per Voog docs. `element_create` accepts `element_definition_id` (preferred) or `element_definition_title`. `element_update` is partial (sends only supplied fields among `title`/`path`/`values`). `element_delete` requires `force=true`. `element_definitions_list` returns sorted property keys so callers see what fields each definition expects. Element reposition (`PUT /elements/{id}/move`) and element_definition mutations deferred — use passthrough. |
+| Elements | `elements_list`, `element_get`, `element_definitions_list` | `element_create`, `element_update`, `element_delete`, `element_move` | Bodies are FLAT (no envelope wrapper) per Voog docs. `element_create` accepts `element_definition_id` (preferred) or `element_definition_title`. `element_update` is partial (sends only supplied fields among `title`/`path`/`values`). `element_delete` requires `force=true`. `element_definitions_list` returns sorted property keys so callers see what fields each definition expects. `element_move` (v1.4 S13) reorders/reparents element INSTANCES — element_definition mutations remain passthrough (N5: different resource). |
 | Webhooks | `webhooks_list` | `webhook_create`, `webhook_update`, `webhook_delete` | Flat bodies per Voog docs. `webhook_update` is partial. `webhook_delete` requires `force=true`. Voog target+event matrix (`ticket`/`form`/`order` × respective events) not enum-enforced — Voog rejects invalid combos with 422. |
 | Content partials | (none — use `layouts_pull` to read) | `content_partial_update` | PUT to `/content_partials/{id}`. Flat body (`body` and/or `metainfo`). Requires at least one field. Avoids `layouts_pull`/`layouts_push` filesystem detour for targeted fragment edits. |
 | Articles (data) | (via `article_get`) | `article_set_data`, `article_delete_data` | Symmetric with `page_set_data`/`page_delete_data`. Same `_validate_data_key` helper (rejects empty/whitespace, `internal_*` prefix, traversal chars). `article_delete_data` requires `force=true`. |
-| **Everything else** | `voog_admin_api_call(method, path, ...)` | `voog_ecommerce_api_call(method, path, ...)` | Generic passthrough — same auth, same timeout, no envelope assumed. Use for orders, carts, discounts, gateways, shipping_methods, forms, tickets, tags, media_sets, templates, bulk update, imports, search. |
+| Comments (articles) | `comments_list` | `comment_delete`, `comment_toggle_spam` | `GET /articles/{id}/comments`. `comment_toggle_spam` body is FLAT `{is_spam: bool}`. `comment_delete` requires `force=true`. Author/body/email edits via passthrough. |
+| Tags | `tags_list`, `tag_get` | `tag_delete` | `GET /tags[,/{id}]`. Tags auto-created when articles reference them; explicit create/update via passthrough. `tag_delete` requires `force=true`. |
+| Search | `voog_search` | — | `GET /admin/api/search?q=...&scope=...`. Returns flat hit list with `kind`. Indexing must be enabled site-side; MD5 sentinel detects when it isn't. PUBLIC content only; fresh edits + drafts not visible. |
+| Me (account discovery) | `voog_list_my_sites` | — | `GET /admin/api/me/sites`. `token_env=` first-class (secret stays in env); `token=` fallback. Site-scoped — array length 1 always. |
+| **Everything else** | `voog_admin_api_call(method, path, ...)` | `voog_ecommerce_api_call(method, path, ...)` | Generic passthrough — same auth, same timeout, no envelope assumed. Use for orders, carts, discounts, gateways, shipping_methods, forms, tickets, media_sets, templates, bulk update, imports. |
 
 ## Endpoint × verb matrix
 
@@ -51,6 +55,13 @@ Per v1.4 design spec — every phase from v1.4 onward uses this column shape so 
 | `/products` | ✓ (`products_list`, `product_get`) | ✓ (`product_create`) | ✓ (`product_update`, `product_set_images`) | — | — | List includes `variants,variant_types,translations` on snapshot path (v1.4 S2) |
 | `/pages` | ✓ (`pages_list`, `page_get`) | ✓ (`page_create`) | ✓ (`page_update`, `page_set_hidden`, `page_set_layout`, `page_set_data`) | ✓ (merge) — `page_update(data=...)` (v1.4 S4) | ✓ (`page_delete`, force-gated; `page_delete_data`, force-gated) | `page_update(data=...)` routes via PATCH (merge) — S4 |
 | `/articles` | ✓ (`articles_list`, `article_get`) | ✓ (`article_create`) | ✓ (`article_update`, `article_publish`, `article_set_data`) | ✓ (merge) — `article_update(data=...)` (v1.4 S4) | ✓ (`article_delete`, force-gated; `article_delete_data`, force-gated) | `article_update(data=...)` routes via PATCH (merge) — S4 |
+| `/articles/{id}/comments` | ✓ (`comments_list`) | — | — | — | — | List comments on an article (read-only) — v1.4 S12. |
+| `/articles/{id}/comments/{cid}` | — | — | ✓ (`comment_toggle_spam`) | — | ✓ (`comment_delete`, force-gated) | Spam-toggle PUT body `{is_spam: bool}` (flat); delete force-gated — v1.4 S12. |
+| `/elements/{id}/move` | — | — | ✓ (`element_move`) | — | — | Instance reorder/reparent. QUERY-STRING params (NOT body, mirrors node_move): `page_id` (new parent page), `before` / `after` (sibling element id; mutually exclusive). At least one required. Idempotent — v1.4 S13/N5. Voog docs: https://www.voog.com/developers/api/resources/elements |
+| `/me/sites` | ✓ (`voog_list_my_sites`) | — | — | — | — | Site-scoped — array length 1 always. `token_env=` preferred — v1.4 S6/R6. |
+| `/search` | ✓ (`voog_search`) | — | — | — | — | Scope enum `pages\|articles\|elements\|products\|all`; MD5 sentinel detects indexing-off — v1.4 S5/MD5. |
+| `/tags` | ✓ (`tags_list`) | — | — | — | — | Read-only listing — v1.4 S12. |
+| `/tags/{id}` | ✓ (`tag_get`) | — | — | — | ✓ (`tag_delete`, force-gated) | Tags auto-created when referenced; explicit create/update via passthrough — v1.4 S12. |
 
 | `/products` (bulk) | — | — | ✓ (`products_bulk_action`, v1.4 P4 E3) — `{actions, target_ids}` shape | — | ✓ (`product_delete`, force-gated; `product_duplicate` via POST .../duplicate) | Empirical: no batch-size cap up to 1001 target_ids. |
 | `/categories` | ✓ (`categories_list`, `category_get`) | ✓ (`category_create`) | ✓ (`category_update`) | — | ✓ (`category_delete`, force-gated) | Envelope `{category: {...}}`. Writable: name, slug, parent_id. v1.4 P4 E4. |
@@ -60,7 +71,7 @@ Per v1.4 design spec — every phase from v1.4 onward uses this column shape so 
 | `/shipping_methods` | ✓ (`shipping_methods_list`) | — | — | — | — | Read-only this phase. v1.4 P4 E7. |
 | `/gateways` | ✓ (`gateways_list`) | — | — | — | — | Read-only this phase. v1.4 P4 E7. |
 
-(Rows for `/elements`, `/webhooks`, `/redirect_rules`, `/nodes`, `/site`, `/texts`, `/content_partials`, `/languages`, `/layout_assets`, `/me` added in subsequent v1.4 phases.)
+(Rows for `/webhooks`, `/redirect_rules`, `/nodes`, `/site`, `/texts`, `/content_partials`, `/languages`, `/layout_assets` added in subsequent v1.4 phases.)
 
 Last verified against Voog API: 2026-05-27.
 
