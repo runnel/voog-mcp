@@ -26,6 +26,9 @@ from voog.cli.commands import (
     list as list_cmd,
 )
 from voog.cli.commands import (
+    me as me_cmd,
+)
+from voog.cli.commands import (
     pages as pages_cmd,
 )
 from voog.cli.commands import (
@@ -72,6 +75,7 @@ COMMANDS = [
     products_cmd,
     pages_cmd,
     layouts_cmd,
+    me_cmd,
     redirects_cmd,
     search_cmd,
     snapshot_cmd,
@@ -157,8 +161,9 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    # `config` subcommands don't need a client (config init creates it).
-    if args.command == "config":
+    # `config` and `list-my-sites` subcommands don't need a client
+    # (config init creates it; list-my-sites takes token+host args).
+    if args.command in ("config", "list-my-sites"):
         sys.exit(args.func(args))
 
     try:
