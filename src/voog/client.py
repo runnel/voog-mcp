@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
+import uuid
+from contextlib import contextmanager
 
 import httpx
 
@@ -93,6 +96,56 @@ class VoogClient:
         # TooManyRedirects is caught separately below to avoid wasting retries
         # on a permanent loop.
         self._http_client = httpx.Client(http2=True, headers=self.headers, follow_redirects=True)
+        # Per-tool tracking state (S9 / R2 / R3). Thread-local so that
+        # ``parallel_map`` workers don't read a sibling thread's tool name.
+        # ``_local`` lifetime is the client's lifetime; callers acquire the
+        # state via ``with_tool(...)`` which sets ``tool_name`` and
+        # ``request_id`` on enter, clears them on exit. ``parallel_map``
+        # worker threads need explicit propagation via
+        # ``voog._concurrency.propagate_tool_context`` — threading.local()
+        # does NOT inherit across thread boundaries.
+        self._local = threading.local()
+
+    @contextmanager
+    def with_tool(self, tool_name: str):
+        """Tag every HTTP request inside this scope with ``tool_name`` +
+        a shared ``X-Request-Id``.
+
+        Headers added per request in this scope:
+          - ``X-MCP-Tool: <tool_name>``
+          - ``X-Request-Id: <uuid4>`` (one uuid for the entire scope —
+            a fan-out of 50 HTTP calls all share the same request id, so
+            Voog-side log analysis can recover the burst with GROUP BY).
+          - User-Agent suffix ``(tool=<tool_name>)``
+
+        Thread-safety: state lives on ``self._local`` (a
+        ``threading.local()``). Two MCP tool calls running concurrently
+        on different threads see independent state. **Caveat:**
+        ``parallel_map`` worker threads do NOT inherit thread-locals from
+        their dispatching thread. Snapshot-style fan-outs that need the
+        tool tracking to follow into worker threads must wrap each callable
+        with ``voog._concurrency.propagate_tool_context(client, fn)``.
+
+        Re-entry: nesting ``with_tool`` is unsupported and asserts. The
+        outer caller (tool's ``call_tool`` wrapper) is the single point
+        of entry; if a handler ever calls back into a sibling tool's
+        ``call_tool`` directly (rather than the public ``client.get``
+        etc.), the assertion catches it before silent header pollution.
+        """
+        assert not getattr(self._local, "tool_name", None), (
+            f"with_tool nesting is unsupported (current={self._local.tool_name!r}, "
+            f"new={tool_name!r}). Tools must not re-enter each other's call_tool; "
+            f"go via client.get / client.post / etc."
+        )
+        self._local.tool_name = tool_name
+        self._local.request_id = uuid.uuid4().hex
+        try:
+            yield
+        finally:
+            # Clear, don't leave stale state on the thread for a future
+            # call that happens to land on the same worker.
+            self._local.tool_name = None
+            self._local.request_id = None
 
     def _request(
         self,
@@ -158,6 +211,29 @@ class VoogClient:
             # implementation (exact JSON bytes), so we serialise once and
             # pass via `content=`.
             kwargs["content"] = json.dumps(data).encode()
+
+        # S9: per-call tracking headers. Read thread-local state set by
+        # ``with_tool``; absent → no extra headers (no User-Agent suffix).
+        # httpx merges per-call ``headers=`` on top of client-level
+        # ``self.headers``, so this does NOT mutate the shared dict and is
+        # safe across concurrent requests on different threads.
+        tool_name = getattr(self._local, "tool_name", None)
+        request_id = getattr(self._local, "request_id", None)
+        if tool_name or request_id:
+            per_call_headers: dict = {}
+            if tool_name:
+                per_call_headers["X-MCP-Tool"] = tool_name
+                # Append `(tool=...)` to the canonical UA (N1 sourced from
+                # voog.__version__) so Voog-side log greps can attribute
+                # requests to the originating MCP tool.
+                per_call_headers["User-Agent"] = (
+                    f"{self.headers.get('User-Agent', '')} (tool={tool_name})".strip()
+                )
+            if request_id:
+                # R3: one uuid per MCP-tool invocation, reused across the
+                # full fan-out so log aggregation can GROUP BY x_request_id.
+                per_call_headers["X-Request-Id"] = request_id
+            kwargs["headers"] = per_call_headers
 
         for attempt in range(retries + 1):
             try:

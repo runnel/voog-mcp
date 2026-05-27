@@ -788,3 +788,166 @@ class TestPatchIdempotentRetry(unittest.TestCase):
             client.patch("/pages/5", {"data": {"x": 1}}, _voog_documented_idempotent=True)
         # _RETRYABLE_METHODS still does not contain PATCH after a flagged call.
         self.assertNotIn("PATCH", _RETRYABLE_METHODS)
+
+
+class TestWithTool(unittest.TestCase):
+    """S9 — ``VoogClient.with_tool`` context manager attaches per-call
+    tracking headers (``X-MCP-Tool``, ``X-Request-Id``, UA suffix) without
+    mutating the shared ``self.headers`` dict.
+
+    Asserts are on the kwargs passed to ``client._http_client.request``,
+    matching the test pattern used throughout this file. httpx itself
+    merges per-call ``headers=`` on top of the client-level headers — we
+    verify that we send the right ``headers=`` kwarg, not the final
+    on-the-wire header set (that is httpx's contract).
+    """
+
+    def _headers_kwarg(self, mock_req) -> dict:
+        _, kwargs = mock_req.call_args
+        return kwargs.get("headers") or {}
+
+    def test_outside_scope_no_per_call_headers(self):
+        # Without with_tool, _request must NOT pass a ``headers=`` kwarg —
+        # absent kwarg = httpx falls back to the client-level headers only.
+        client = VoogClient(host="x.com", api_token="t")
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            client.get("/pages")
+        _, kwargs = mock_req.call_args
+        # Absent headers kwarg is the contract — httpx Client.request reads
+        # from the session-level headers in that case.
+        self.assertNotIn("headers", kwargs)
+
+    def test_inside_scope_sets_tool_header(self):
+        client = VoogClient(host="x.com", api_token="t")
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            with client.with_tool("page_update"):
+                client.get("/pages")
+        headers = self._headers_kwarg(mock_req)
+        self.assertEqual(headers.get("X-MCP-Tool"), "page_update")
+
+    def test_inside_scope_sets_request_id_header(self):
+        client = VoogClient(host="x.com", api_token="t")
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            with client.with_tool("page_update"):
+                client.get("/pages")
+        headers = self._headers_kwarg(mock_req)
+        rid = headers.get("X-Request-Id")
+        self.assertIsNotNone(rid)
+        # uuid4().hex is 32 lowercase hex chars
+        self.assertEqual(len(rid), 32)
+        self.assertTrue(all(c in "0123456789abcdef" for c in rid))
+
+    def test_request_id_stable_across_calls_in_same_scope(self):
+        # R3: one uuid per MCP-tool invocation, reused for every HTTP call
+        # until the scope exits. Voog-side log analysis groups by this.
+        client = VoogClient(host="x.com", api_token="t")
+        captured_rids: list = []
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            with client.with_tool("site_snapshot"):
+                client.get("/pages")
+                client.get("/articles")
+                client.get("/products")
+        for call in mock_req.call_args_list:
+            _, kwargs = call
+            captured_rids.append((kwargs.get("headers") or {}).get("X-Request-Id"))
+        self.assertEqual(len(captured_rids), 3)
+        self.assertEqual(len(set(captured_rids)), 1, "rid must be stable across scope")
+
+    def test_request_id_differs_between_scopes(self):
+        client = VoogClient(host="x.com", api_token="t")
+        rids: list = []
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            with client.with_tool("page_update"):
+                client.get("/pages/1")
+            rids.append(self._headers_kwarg(mock_req).get("X-Request-Id"))
+            with client.with_tool("page_update"):
+                client.get("/pages/1")
+            rids.append(self._headers_kwarg(mock_req).get("X-Request-Id"))
+        self.assertEqual(len(rids), 2)
+        self.assertNotEqual(rids[0], rids[1])
+
+    def test_user_agent_gets_tool_suffix(self):
+        client = VoogClient(host="x.com", api_token="t")
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            with client.with_tool("article_create"):
+                client.get("/articles")
+        headers = self._headers_kwarg(mock_req)
+        ua = headers.get("User-Agent") or ""
+        self.assertIn("(tool=article_create)", ua)
+        # Base UA prefix preserved (N1 sourced from voog.__version__)
+        self.assertIn("voog-mcp", ua)
+
+    def test_exiting_scope_clears_state(self):
+        client = VoogClient(host="x.com", api_token="t")
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            with client.with_tool("page_update"):
+                client.get("/pages/1")
+            # Now outside the scope:
+            client.get("/pages/1")
+        # Second call must have no per-call headers (kwarg absent again).
+        _, kwargs_outside = mock_req.call_args_list[-1]
+        self.assertNotIn("headers", kwargs_outside)
+
+    def test_self_headers_not_mutated(self):
+        # Critical: the instance ``self.headers`` dict is the canonical
+        # base — per-call merge must NOT add X-MCP-Tool / X-Request-Id to
+        # it, or a subsequent out-of-scope call would carry stale state.
+        client = VoogClient(host="x.com", api_token="t")
+        baseline_keys = set(client.headers.keys())
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            with client.with_tool("page_update"):
+                client.get("/pages/1")
+        # self.headers unchanged
+        self.assertEqual(set(client.headers.keys()), baseline_keys)
+        self.assertNotIn("X-MCP-Tool", client.headers)
+        self.assertNotIn("X-Request-Id", client.headers)
+        # User-Agent on the session-level headers is unchanged — only the
+        # per-call header set has the (tool=...) suffix.
+        self.assertNotIn("tool=", client.headers["User-Agent"])
+
+    def test_nested_with_tool_asserts(self):
+        client = VoogClient(host="x.com", api_token="t")
+        with client.with_tool("page_update"):
+            with self.assertRaises(AssertionError):
+                with client.with_tool("article_update"):
+                    pass
+
+    def test_thread_isolation(self):
+        # R2: parallel_map workers running independent with_tool blocks
+        # do not see each other's tool_name. Two threads, each in its own
+        # with_tool, must observe their own state independently.
+        import threading as _t
+
+        client = VoogClient(host="x.com", api_token="t")
+        barrier = _t.Barrier(2)
+        observed: dict = {}
+
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+
+            def worker(label):
+                with client.with_tool(label):
+                    barrier.wait()  # both threads enter their scope first
+                    client.get("/pages")
+                    # Read what THIS worker would have sent — by inspecting
+                    # the captured kwargs at the moment of the latest call
+                    # is racy; instead, read the thread-local directly,
+                    # which proves R2 thread isolation (the real contract).
+                    observed[label] = getattr(client._local, "tool_name", None)
+
+            t1 = _t.Thread(target=worker, args=("page_update",))
+            t2 = _t.Thread(target=worker, args=("article_update",))
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
+        self.assertEqual(observed["page_update"], "page_update")
+        self.assertEqual(observed["article_update"], "article_update")
