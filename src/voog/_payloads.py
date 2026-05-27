@@ -206,6 +206,20 @@ ORDER_SHIPPING_METHOD_PUBLIC_FIELDS: frozenset[str] = frozenset(
     {"id", "name", "description", "amount", "tax_rate", "delivery_method"}
 )
 
+# Inner whitelists for the two top-level *_amounts arrays. These are
+# pure financial aggregates (no PII) per the live Stella fixture, but
+# walking them maintains the depth-1 defense-in-depth promise the
+# redactor advertises — if Voog ever surfaces a per-row PII field (e.g.
+# `tax_amounts[].customer_country` for VAT MOSS), the whitelist drops
+# it by default.
+ORDER_ITEM_AMOUNT_PUBLIC_FIELDS: frozenset[str] = frozenset(
+    {"subtotal_amount", "original_amount", "tax_rate", "tax_amount", "total_amount"}
+)
+ORDER_TAX_AMOUNT_PUBLIC_FIELDS: frozenset[str] = frozenset(
+    {"subtotal_amount", "tax_rate", "tax_amount"}
+)
+
+
 # Defensive inner whitelist for `cart_rules_applied[]` entries. Live
 # Stella fixture has `false` (no rules applied); the field set is based
 # on Voog's cart_rules entity shape so future rules-applied orders get
@@ -224,8 +238,10 @@ def redact_pii(value, *, include_pii: bool = False):
     With `include_pii=True` returns `value` unchanged (operator escape
     hatch). With `include_pii=False` (default), every top-level key
     outside `ORDER_PUBLIC_FIELDS` is dropped, and nested containers
-    (`items`, `shipping_method`, `cart_rules_applied`) are walked with
-    their own inner whitelists.
+    (`items`, `shipping_method`, `cart_rules_applied`, `item_amounts`,
+    `tax_amounts`) are walked with their own inner whitelists so the
+    "Voog adds a new PII field, redactor drops it by default" guarantee
+    holds at every depth the redactor descends into, not just depth 1.
     """
     if include_pii:
         return value
@@ -257,6 +273,20 @@ def redact_pii(value, *, include_pii: bool = False):
                 if isinstance(rule, dict)
                 else rule
                 for rule in val
+            ]
+        elif key == "item_amounts" and isinstance(val, list):
+            redacted[key] = [
+                {k: v for k, v in row.items() if k in ORDER_ITEM_AMOUNT_PUBLIC_FIELDS}
+                if isinstance(row, dict)
+                else row
+                for row in val
+            ]
+        elif key == "tax_amounts" and isinstance(val, list):
+            redacted[key] = [
+                {k: v for k, v in row.items() if k in ORDER_TAX_AMOUNT_PUBLIC_FIELDS}
+                if isinstance(row, dict)
+                else row
+                for row in val
             ]
         else:
             redacted[key] = val

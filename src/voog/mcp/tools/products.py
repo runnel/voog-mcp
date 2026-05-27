@@ -45,6 +45,15 @@ from voog.projections import (
     simplify_products,
 )
 
+# products_bulk_action: client-side soft cap on target_ids[] length.
+# Empirically Voog accepts 1001 ids without complaint (Stella OLD probe
+# 2026-05-27), but accepting unbounded lists is a foot-gun for an LLM
+# that could pass a 100k-id list and hang a worker. 10000 is a few-X
+# safety margin over verified-working sizes; raise if a real workload
+# needs more.
+_BULK_TARGET_IDS_SOFT_CAP = 10000
+
+
 # products_bulk_action: Voog's documented bulk-update verbs for the
 # `actions[].action` field. Whitelisted server-side; sending an unknown
 # verb returns a 422 round-trip. Source: live capture 2026-05-27 + Voog
@@ -436,21 +445,42 @@ def get_tools() -> list[Tool]:
                             {
                                 "type": "array",
                                 "minItems": 1,
+                                "maxItems": _BULK_TARGET_IDS_SOFT_CAP,
                                 "items": {"type": "integer"},
                             },
                             {"type": "string", "enum": ["all"]},
                         ],
                         "description": (
-                            "List of product ids, or the literal string "
-                            "'all' to target every product on the site."
+                            "List of product ids (up to "
+                            f"{_BULK_TARGET_IDS_SOFT_CAP}), or the literal "
+                            "string 'all' to target every product on the "
+                            "site. NOTE: target_ids='all' is high blast "
+                            "radius and requires force=true."
                         ),
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": (
+                            "Required when target_ids='all'. Ignored when "
+                            "target_ids is a list of explicit ids — the "
+                            "caller has already named the rows."
+                        ),
+                        "default": False,
                     },
                 },
                 "required": ["site", "actions", "target_ids"],
             },
             annotations={
                 "readOnlyHint": False,
-                "destructiveHint": False,
+                # destructiveHint=True: with target_ids='all', this tool can
+                # in one call set every product's status to draft (entire
+                # shop offline), zero every stock, or strip every image.
+                # MCP hosts should surface a confirmation prompt for this
+                # tool regardless of which target_ids shape was passed —
+                # the LLM-prompt-injection threat model from PR #125 review
+                # applies (a malicious product description could trick an
+                # LLM into a mass-mutation call).
+                "destructiveHint": True,
                 "idempotentHint": False,
             },
         ),
@@ -858,9 +888,25 @@ def _products_bulk_action(
                 "products_bulk_action: target_ids string must be exactly "
                 f"'all' (got {target_ids!r})"
             )
+        # 'all' is high blast radius — every product on the site gets
+        # every action. Force-gate it. Explicit-id lists stay no-force
+        # because the caller has named the rows.
+        if not arguments.get("force"):
+            return error_response(
+                "products_bulk_action: target_ids='all' requires force=true. "
+                "This applies the action to every product on the site — set "
+                "force=true after confirming the blast radius is intentional."
+            )
     elif isinstance(target_ids, list):
         if not target_ids:
             return error_response("products_bulk_action: target_ids list must be non-empty")
+        if len(target_ids) > _BULK_TARGET_IDS_SOFT_CAP:
+            return error_response(
+                f"products_bulk_action: target_ids has {len(target_ids)} "
+                f"entries, max {_BULK_TARGET_IDS_SOFT_CAP}. Use "
+                f"target_ids='all' (with force=true) for site-wide actions, "
+                f"or split into smaller batches."
+            )
         for j, tid in enumerate(target_ids):
             err = require_int(f"target_ids[{j}]", tid, tool_name="products_bulk_action")
             if err:

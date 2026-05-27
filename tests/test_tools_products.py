@@ -1233,9 +1233,11 @@ class TestProductsBulkAction(unittest.TestCase):
         client.put.assert_not_called()
         self.assertTrue(result.isError)
 
-    def test_target_ids_all_accepted(self):
+    def test_target_ids_all_requires_force(self):
+        # 'all' is high blast radius - without force=true the handler must
+        # refuse and NOT touch the client.
         client = self._client()
-        products_tools.call_tool(
+        result = products_tools.call_tool(
             "products_bulk_action",
             {
                 "actions": [{"target_field": "status", "action": "set", "value": "draft"}],
@@ -1243,9 +1245,53 @@ class TestProductsBulkAction(unittest.TestCase):
             },
             client,
         )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_target_ids_all_with_force_accepted(self):
+        client = self._client()
+        products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [{"target_field": "status", "action": "set", "value": "draft"}],
+                "target_ids": "all",
+                "force": True,
+            },
+            client,
+        )
         sent_body = client.put.call_args[0][1]
         self.assertEqual(sent_body["target_ids"], "all")
         self.assertEqual(len(sent_body["actions"]), 1)
+
+    def test_target_ids_list_no_force_needed(self):
+        # Explicit-id lists don't need force - the caller has named the rows.
+        client = self._client()
+        products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [{"target_field": "status", "action": "set", "value": "draft"}],
+                "target_ids": [1, 2, 3],
+            },
+            client,
+        )
+        sent_body = client.put.call_args[0][1]
+        self.assertEqual(sent_body["target_ids"], [1, 2, 3])
+
+    def test_target_ids_list_length_cap(self):
+        from voog.mcp.tools.products import _BULK_TARGET_IDS_SOFT_CAP
+
+        client = self._client()
+        oversized = list(range(_BULK_TARGET_IDS_SOFT_CAP + 1))
+        result = products_tools.call_tool(
+            "products_bulk_action",
+            {
+                "actions": [{"target_field": "status", "action": "set", "value": "draft"}],
+                "target_ids": oversized,
+            },
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
 
     def test_target_ids_list_payload_shape(self):
         client = self._client()
@@ -1299,7 +1345,10 @@ class TestProductsBulkAction(unittest.TestCase):
         tools = {t.name: t for t in products_tools.get_tools()}
         ann = tools["products_bulk_action"].annotations
         self.assertIs(_ann_get(ann, "readOnlyHint", "readOnlyHint"), False)
-        self.assertIs(_ann_get(ann, "destructiveHint", "destructiveHint"), False)
+        # destructiveHint=True because target_ids='all' can wipe the whole
+        # shop's status / stock / pricing in one call. MCP hosts should
+        # prompt for confirmation.
+        self.assertIs(_ann_get(ann, "destructiveHint", "destructiveHint"), True)
         self.assertIs(_ann_get(ann, "idempotentHint", "idempotentHint"), False)
 
 

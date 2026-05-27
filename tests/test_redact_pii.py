@@ -6,9 +6,11 @@ from pathlib import Path
 
 from voog._payloads import (
     ORDER_CART_RULE_APPLIED_PUBLIC_FIELDS,
+    ORDER_ITEM_AMOUNT_PUBLIC_FIELDS,
     ORDER_ITEM_PUBLIC_FIELDS,
     ORDER_PUBLIC_FIELDS,
     ORDER_SHIPPING_METHOD_PUBLIC_FIELDS,
+    ORDER_TAX_AMOUNT_PUBLIC_FIELDS,
     redact_pii,
 )
 
@@ -219,11 +221,53 @@ class TestRedactPii(unittest.TestCase):
         # When include_pii=True we return the input value unchanged.
         self.assertIs(out, order)
 
+    def test_item_amounts_inner_whitelist(self):
+        order = {
+            "id": 1,
+            "item_amounts": [
+                {
+                    "subtotal_amount": "24.6",
+                    "original_amount": "24.6",
+                    "tax_rate": "22.0",
+                    "tax_amount": "5.41",
+                    "total_amount": "30.01",
+                    # Hypothetical future PII fields:
+                    "customer_country": "EE",
+                    "buyer_vat_id": "EE123456789",
+                }
+            ],
+        }
+        out = redact_pii(order)
+        row = out["item_amounts"][0]
+        self.assertEqual(set(row.keys()), set(ORDER_ITEM_AMOUNT_PUBLIC_FIELDS))
+        self.assertNotIn("customer_country", row)
+        self.assertNotIn("buyer_vat_id", row)
+
+    def test_tax_amounts_inner_whitelist(self):
+        order = {
+            "id": 1,
+            "tax_amounts": [
+                {
+                    "subtotal_amount": "24.6",
+                    "tax_rate": "22.0",
+                    "tax_amount": "5.41",
+                    # Hypothetical VAT MOSS PII:
+                    "customer_country": "DE",
+                }
+            ],
+        }
+        out = redact_pii(order)
+        row = out["tax_amounts"][0]
+        self.assertEqual(set(row.keys()), set(ORDER_TAX_AMOUNT_PUBLIC_FIELDS))
+        self.assertNotIn("customer_country", row)
+
     def test_whitelist_is_immutable(self):
         self.assertIsInstance(ORDER_PUBLIC_FIELDS, frozenset)
         self.assertIsInstance(ORDER_ITEM_PUBLIC_FIELDS, frozenset)
         self.assertIsInstance(ORDER_SHIPPING_METHOD_PUBLIC_FIELDS, frozenset)
         self.assertIsInstance(ORDER_CART_RULE_APPLIED_PUBLIC_FIELDS, frozenset)
+        self.assertIsInstance(ORDER_ITEM_AMOUNT_PUBLIC_FIELDS, frozenset)
+        self.assertIsInstance(ORDER_TAX_AMOUNT_PUBLIC_FIELDS, frozenset)
 
 
 if __name__ == "__main__":

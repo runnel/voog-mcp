@@ -148,7 +148,8 @@ def _order_get(arguments: dict, client: VoogClient) -> list[TextContent] | CallT
     try:
         order = client.get(f"/orders/{order_id}", base=client.ecommerce_url)
         redacted = redact_pii(order, include_pii=include_pii)
-        return success_response(redacted)
+        suffix = "" if include_pii else " (PII stripped)"
+        return success_response(redacted, summary=f"📦 order {order_id}{suffix}")
     except Exception as e:
         return error_response(f"order_get id={order_id} failed: {e}")
 

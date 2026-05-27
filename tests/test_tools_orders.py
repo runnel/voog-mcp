@@ -102,12 +102,24 @@ class TestOrderGet(unittest.TestCase):
         client = _make_client()
         client.get.return_value = _load_fixture("order_get")
         result = ot.call_tool("order_get", {"order_id": 42}, client)
-        # No summary on _order_get -> single-element TextContent list.
+        # Two-element list: summary + payload JSON.
         order = json.loads(result[-1].text)
         for k in order:
             self.assertIn(k, ORDER_PUBLIC_FIELDS)
         self.assertNotIn("customer", order)
         self.assertNotIn("billing_address", order)
+
+    def test_summary_indicates_pii_stripped(self):
+        client = _make_client()
+        client.get.return_value = _load_fixture("order_get")
+        result = ot.call_tool("order_get", {"order_id": 42}, client)
+        self.assertIn("PII stripped", result[0].text)
+
+    def test_summary_omits_pii_marker_when_include_pii(self):
+        client = _make_client()
+        client.get.return_value = _load_fixture("order_get")
+        result = ot.call_tool("order_get", {"order_id": 42, "include_pii": True}, client)
+        self.assertNotIn("PII stripped", result[0].text)
 
     def test_annotations(self):
         ann = {t.name: t for t in ot.get_tools()}["order_get"].annotations
