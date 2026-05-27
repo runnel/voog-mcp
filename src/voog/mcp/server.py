@@ -42,6 +42,7 @@ from voog.mcp.tools import elements as elements_tools
 from voog.mcp.tools import layouts as layouts_tools
 from voog.mcp.tools import layouts_sync as layouts_sync_tools
 from voog.mcp.tools import multilingual as multilingual_tools
+from voog.mcp.tools import orders as orders_tools
 from voog.mcp.tools import pages as pages_tools
 from voog.mcp.tools import pages_mutate as pages_mutate_tools
 from voog.mcp.tools import products as products_tools
@@ -112,6 +113,7 @@ TOOL_GROUPS = [
     layouts_tools,
     layouts_sync_tools,
     multilingual_tools,
+    orders_tools,
     pages_tools,
     pages_mutate_tools,
     products_tools,

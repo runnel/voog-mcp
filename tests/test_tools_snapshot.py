@@ -917,6 +917,9 @@ class TestServerToolRegistry(unittest.TestCase):
             multilingual as multilingual_t,
         )
         from voog.mcp.tools import (
+            orders as orders_t,
+        )
+        from voog.mcp.tools import (
             pages as pages_t,
         )
         from voog.mcp.tools import (
@@ -956,6 +959,7 @@ class TestServerToolRegistry(unittest.TestCase):
             layouts_t,
             layouts_sync_t,
             multilingual_t,
+            orders_t,
             pages_t,
             pages_mutate_t,
             products_t,
