@@ -42,9 +42,18 @@ from pathlib import Path
 from typing import Any
 
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
-# Phone: any run of 6+ digits (covers Estonian 7-digit mobiles + international).
-PHONE_RE = re.compile(r"\+?\d[\d\s()-]{4,}\d")
+# Phone: prefer +-prefixed international form (e.g. "+372 5000 0000") or a
+# run of 7+ unbroken digits not adjacent to alpha or to date-context
+# punctuation. Avoid matching ISO timestamps (2026-01-01, T18:06:05).
+PHONE_RE = re.compile(
+    r"(?<![\w-])"             # not preceded by a word char or dash (avoids 2026-01-01)
+    r"(?:\+?\d{7,}"           # +-prefixed 7+ digit run
+    r"|\+\d[\d\s()-]{4,}\d"   # explicitly +-prefixed with separators
+    r")"
+    r"(?![\w:-])"             # not followed by word char / colon / dash (avoids 2026-01-01T...)
+)
 SIGNED_URL_RE = re.compile(r"https?://[^\s\"]+[?&](token|signature|sig|key)=[^&\s\"]+")
+DATE_TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2})?")
 
 # Always-PII keys regardless of where they appear.
 _ALWAYS_PII_NAME_KEYS = frozenset(
@@ -63,7 +72,12 @@ _ADDRESS_KEYS = frozenset(
 def _scrub_string(s: str) -> str:
     s = EMAIL_RE.sub("customer+1@example.com", s)
     s = SIGNED_URL_RE.sub("https://example.com/<redacted-signed>", s)
-    # phone regex AFTER URL/email since URLs may contain digits
+    # Skip phone scrub on pure ISO date / timestamp strings (e.g.
+    # "2026-01-01T18:06:05.000Z") — DateTimes parse cleanly with the
+    # tightened phone regex but were getting mangled by the previous
+    # too-loose version.
+    if DATE_TIMESTAMP_RE.fullmatch(s.rstrip("Z").rstrip(".000")) or DATE_TIMESTAMP_RE.fullmatch(s):
+        return s
     s = PHONE_RE.sub("+372 5000 0000", s)
     return s
 

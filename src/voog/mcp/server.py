@@ -37,6 +37,7 @@ from voog.mcp.resources import redirects as redirects_resources
 from voog.mcp.tools import articles as articles_tools
 from voog.mcp.tools import categories as categories_tools
 from voog.mcp.tools import content_partials as content_partials_tools
+from voog.mcp.tools import discounts as discounts_tools
 from voog.mcp.tools import ecommerce_settings as ecommerce_settings_tools
 from voog.mcp.tools import elements as elements_tools
 from voog.mcp.tools import layouts as layouts_tools
@@ -108,6 +109,7 @@ TOOL_GROUPS = [
     articles_tools,
     categories_tools,
     content_partials_tools,
+    discounts_tools,
     ecommerce_settings_tools,
     elements_tools,
     layouts_tools,

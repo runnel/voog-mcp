@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "captured_at": "2026-05-27T12:54:06+00:00",
+    "captured_at": "2026-05-27T13:29:45+00:00",
     "source_site": "stella-old",
     "voog_host": "stellasoomlais.voog.com",
     "endpoint": "/orders",
@@ -13,7 +13,7 @@
   "response": [
     {
       "id": 9001,
-      "uuid": "90c91ebe-f04d-4c06-bae+372 5000 0000a6b",
+      "uuid": "90c91ebe-f04d-4c06-bae0-751621205a6b",
       "code": "#4378",
       "status": "created",
       "payment_status": "paid",
@@ -55,9 +55,9 @@
       ],
       "return_url": "https://stellasoomlais.com/aksessuaarid/lisad/rihmad/leather-grip",
       "note": null,
-      "issued_date": "+372 5000 0000",
-      "value_date": "+372 5000 0000",
-      "paid_at": "+372 5000 0000T20:29:12.000Z",
+      "issued_date": "2024-05-08",
+      "value_date": "2024-05-09",
+      "paid_at": "2024-05-08T20:29:12.000Z",
       "completed_at": null,
       "gateway_transaction_id": "pi_3PEH6mQuDBUKPUhi04GCexrh",
       "cart_rules_applied": false,
@@ -70,8 +70,8 @@
           "kind": "checkbox"
         }
       },
-      "created_at": "+372 5000 0000T20:28:59.000Z",
-      "updated_at": "+372 5000 0000T20:29:12.000Z",
+      "created_at": "2024-05-08T20:28:59.000Z",
+      "updated_at": "2024-05-08T20:29:12.000Z",
       "shipping_method": {
         "id": 9003,
         "name": "Järele tulemisega, €0.–",
@@ -90,8 +90,8 @@
         "marketing_consents": []
       },
       "urls": {
-        "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/orders/+372 5000 0000",
-        "invoice_url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/invoices/90c91ebe-f04d-4c06-bae+372 5000 0000a6b"
+        "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/orders/522050",
+        "invoice_url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/invoices/90c91ebe-f04d-4c06-bae0-751621205a6b"
       }
     },
     {
@@ -106,9 +106,9 @@
       "shipping_method_option": "Tartu Tähe Rimi pakiautomaat",
       "shipment_id": 9006,
       "external_shipment_attrs": {
-        "id": "CC+372 5000 0000EE",
-        "tracking_code": "CC+372 5000 0000EE",
-        "tracking_url": "https://www.omniva.ee/era/jalgimine?barcode=CC+372 5000 0000EE"
+        "id": "CC531185158EE",
+        "tracking_code": "CC531185158EE",
+        "tracking_url": "https://www.omniva.ee/era/jalgimine?barcode=CC531185158EE"
       },
       "gateway_code": "voogpay",
       "gateway_name": "Voogpay",
@@ -142,9 +142,9 @@
       ],
       "return_url": "https://stellasoomlais.com/kohe-saadaval/hetkel-laos/helepruun-telefonikott-by-your-side",
       "note": null,
-      "issued_date": "+372 5000 0000",
-      "value_date": "+372 5000 0000",
-      "paid_at": "+372 5000 0000T12:17:54.000Z",
+      "issued_date": "2024-05-06",
+      "value_date": "2024-05-07",
+      "paid_at": "2024-05-06T12:17:54.000Z",
       "completed_at": null,
       "gateway_transaction_id": "pi_3PDQUBQuDBUKPUhi1AT5HKTf",
       "cart_rules_applied": false,
@@ -157,8 +157,8 @@
           "kind": "checkbox"
         }
       },
-      "created_at": "+372 5000 0000T12:17:39.000Z",
-      "updated_at": "+372 5000 0000T12:17:56.000Z",
+      "created_at": "2024-05-06T12:17:39.000Z",
+      "updated_at": "2024-05-06T12:17:56.000Z",
       "shipping_method": {
         "id": 9007,
         "name": "Omniva pakiautomaat (Eesti), €5",
@@ -183,13 +183,13 @@
         "marketing_consents": []
       },
       "urls": {
-        "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/orders/+372 5000 0000",
+        "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/orders/520889",
         "invoice_url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/invoices/de4f12a8-276c-4593-b956-ae4d8b03e007"
       }
     },
     {
       "id": 9008,
-      "uuid": "d13af6a1-8d9c-4ef+372 5000 0000f0043",
+      "uuid": "d13af6a1-8d9c-4ef6-8588-6009116f0043",
       "code": "#4376",
       "status": "created",
       "payment_status": "paid",
@@ -199,9 +199,9 @@
       "shipping_method_option": "Tallinna Sõpruse Rimi pakiautomaat",
       "shipment_id": 9010,
       "external_shipment_attrs": {
-        "id": "CC+372 5000 0000EE",
-        "tracking_code": "CC+372 5000 0000EE",
-        "tracking_url": "https://www.omniva.ee/era/jalgimine?barcode=CC+372 5000 0000EE"
+        "id": "CC530412349EE",
+        "tracking_code": "CC530412349EE",
+        "tracking_url": "https://www.omniva.ee/era/jalgimine?barcode=CC530412349EE"
       },
       "gateway_code": "montonio",
       "gateway_name": "Montonio",
@@ -235,11 +235,11 @@
       ],
       "return_url": "https://stellasoomlais.com/et/products/juhtmete-organiseerija",
       "note": null,
-      "issued_date": "+372 5000 0000",
-      "value_date": "+372 5000 0000",
-      "paid_at": "+372 5000 0000T19:13:39.000Z",
+      "issued_date": "2024-05-03",
+      "value_date": "2024-05-04",
+      "paid_at": "2024-05-03T19:13:39.000Z",
       "completed_at": null,
-      "gateway_transaction_id": "8c2f8a+372 5000 0000b-4b7b-b5e+372 5000 0000ff2db952",
+      "gateway_transaction_id": "8c2f8a82-387b-4b7b-b5e8-6534ff2db952",
       "cart_rules_applied": false,
       "custom_field_values": {
         "paki-voib-saata-kasutatud-pakendis-1632983424196": true
@@ -250,8 +250,8 @@
           "kind": "checkbox"
         }
       },
-      "created_at": "+372 5000 0000T19:11:38.000Z",
-      "updated_at": "+372 5000 0000T19:13:44.000Z",
+      "created_at": "2024-05-03T19:11:38.000Z",
+      "updated_at": "2024-05-03T19:13:44.000Z",
       "shipping_method": {
         "id": 9011,
         "name": "Omniva pakiautomaat (Eesti), €5",
@@ -276,13 +276,13 @@
         "marketing_consents": []
       },
       "urls": {
-        "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/orders/+372 5000 0000",
-        "invoice_url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/invoices/d13af6a1-8d9c-4ef+372 5000 0000f0043"
+        "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/orders/520113",
+        "invoice_url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/invoices/d13af6a1-8d9c-4ef6-8588-6009116f0043"
       }
     },
     {
       "id": 9012,
-      "uuid": "999a89ce-3bb+372 5000 0000-a381-9ce08185e5b3",
+      "uuid": "999a89ce-3bb9-4091-a381-9ce08185e5b3",
       "code": "#4375",
       "status": "created",
       "payment_status": "paid",
@@ -324,9 +324,9 @@
       ],
       "return_url": "https://stellasoomlais.com/shop/backpacks",
       "note": null,
-      "issued_date": "+372 5000 0000",
-      "value_date": "+372 5000 0000",
-      "paid_at": "+372 5000 0000T02:17:58.000Z",
+      "issued_date": "2024-05-01",
+      "value_date": "2024-05-02",
+      "paid_at": "2024-05-01T02:17:58.000Z",
       "completed_at": null,
       "gateway_transaction_id": "pi_3PBSjzFKrt8jLTHi1SPHLKti",
       "cart_rules_applied": true,
@@ -349,8 +349,8 @@
           "kind": "checkbox"
         }
       },
-      "created_at": "+372 5000 0000T02:16:39.000Z",
-      "updated_at": "+372 5000 0000T02:17:58.000Z",
+      "created_at": "2024-05-01T02:16:39.000Z",
+      "updated_at": "2024-05-01T02:17:58.000Z",
       "shipping_method": {
         "id": 9014,
         "name": "Järele tulemisega, €0.–",
@@ -369,8 +369,8 @@
         "marketing_consents": []
       },
       "urls": {
-        "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/orders/+372 5000 0000",
-        "invoice_url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/invoices/999a89ce-3bb+372 5000 0000-a381-9ce08185e5b3"
+        "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/orders/519234",
+        "invoice_url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/invoices/999a89ce-3bb9-4091-a381-9ce08185e5b3"
       }
     },
     {
@@ -385,9 +385,9 @@
       "shipping_method_option": "Viljandi Bussijaama pakiautomaat",
       "shipment_id": 9017,
       "external_shipment_attrs": {
-        "id": "CC+372 5000 0000EE",
-        "tracking_code": "CC+372 5000 0000EE",
-        "tracking_url": "https://www.omniva.ee/era/jalgimine?barcode=CC+372 5000 0000EE"
+        "id": "CC526869662EE",
+        "tracking_code": "CC526869662EE",
+        "tracking_url": "https://www.omniva.ee/era/jalgimine?barcode=CC526869662EE"
       },
       "gateway_code": "montonio",
       "gateway_name": "Montonio",
@@ -421,9 +421,9 @@
       ],
       "return_url": "https://www.stellasoomlais.com/tooted/hooldusvahendid/naha-hooldusvahend-leather-protection-cream",
       "note": null,
-      "issued_date": "+372 5000 0000",
-      "value_date": "+372 5000 0000",
-      "paid_at": "+372 5000 0000T20:08:53.000Z",
+      "issued_date": "2024-04-24",
+      "value_date": "2024-04-25",
+      "paid_at": "2024-04-24T20:08:53.000Z",
       "completed_at": null,
       "gateway_transaction_id": "ae55492d-4d0d-43ba-a944-5bdac34a928b",
       "cart_rules_applied": false,
@@ -436,8 +436,8 @@
           "kind": "text"
         }
       },
-      "created_at": "+372 5000 0000T20:07:14.000Z",
-      "updated_at": "+372 5000 0000T20:08:58.000Z",
+      "created_at": "2024-04-24T20:07:14.000Z",
+      "updated_at": "2024-04-24T20:08:58.000Z",
       "shipping_method": {
         "id": 9018,
         "name": "Omniva pakiautomaat (Eesti), €5",
@@ -462,7 +462,7 @@
         "marketing_consents": []
       },
       "urls": {
-        "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/orders/+372 5000 0000",
+        "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/orders/517763",
         "invoice_url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/invoices/3bd572ce-59c9-47e0-a8fb-aa6ceac84db5"
       }
     }

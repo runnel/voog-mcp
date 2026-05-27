@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "captured_at": "2026-05-27T12:54:08+00:00",
+    "captured_at": "2026-05-27T13:29:47+00:00",
     "source_site": "stella-old",
     "voog_host": "stellasoomlais.voog.com",
     "endpoint": "/gateways",
@@ -20,8 +20,8 @@
         "paypal",
         "paypal-creditcard"
       ],
-      "created_at": "+372 5000 0000T11:28:45.000Z",
-      "updated_at": "+372 5000 0000T11:28:45.000Z",
+      "created_at": "2021-05-19T11:28:45.000Z",
+      "updated_at": "2021-05-19T11:28:45.000Z",
       "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/paypal"
     },
     {
@@ -75,8 +75,8 @@
         "bnpl_3",
         "hire_purchase"
       ],
-      "created_at": "+372 5000 0000T06:22:31.000Z",
-      "updated_at": "+372 5000 0000T10:59:21.000Z",
+      "created_at": "2021-09-30T06:22:31.000Z",
+      "updated_at": "2024-03-12T10:59:21.000Z",
       "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/montonio"
     },
     {
@@ -99,8 +99,8 @@
         "alipay",
         "fpx"
       ],
-      "created_at": "+372 5000 0000T14:13:27.000Z",
-      "updated_at": "+372 5000 0000T14:13:50.000Z",
+      "created_at": "2023-03-22T14:13:27.000Z",
+      "updated_at": "2023-03-22T14:13:50.000Z",
       "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/stripe"
     },
     {
@@ -121,8 +121,8 @@
         "alipay",
         "fpx"
       ],
-      "created_at": "+372 5000 0000T08:05:38.000Z",
-      "updated_at": "+372 5000 0000T08:38:44.000Z",
+      "created_at": "2024-04-10T08:05:38.000Z",
+      "updated_at": "2024-04-10T08:38:44.000Z",
       "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/voogpay"
     },
     {
@@ -231,8 +231,8 @@
       "all_payment_methods": [
         "offline"
       ],
-      "created_at": "+372 5000 0000T21:00:00.000Z",
-      "updated_at": "+372 5000 0000T21:00:00.000Z",
+      "created_at": "2026-05-26T21:00:00.000Z",
+      "updated_at": "2026-05-26T21:00:00.000Z",
       "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/offline"
     }
   ]

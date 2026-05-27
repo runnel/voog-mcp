@@ -902,6 +902,9 @@ class TestServerToolRegistry(unittest.TestCase):
             content_partials as content_partials_t,
         )
         from voog.mcp.tools import (
+            discounts as discounts_t,
+        )
+        from voog.mcp.tools import (
             ecommerce_settings as ecommerce_settings_t,
         )
         from voog.mcp.tools import (
@@ -954,6 +957,7 @@ class TestServerToolRegistry(unittest.TestCase):
             articles_t,
             categories_t,
             content_partials_t,
+            discounts_t,
             ecommerce_settings_t,
             elements_t,
             layouts_t,
