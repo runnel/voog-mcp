@@ -202,5 +202,124 @@ class TestRequireForce(unittest.TestCase):
         self.assertEqual(err_explicit_none, err_no_kwarg)
 
 
+class TestValidateFilters(unittest.TestCase):
+    """S8 — filter dict validation for pages_list / articles_list / elements_list."""
+
+    def test_valid_page_filter_key_accepted(self):
+        from voog.mcp.tools._helpers import validate_filters
+
+        err = validate_filters(
+            {"q.page.title.$cont": "kuju"},
+            resource="page",
+            tool_name="pages_list",
+        )
+        self.assertIsNone(err)
+
+    def test_valid_article_filter_key_accepted(self):
+        from voog.mcp.tools._helpers import validate_filters
+
+        err = validate_filters(
+            {"q.article.published_at.$gteq": "2026-01-01"},
+            resource="article",
+            tool_name="articles_list",
+        )
+        self.assertIsNone(err)
+
+    def test_valid_element_filter_key_accepted(self):
+        from voog.mcp.tools._helpers import validate_filters
+
+        err = validate_filters(
+            {"q.element.title.$eq": "Tote"},
+            resource="element",
+            tool_name="elements_list",
+        )
+        self.assertIsNone(err)
+
+    def test_all_documented_comparators_accepted(self):
+        # Verified live against https://www.voog.com/developers/markup/basics/filters
+        # in Step 0.5 of this plan.
+        from voog.mcp.tools._helpers import validate_filters
+
+        for comp in (
+            "$eq",
+            "$cont",
+            "$gteq",
+            "$lteq",
+            "$gt",
+            "$lt",
+            "$in",
+            "$nin",
+            "$starts",
+            "$ends",
+            "$null",
+            "$has",
+        ):
+            err = validate_filters(
+                {f"q.page.title.{comp}": "x"},
+                resource="page",
+                tool_name="pages_list",
+            )
+            self.assertIsNone(err, f"comparator {comp} should be accepted")
+
+    def test_wrong_resource_prefix_rejected(self):
+        # pages_list must not accept an article-prefixed filter key.
+        from voog.mcp.tools._helpers import validate_filters
+
+        err = validate_filters(
+            {"q.article.title.$cont": "x"},
+            resource="page",
+            tool_name="pages_list",
+        )
+        self.assertIsNotNone(err)
+        self.assertIn("pages_list", err)
+        self.assertIn("q.page.", err)
+
+    def test_unknown_comparator_rejected(self):
+        from voog.mcp.tools._helpers import validate_filters
+
+        err = validate_filters(
+            {"q.page.title.$regex": "x"},
+            resource="page",
+            tool_name="pages_list",
+        )
+        self.assertIsNotNone(err)
+        self.assertIn("pages_list", err)
+
+    def test_missing_dollar_prefix_rejected(self):
+        from voog.mcp.tools._helpers import validate_filters
+
+        err = validate_filters(
+            {"q.page.title.eq": "x"},
+            resource="page",
+            tool_name="pages_list",
+        )
+        self.assertIsNotNone(err)
+
+    def test_uppercase_attribute_rejected(self):
+        # Voog attributes are lowercase snake_case; uppercase signals typo.
+        from voog.mcp.tools._helpers import validate_filters
+
+        err = validate_filters(
+            {"q.page.Title.$eq": "x"},
+            resource="page",
+            tool_name="pages_list",
+        )
+        self.assertIsNotNone(err)
+
+    def test_non_dict_rejected(self):
+        from voog.mcp.tools._helpers import validate_filters
+
+        err = validate_filters("not a dict", resource="page", tool_name="pages_list")
+        self.assertIsNotNone(err)
+        self.assertIn("object", err.lower())
+
+    def test_empty_dict_accepted(self):
+        # No filters supplied is the default; not an error.
+        from voog.mcp.tools._helpers import validate_filters
+
+        err = validate_filters({}, resource="page", tool_name="pages_list")
+        self.assertIsNone(err)
+
+
 if __name__ == "__main__":
     unittest.main()

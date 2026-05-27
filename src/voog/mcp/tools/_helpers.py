@@ -335,3 +335,71 @@ def build_list_params(
             params[sort_target] = sort_val
 
     return params
+
+
+# S8 — comparator suffix set, verified live against
+# https://www.voog.com/developers/markup/basics/filters on 2026-05-26
+# (Phase 2 plan Step 0.5). Maintenance: re-curl on every coverage-doc
+# refresh; the doc's footer ``Last verified against Voog API: <date>``
+# is the single source of truth.
+_FILTER_COMPARATORS = (
+    r"\$eq",
+    r"\$cont",
+    r"\$gteq",
+    r"\$lteq",
+    r"\$gt",
+    r"\$lt",
+    r"\$in",
+    r"\$nin",
+    r"\$starts",
+    r"\$ends",
+    r"\$null",
+    r"\$has",
+)
+
+_FILTER_KEY_RE_BY_RESOURCE: dict[str, re.Pattern] = {
+    resource: re.compile(rf"^q\.{resource}\.[a-z_]+\.({'|'.join(_FILTER_COMPARATORS)})$")
+    for resource in ("page", "article", "element")
+}
+
+
+def validate_filters(
+    filters: object,
+    *,
+    resource: str,
+    tool_name: str,
+) -> str | None:
+    """Validate the S8 escape-hatch filter dict.
+
+    Each key must match
+    ``^q\\.<resource>\\.[a-z_]+\\.<comparator>$`` where ``<resource>`` is
+    one of ``page`` / ``article`` / ``element`` and must match the tool the
+    caller invoked. This prevents cross-tool key drift (e.g.
+    ``q.article.title.$cont`` passed to ``pages_list``).
+
+    Values are passed through to Voog as query-string parameters and are
+    NOT validated here — Voog's API rejects type mismatches at the server.
+
+    Returns ``None`` on success or a human-readable error string on failure
+    (the caller surfaces it via ``error_response``).
+    """
+    if filters is None:
+        return None
+    if not isinstance(filters, dict):
+        return f"{tool_name}: filters must be an object (got {type(filters).__name__})"
+    pattern = _FILTER_KEY_RE_BY_RESOURCE.get(resource)
+    if pattern is None:
+        # Defensive — caller passed an unsupported resource label. This
+        # would be a programmer error in the MCP tool wiring, not a user
+        # error.
+        return f"{tool_name}: internal — unknown resource {resource!r}"
+    for key in filters:
+        if not isinstance(key, str) or not pattern.match(key):
+            return (
+                f"{tool_name}: filter key {key!r} does not match "
+                f"q.{resource}.<attr>.(\\$eq|\\$cont|\\$gteq|\\$lteq|"
+                f"\\$gt|\\$lt|\\$in|\\$nin|\\$starts|\\$ends|\\$null|"
+                f"\\$has). Comparator set verified against Voog "
+                f"filter docs."
+            )
+    return None

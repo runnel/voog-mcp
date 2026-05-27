@@ -762,3 +762,28 @@ class TestArticleDeleteData(unittest.TestCase):
         self.assertIs(ann.readOnlyHint, False)
         self.assertIs(ann.destructiveHint, True)
         self.assertIs(ann.idempotentHint, False)
+
+
+class TestArticlesListFilters(unittest.TestCase):
+    """S8 — filter escape hatch on articles_list."""
+
+    def test_filters_passed_to_voog(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        articles_tools.call_tool(
+            "articles_list",
+            {"filters": {"q.article.published_at.$gteq": "2026-01-01"}},
+            client,
+        )
+        kwargs = client.get_all.call_args.kwargs
+        self.assertEqual(kwargs["params"]["q.article.published_at.$gteq"], "2026-01-01")
+
+    def test_invalid_filter_key_rejected(self):
+        client = MagicMock()
+        result = articles_tools.call_tool(
+            "articles_list",
+            {"filters": {"q.page.title.$cont": "x"}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()

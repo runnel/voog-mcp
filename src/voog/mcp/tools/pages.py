@@ -4,7 +4,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import build_list_params, require_int, strip_site
+from voog.mcp.tools._helpers import build_list_params, require_int, strip_site, validate_filters
 from voog.projections import simplify_pages
 
 # q.* filters (object.attribute on the resource).
@@ -75,6 +75,19 @@ def get_tools() -> list[Tool]:
                             "Examples: 'page.title.$asc', 'page.created_at.$desc'."
                         ),
                     },
+                    "filters": {
+                        "type": "object",
+                        "description": (
+                            "Escape hatch for Voog filter keys not exposed "
+                            "as typed args. Keys MUST match "
+                            "q.page.<attr>.(\\$eq|\\$cont|\\$gteq|\\$lteq|"
+                            "\\$gt|\\$lt|\\$in|\\$nin|\\$starts|\\$ends|"
+                            "\\$null|\\$has). Values are pass-through. "
+                            "Merged with typed args; filter keys override "
+                            "typed-arg-derived keys on collision."
+                        ),
+                        "additionalProperties": {"type": ["string", "integer", "boolean"]},
+                    },
                 },
                 "required": ["site"],
             },
@@ -123,12 +136,20 @@ def call_tool(
                 err = require_int(int_field, val, tool_name="pages_list")
                 if err:
                     return error_response(err)
+        # S8: filter escape hatch — keys validated against the
+        # q.page.<attr>.<comparator> regex.
+        filters = arguments.get("filters")
+        err = validate_filters(filters, resource="page", tool_name="pages_list")
+        if err:
+            return error_response(err)
         params = build_list_params(
             arguments,
             plain=_PAGES_PLAIN_PARAMS,
             q_map=_PAGES_Q_FILTERS,
             sort_target="s",
         )
+        if filters:
+            params.update(filters)
         try:
             if params:
                 pages = client.get_all("/pages", params=params)

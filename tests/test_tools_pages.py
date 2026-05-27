@@ -323,5 +323,59 @@ class TestAllToolsRequireSite(unittest.TestCase):
             )
 
 
+class TestPagesListFilters(unittest.TestCase):
+    """S8 — filter escape hatch on pages_list."""
+
+    def test_filters_passed_to_voog_as_params(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool(
+            "pages_list",
+            {"filters": {"q.page.layout_id.$eq": 7}},
+            client,
+        )
+        client.get_all.assert_called_once()
+        (path,) = client.get_all.call_args.args
+        kwargs = client.get_all.call_args.kwargs
+        self.assertEqual(path, "/pages")
+        self.assertEqual(kwargs["params"]["q.page.layout_id.$eq"], 7)
+
+    def test_filters_merge_with_typed_args(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        pages_tools.call_tool(
+            "pages_list",
+            {
+                "language_code": "et",
+                "filters": {"q.page.layout_id.$eq": 7},
+            },
+            client,
+        )
+        kwargs = client.get_all.call_args.kwargs
+        # typed arg → q.page.language_code (built by build_list_params)
+        self.assertEqual(kwargs["params"]["q.page.language_code"], "et")
+        # escape-hatch key forwarded verbatim
+        self.assertEqual(kwargs["params"]["q.page.layout_id.$eq"], 7)
+
+    def test_invalid_filter_key_rejected(self):
+        client = MagicMock()
+        result = pages_tools.call_tool(
+            "pages_list",
+            {"filters": {"q.article.title.$cont": "x"}},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()
+
+    def test_filters_non_dict_rejected(self):
+        client = MagicMock()
+        result = pages_tools.call_tool(
+            "pages_list",
+            {"filters": "q.page.title.$eq=x"},
+            client,
+        )
+        self.assertTrue(result.isError)
+
+
 if __name__ == "__main__":
     unittest.main()

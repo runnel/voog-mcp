@@ -631,3 +631,27 @@ class TestServerToolRegistry(unittest.TestCase):
         from voog.mcp import server
 
         self.assertIn(et, server.TOOL_GROUPS)
+
+
+class TestElementsListFilters(unittest.TestCase):
+    """S8 — filter escape hatch on elements_list."""
+
+    def test_filters_passed_to_voog(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        et.call_tool(
+            "elements_list",
+            {"filters": {"q.element.title.$cont": "Tote"}},
+            client,
+        )
+        kwargs = client.get_all.call_args.kwargs
+        self.assertEqual(kwargs["params"]["q.element.title.$cont"], "Tote")
+
+    def test_invalid_filter_key_rejected(self):
+        client = MagicMock()
+        result = et.call_tool(
+            "elements_list",
+            {"filters": {"q.page.title.$cont": "x"}},
+            client,
+        )
+        self.assertTrue(result.isError)

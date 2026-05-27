@@ -30,6 +30,7 @@ from voog.mcp.tools._helpers import (
     require_force,
     require_int,
     strip_site,
+    validate_filters,
 )
 from voog.projections import simplify_articles
 
@@ -75,6 +76,17 @@ def get_tools() -> list[Tool]:
                             "Voog sort string: '<object>.<attr>.<$asc|$desc>'. "
                             "Example: 'article.created_at.$desc'."
                         ),
+                    },
+                    "filters": {
+                        "type": "object",
+                        "description": (
+                            "Escape hatch for Voog filter keys not exposed "
+                            "as typed args. Keys MUST match "
+                            "q.article.<attr>.(\\$eq|\\$cont|\\$gteq|\\$lteq|"
+                            "\\$gt|\\$lt|\\$in|\\$nin|\\$starts|\\$ends|"
+                            "\\$null|\\$has)."
+                        ),
+                        "additionalProperties": {"type": ["string", "integer", "boolean"]},
                     },
                 },
                 "required": ["site"],
@@ -358,11 +370,17 @@ def _articles_list(arguments: dict, client: VoogClient):
             err = require_int(int_field, val, tool_name="articles_list")
             if err:
                 return error_response(err)
+    filters = arguments.get("filters")
+    err = validate_filters(filters, resource="article", tool_name="articles_list")
+    if err:
+        return error_response(err)
     params = build_list_params(
         arguments,
         plain=_ARTICLES_PLAIN_PARAMS,
         sort_target="s",
     )
+    if filters:
+        params.update(filters)
     try:
         if params:
             articles = client.get_all("/articles", params=params)
