@@ -24,6 +24,13 @@ PRODUCTS_LIST_INCLUDE = "translations"
 # "what's the stock on this 9-variant tote" (issue #104).
 PRODUCTS_DETAIL_INCLUDE = "variants,variant_types,translations"
 
+# Voog ?include_body=true on /layouts — list response carries the full
+# layout body inline, letting layouts_pull skip the per-id detail fan-out
+# (and letting site_snapshot dump layouts.json with bodies for restore
+# tooling). v1.4 S1. Centralized here so the snapshot module and the
+# layouts_sync tool share a single source of truth.
+LAYOUTS_INCLUDE_BODY = {"include_body": "true"}
+
 
 def simplify_pages(pages: list) -> list:
     """Project pages to the curated list shape (matches voog.py pages_pull)."""

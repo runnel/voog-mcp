@@ -39,6 +39,7 @@ from voog._concurrency import parallel_map
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site, validate_output_dir, write_json
+from voog.projections import LAYOUTS_INCLUDE_BODY
 
 
 def get_tools() -> list[Tool]:
@@ -149,7 +150,7 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
         # list response, avoiding a per-id detail GET fan-out. Older Voog
         # deploys may not honor this param — we fall back to per-id fetches
         # selectively below for any layout that arrives without a body.
-        layouts = client.get_all("/layouts", params={"include_body": "true"})
+        layouts = client.get_all("/layouts", params=LAYOUTS_INCLUDE_BODY)
     except Exception as e:
         return error_response(f"layouts_pull failed: {e}")
 
@@ -186,7 +187,8 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
             layouts_needing_fetch.append(layout)
 
     detail_urls = [f"/layouts/{layout['id']}" for layout in layouts_needing_fetch]
-    fetch_results = parallel_map(client.get, detail_urls, max_workers=8) if detail_urls else []
+    # parallel_map returns [] on empty input — no short-circuit needed.
+    fetch_results = parallel_map(client.get, detail_urls, max_workers=8)
 
     # Compose a unified iterator: each layout paired with its (detail, exc).
     # Layouts with list-supplied bodies get (layout-as-detail, None).

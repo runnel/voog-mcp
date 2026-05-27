@@ -35,32 +35,35 @@ from voog._concurrency import parallel_map
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site, validate_output_dir, write_json
-from voog.projections import PRODUCTS_DETAIL_INCLUDE
+from voog.projections import LAYOUTS_INCLUDE_BODY, PRODUCTS_DETAIL_INCLUDE
 
 # Standard /admin/api/ list endpoints. Each is paginated via client.get_all.
-SITE_SNAPSHOT_LIST_ENDPOINTS = [
-    "/pages",
-    "/articles",
-    "/elements",
-    "/element_definitions",
-    "/layout_assets",
-    "/languages",
-    "/redirect_rules",
-    "/nodes",
-    "/texts",
-    "/content_partials",
-    "/tags",
-    "/forms",
-    "/media_sets",
-    "/assets",
-    "/webhooks",
+# Shape: ``(endpoint, params_or_None)`` tuples. ``params=None`` means the
+# default (no query-string params beyond pagination). Endpoints that need
+# a specific ``?include=`` or other modifier carry their params here so the
+# constant represents *all* list endpoints in the snapshot — no sibling
+# constants, no separate post-loop fetches, no drift trap for CLI vs MCP
+# consumers (v1.4 design fix surfacing during PR #123 review).
+SITE_SNAPSHOT_LIST_ENDPOINTS: list[tuple[str, dict | None]] = [
+    ("/pages", None),
+    ("/articles", None),
+    ("/elements", None),
+    ("/element_definitions", None),
+    # S1 (v1.4): /layouts list includes bodies inline so the snapshot's
+    # layouts.json is restore-ready without per-id fetches.
+    ("/layouts", LAYOUTS_INCLUDE_BODY),
+    ("/layout_assets", None),
+    ("/languages", None),
+    ("/redirect_rules", None),
+    ("/nodes", None),
+    ("/texts", None),
+    ("/content_partials", None),
+    ("/tags", None),
+    ("/forms", None),
+    ("/media_sets", None),
+    ("/assets", None),
+    ("/webhooks", None),
 ]
-
-# S1 (v1.4): /layouts gets fetched with include_body=true outside the bulk
-# parallel-map loop because the loop's worker (client.get_all) doesn't take
-# per-endpoint params overrides today. Pulled into a separate call so the
-# resulting layouts.json carries full bodies for downstream restore use.
-SITE_SNAPSHOT_LAYOUTS_PARAMS = {"include_body": "true"}
 
 # Standard /admin/api/ singletons (no list).
 SITE_SNAPSHOT_SINGLETONS = ["/site", "/me"]
@@ -265,12 +268,19 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
     # 1. Standard list endpoints (paginated) — parallelized read-only fetches.
     # Sequencing: pages_data / articles_data are consumed by loops 3+4 below,
     # so we still await this loop's completion before fanning out per-resource.
+    # Items are ``(endpoint, params_or_None)`` tuples; the worker unpacks and
+    # forwards params (None → bare list call). Keeps /layouts (which needs
+    # ``include_body=true``) inside the parallel batch — no serial fallout.
+    def _fetch_list(item: tuple[str, dict | None]):
+        endpoint, params = item
+        return client.get_all(endpoint, params=params)
+
     list_results = parallel_map(
-        client.get_all,
+        _fetch_list,
         SITE_SNAPSHOT_LIST_ENDPOINTS,
         max_workers=8,
     )
-    for endpoint, data, exc in list_results:
+    for (endpoint, _params), data, exc in list_results:
         filename = _snapshot_filename_for(endpoint)
         if exc is not None:
             skipped.append({"file": filename, "reason": _format_skip(filename, exc)})
@@ -281,16 +291,6 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
             pages_data = data
         elif endpoint == "/articles":
             articles_data = data
-
-    # S1: fetch /layouts with include_body=true (outside the bulk loop because
-    # parallel_map's worker can't take per-endpoint params today). Failure
-    # records as a regular skip; downstream snapshot remains functional.
-    try:
-        layouts_data = client.get_all("/layouts", params=SITE_SNAPSHOT_LAYOUTS_PARAMS)
-        write_json(out / "layouts.json", layouts_data)
-        files_written += 1
-    except Exception as e:
-        skipped.append({"file": "layouts.json", "reason": _format_skip("layouts.json", e)})
 
     # 2. Singletons — kept sequential (only 2 endpoints, parallel speedup is
     # not worth the extra moving part).

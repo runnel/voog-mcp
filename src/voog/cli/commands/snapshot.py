@@ -31,7 +31,6 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
     import urllib.request
 
     from voog.mcp.tools.snapshot import (
-        SITE_SNAPSHOT_LAYOUTS_PARAMS,
         SITE_SNAPSHOT_LIST_ENDPOINTS,
         SITE_SNAPSHOT_SINGLETONS,
         _pick_sample_page_paths,
@@ -59,11 +58,14 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
     articles_data = []
     products_data = []
 
-    # 1. Standard list endpoints
-    for endpoint in SITE_SNAPSHOT_LIST_ENDPOINTS:
+    # 1. Standard list endpoints. SITE_SNAPSHOT_LIST_ENDPOINTS is now
+    # ``[(endpoint, params_or_None), ...]`` — params carries any required
+    # query-string modifier (e.g. ``include_body=true`` for /layouts) so
+    # CLI and MCP can't drift on per-endpoint shapes (v1.4 design fix).
+    for endpoint, params in SITE_SNAPSHOT_LIST_ENDPOINTS:
         filename = _snapshot_filename_for(endpoint)
         try:
-            data = client.get_all(endpoint)
+            data = client.get_all(endpoint, params=params)
         except Exception as e:
             print(f"  skipped {filename}: {e}")
             continue
@@ -74,17 +76,6 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
             pages_data = data
         elif endpoint == "/articles":
             articles_data = data
-
-    # 1b. /layouts fetched separately with include_body=true so layouts.json
-    # carries full bodies for restore-style tooling — mirrors the MCP tool's
-    # S1 (v1.4) split out of the bulk list loop.
-    try:
-        layouts_data = client.get_all("/layouts", params=SITE_SNAPSHOT_LAYOUTS_PARAMS)
-        _write_json(out / "layouts.json", layouts_data)
-        print(f"  layouts.json ({len(layouts_data)})")
-        written += 1
-    except Exception as e:
-        print(f"  skipped layouts.json: {e}")
 
     # 2. Singletons
     for endpoint in SITE_SNAPSHOT_SINGLETONS:
