@@ -338,9 +338,15 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         files_written += 1
         article_detail_count += 1
 
-    # 5. Ecommerce: products list + per-product details (parallelized).
+    # 5. Ecommerce: products list with include=variants,variant_types,translations
+    # — list response carries the full detail shape, so the per-product detail
+    # fan-out (one GET per product) is eliminated. S2 in v1.4.
     try:
-        products_data = client.get_all("/products", base=client.ecommerce_url)
+        products_data = client.get_all(
+            "/products",
+            base=client.ecommerce_url,
+            params={"include": PRODUCTS_DETAIL_INCLUDE},
+        )
     except Exception as e:
         skipped.append({"file": "products.json", "reason": _format_skip("products.json", e)})
         products_data = []
@@ -348,26 +354,14 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
     if products_data:
         write_json(out / "products.json", products_data)
         files_written += 1
-        product_ids = [prod.get("id") for prod in products_data if prod.get("id")]
-
-        def _fetch_product_detail(pid):
-            return client.get(
-                f"/products/{pid}",
-                base=client.ecommerce_url,
-                params={"include": PRODUCTS_DETAIL_INCLUDE},
-            )
-
-        product_detail_results = parallel_map(
-            _fetch_product_detail,
-            product_ids,
-            max_workers=8,
-        )
-        for pid, detail, exc in product_detail_results:
-            filename = f"product_{pid}.json"
-            if exc is not None:
-                skipped.append({"file": filename, "reason": _format_skip(filename, exc)})
+        # S2: per-product files come from the list response directly — no
+        # per-id GET fan-out. Each item already carries variants /
+        # variant_types / translations via the list-level ?include.
+        for product in products_data:
+            pid = product.get("id")
+            if not pid:
                 continue
-            write_json(out / filename, detail)
+            write_json(out / f"product_{pid}.json", product)
             files_written += 1
 
     # 6. Rendered HTML samples for VoogStyle capture (best-effort).

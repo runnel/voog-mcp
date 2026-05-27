@@ -428,6 +428,82 @@ class TestSiteSnapshot(unittest.TestCase):
             layouts_data = json.loads((out / "layouts.json").read_text(encoding="utf-8"))
             self.assertEqual(layouts_data[0]["body"], "<html>...</html>")
 
+    def test_site_snapshot_products_list_includes_variants_translations(self):
+        # S2 — products list call must request the full include set.
+        client = _make_client()
+        captured_params = {}
+
+        def _get_all(path, **kwargs):
+            if path == "/products":
+                captured_params.update(kwargs.get("params") or {})
+                return [
+                    {
+                        "id": 500,
+                        "name": "Widget",
+                        "translations": {"en": {}},
+                        "variants": [{"id": 1, "stock": 10}],
+                        "variant_types": [],
+                    },
+                ]
+            return []
+
+        client.get_all.side_effect = _get_all
+        client.get.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+        # The include must be present on the products list call.
+        self.assertEqual(
+            captured_params.get("include"),
+            "variants,variant_types,translations",
+        )
+
+    def test_site_snapshot_does_not_fetch_per_product_detail(self):
+        # S2 — the per-product detail fan-out is removed; product_{id}.json
+        # files come from the list response directly.
+        client = _make_client()
+
+        def _get_all(path, **kwargs):
+            if path == "/products":
+                return [
+                    {"id": 500, "name": "A", "translations": {}, "variants": []},
+                    {"id": 501, "name": "B", "translations": {}, "variants": []},
+                ]
+            return []
+
+        client.get_all.side_effect = _get_all
+        # client.get should NEVER be called with /products/{id} after S2.
+        get_calls: list = []
+
+        def _get(path, **kwargs):
+            get_calls.append(path)
+            return {}
+
+        client.get.side_effect = _get
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+            # Per-product detail files still written, from list data.
+            self.assertTrue((out / "product_500.json").exists())
+            self.assertTrue((out / "product_501.json").exists())
+            detail_500 = json.loads((out / "product_500.json").read_text(encoding="utf-8"))
+            self.assertEqual(detail_500["id"], 500)
+            self.assertEqual(detail_500["name"], "A")
+        # Verify NO /products/{id} fetches happened. Other GETs (singletons,
+        # page contents, public HTML) are fine.
+        product_detail_calls = [p for p in get_calls if p.startswith("/products/")]
+        self.assertEqual(product_detail_calls, [])
+
     def test_404_endpoints_skipped_not_fatal(self):
         # /elements often 404s on sites that don't use the elements feature.
         # Snapshot must continue, log the skip, but not fail.
@@ -515,25 +591,24 @@ class TestSiteSnapshot(unittest.TestCase):
                     client,
                 )
 
-        # Expect 4 parallel_map calls: list endpoints, page contents, article
-        # details, product details. Singletons + rendered HTML stay sequential.
-        self.assertEqual(mock_pm.call_count, 4)
+        # Expect 3 parallel_map calls (post-S2): list endpoints, page contents,
+        # article details. Per-product detail fan-out removed in v1.4 S2 —
+        # /products list with ?include=variants,variant_types,translations
+        # carries the full detail shape.
+        self.assertEqual(mock_pm.call_count, 3)
 
         # Every call must be max_workers=8 (read-only fan-out per spec § 4.3).
         for call in mock_pm.call_args_list:
             self.assertEqual(call.kwargs.get("max_workers"), 8)
 
-        # Verify the 4 calls received the expected item lists.
         items_per_call = [call.args[1] for call in mock_pm.call_args_list]
-
-        # Loop 1: list endpoints
+        # Loop 1: list endpoints (now excluding /layouts — fetched separately
+        # post-S1) and excluding the standalone /products call.
         self.assertEqual(items_per_call[0], snapshot_tools.SITE_SNAPSHOT_LIST_ENDPOINTS)
-        # Loop 3: page IDs
+        # Loop 2: page IDs
         self.assertEqual(items_per_call[1], [1, 2])
-        # Loop 4: article IDs
+        # Loop 3: article IDs
         self.assertEqual(items_per_call[2], [100])
-        # Loop 5: product IDs
-        self.assertEqual(items_per_call[3], [500, 501])
 
     def test_partial_failure_does_not_abort_other_resources(self):
         # Spec § 4.5 — failure of one parallel fetch must not abort siblings.
