@@ -1,0 +1,14 @@
+{
+  "_meta": {
+    "captured_at": "2026-05-27T12:54:08+00:00",
+    "source_site": "stella-old",
+    "voog_host": "stellasoomlais.voog.com",
+    "endpoint": "/products/{id}",
+    "method": "DELETE",
+    "sanitisation_version": 1,
+    "gotchas": [
+      "204 No Content - handler must tolerate None body"
+    ]
+  },
+  "response": null
+}

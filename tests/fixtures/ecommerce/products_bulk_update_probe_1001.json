@@ -1,0 +1,23 @@
+{
+  "_meta": {
+    "captured_at": "2026-05-27T12:54:09+00:00",
+    "source_site": "stella-old",
+    "voog_host": "stellasoomlais.voog.com",
+    "endpoint": "/products",
+    "method": "PUT",
+    "sanitisation_version": 1,
+    "gotchas": [
+      "PROBE: 1001 target_ids accepted (HTTP 200). Duplicate ids collapsed by server (processed=1 expected)."
+    ]
+  },
+  "response": {
+    "counters": {
+      "processed": 1,
+      "failed": 0
+    },
+    "processed_ids": [
+      9001
+    ],
+    "failed_ids": []
+  }
+}

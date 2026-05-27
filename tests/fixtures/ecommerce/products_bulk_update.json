@@ -1,0 +1,25 @@
+{
+  "_meta": {
+    "captured_at": "2026-05-27T12:54:09+00:00",
+    "source_site": "stella-old",
+    "voog_host": "stellasoomlais.voog.com",
+    "endpoint": "/products",
+    "method": "PUT",
+    "sanitisation_version": 1,
+    "gotchas": [
+      "Voog bulk shape is {actions: [...], target_ids: [...] | 'all'}, NOT {products: [{id, ...}]} per-row.",
+      "Response: {counters: {processed, failed}, processed_ids: [...], failed_ids: [...]}.",
+      "status=set draft on a draft is a no-op write."
+    ]
+  },
+  "response": {
+    "counters": {
+      "processed": 1,
+      "failed": 0
+    },
+    "processed_ids": [
+      9001
+    ],
+    "failed_ids": []
+  }
+}

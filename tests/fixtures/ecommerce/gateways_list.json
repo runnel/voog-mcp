@@ -1,0 +1,239 @@
+{
+  "_meta": {
+    "captured_at": "2026-05-27T12:54:08+00:00",
+    "source_site": "stella-old",
+    "voog_host": "stellasoomlais.voog.com",
+    "endpoint": "/gateways",
+    "method": "GET",
+    "sanitisation_version": 1,
+    "gotchas": []
+  },
+  "response": [
+    {
+      "code": "paypal",
+      "name": "Paypal",
+      "enabled": true,
+      "enabled_methods": [
+        "paypal-creditcard"
+      ],
+      "all_payment_methods": [
+        "paypal",
+        "paypal-creditcard"
+      ],
+      "created_at": "+372 5000 0000T11:28:45.000Z",
+      "updated_at": "+372 5000 0000T11:28:45.000Z",
+      "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/paypal"
+    },
+    {
+      "code": "montonio",
+      "name": "Montonio",
+      "enabled": true,
+      "enabled_methods": [
+        "citadele",
+        "coop",
+        "lhv",
+        "luminor",
+        "op",
+        "seb",
+        "siauliu",
+        "swedbank",
+        "bnpl_1",
+        "bnpl_2",
+        "bnpl_3",
+        "spankki",
+        "saastopankki",
+        "revolut",
+        "poppankki",
+        "omasaastopankki",
+        "nordea",
+        "danske",
+        "alandsbanken"
+      ],
+      "all_payment_methods": [
+        "alandsbanken",
+        "citadele",
+        "coop",
+        "danske",
+        "handelsbanken",
+        "lhv",
+        "luminor",
+        "medicinos",
+        "n26",
+        "nordea",
+        "omasaastopankki",
+        "op",
+        "poppankki",
+        "revolut",
+        "saastopankki",
+        "seb",
+        "siauliu",
+        "swedbank",
+        "spankki",
+        "card",
+        "bnpl_1",
+        "bnpl_2",
+        "bnpl_3",
+        "hire_purchase"
+      ],
+      "created_at": "+372 5000 0000T06:22:31.000Z",
+      "updated_at": "+372 5000 0000T10:59:21.000Z",
+      "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/montonio"
+    },
+    {
+      "code": "stripe",
+      "name": "Stripe",
+      "enabled": true,
+      "enabled_methods": [
+        "stripe",
+        "card"
+      ],
+      "all_payment_methods": [
+        "stripe",
+        "card",
+        "ideal",
+        "bancontact",
+        "giropay",
+        "eps",
+        "bacs_debit",
+        "p24",
+        "alipay",
+        "fpx"
+      ],
+      "created_at": "+372 5000 0000T14:13:27.000Z",
+      "updated_at": "+372 5000 0000T14:13:50.000Z",
+      "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/stripe"
+    },
+    {
+      "code": "voogpay",
+      "name": "Voogpay",
+      "enabled": true,
+      "enabled_methods": [
+        "card"
+      ],
+      "all_payment_methods": [
+        "card",
+        "ideal",
+        "bancontact",
+        "giropay",
+        "eps",
+        "bacs_debit",
+        "p24",
+        "alipay",
+        "fpx"
+      ],
+      "created_at": "+372 5000 0000T08:05:38.000Z",
+      "updated_at": "+372 5000 0000T08:38:44.000Z",
+      "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/voogpay"
+    },
+    {
+      "code": "everypay",
+      "name": "Everypay",
+      "enabled": false,
+      "enabled_methods": [],
+      "all_payment_methods": [
+        "coop",
+        "lhv",
+        "seb",
+        "swed",
+        "luminor",
+        "luminor_fb_dnb",
+        "luminor_fb_nordea",
+        "medicinos",
+        "revolut",
+        "siauliu",
+        "citadele",
+        "card",
+        "apple_pay",
+        "google_pay"
+      ],
+      "created_at": null,
+      "updated_at": null,
+      "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/everypay"
+    },
+    {
+      "code": "makecommerce",
+      "name": "Makecommerce",
+      "enabled": false,
+      "enabled_methods": [],
+      "all_payment_methods": [
+        "swedbank",
+        "seb",
+        "lhv",
+        "luminor",
+        "nordea",
+        "krediidipank",
+        "danske",
+        "pocopay",
+        "liisi_ee",
+        "liisi_hire_purchase",
+        "liisi_3",
+        "citadele",
+        "pohjola",
+        "alandsbanken",
+        "handelsbanken",
+        "saastopankki",
+        "spankki",
+        "tapiola",
+        "aktia",
+        "omasaastopankki",
+        "poppankki",
+        "dnb",
+        "mtasku",
+        "slice",
+        "finora",
+        "nordeafi",
+        "siauliu",
+        "n26",
+        "revolut",
+        "wise",
+        "indivy-go",
+        "moki",
+        "moki3",
+        "bigbank",
+        "hire_purchase",
+        "apple_pay",
+        "google_pay",
+        "visa",
+        "mastercard",
+        "maestro",
+        "gift_card"
+      ],
+      "created_at": null,
+      "updated_at": null,
+      "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/makecommerce"
+    },
+    {
+      "code": "swedbank",
+      "name": "Swedbank",
+      "enabled": false,
+      "enabled_methods": [],
+      "all_payment_methods": [
+        "citadele",
+        "coop",
+        "lhv",
+        "luminor",
+        "medicinos",
+        "seb",
+        "siauliu",
+        "swedbank"
+      ],
+      "created_at": null,
+      "updated_at": null,
+      "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/swedbank"
+    },
+    {
+      "code": "offline",
+      "name": "Arve",
+      "enabled": true,
+      "enabled_methods": [
+        "offline"
+      ],
+      "all_payment_methods": [
+        "offline"
+      ],
+      "created_at": "+372 5000 0000T21:00:00.000Z",
+      "updated_at": "+372 5000 0000T21:00:00.000Z",
+      "url": "https://stellasoomlais.voog.com/admin/api/ecommerce/v1/gateways/offline"
+    }
+  ]
+}

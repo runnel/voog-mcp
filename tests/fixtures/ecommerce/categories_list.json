@@ -1,0 +1,103 @@
+{
+  "_meta": {
+    "captured_at": "2026-05-27T12:54:06+00:00",
+    "source_site": "stella-old",
+    "voog_host": "stellasoomlais.voog.com",
+    "endpoint": "/categories",
+    "method": "GET",
+    "sanitisation_version": 1,
+    "gotchas": []
+  },
+  "response": [
+    {
+      "id": 943,
+      "name": "Väiketoode",
+      "slug": "vaiketoode",
+      "parent_id": null,
+      "depth": 0,
+      "created_at": "+372 5000 0000T12:05:12.000Z",
+      "updated_at": "+372 5000 0000T17:09:32.000Z"
+    },
+    {
+      "id": 9001,
+      "name": "Arvutikotid",
+      "slug": "arvutikotid",
+      "parent_id": null,
+      "depth": 0,
+      "created_at": "+372 5000 0000T18:36:03.000Z",
+      "updated_at": "+372 5000 0000T08:43:47.000Z"
+    },
+    {
+      "id": 9002,
+      "name": "Tehnikatarvikud",
+      "slug": "tehnikatarvikud",
+      "parent_id": null,
+      "depth": 0,
+      "created_at": "+372 5000 0000T18:38:24.000Z",
+      "updated_at": "+372 5000 0000T18:38:24.000Z"
+    },
+    {
+      "id": 9003,
+      "name": "Käepaelad",
+      "slug": "kaepaelad",
+      "parent_id": null,
+      "depth": 0,
+      "created_at": "+372 5000 0000T18:39:09.000Z",
+      "updated_at": "+372 5000 0000T18:39:09.000Z"
+    },
+    {
+      "id": 9004,
+      "name": "Hooldusvahendid",
+      "slug": "hooldusvahendid",
+      "parent_id": null,
+      "depth": 0,
+      "created_at": "+372 5000 0000T18:40:02.000Z",
+      "updated_at": "+372 5000 0000T18:40:02.000Z"
+    },
+    {
+      "id": 9005,
+      "name": "Järjehoidjad",
+      "slug": "jarjehoidjad",
+      "parent_id": null,
+      "depth": 0,
+      "created_at": "+372 5000 0000T18:40:25.000Z",
+      "updated_at": "+372 5000 0000T18:40:25.000Z"
+    },
+    {
+      "id": 9006,
+      "name": "Aksessuaarid",
+      "slug": "aksessuaarid",
+      "parent_id": null,
+      "depth": 0,
+      "created_at": "+372 5000 0000T18:41:59.000Z",
+      "updated_at": "+372 5000 0000T18:41:59.000Z"
+    },
+    {
+      "id": 9007,
+      "name": "Käekotid",
+      "slug": "kaekotid",
+      "parent_id": null,
+      "depth": 0,
+      "created_at": "+372 5000 0000T18:42:32.000Z",
+      "updated_at": "+372 5000 0000T12:40:48.000Z"
+    },
+    {
+      "id": 9008,
+      "name": "Seljakotid",
+      "slug": "seljakotid",
+      "parent_id": null,
+      "depth": 0,
+      "created_at": "+372 5000 0000T18:45:24.000Z",
+      "updated_at": "+372 5000 0000T18:45:24.000Z"
+    },
+    {
+      "id": 9009,
+      "name": "Rahakotid",
+      "slug": "rahakotid",
+      "parent_id": null,
+      "depth": 0,
+      "created_at": "+372 5000 0000T18:47:43.000Z",
+      "updated_at": "+372 5000 0000T18:47:43.000Z"
+    }
+  ]
+}
