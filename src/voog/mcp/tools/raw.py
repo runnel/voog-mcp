@@ -264,33 +264,51 @@ def get_tools() -> list[Tool]:
     ]
 
 
+_KNOWN_TOOLS = frozenset(
+    {
+        "voog_admin_api_read",
+        "voog_ecommerce_api_read",
+        "voog_admin_api_call",
+        "voog_ecommerce_api_call",
+    }
+)
+
+
 def call_tool(
     name: str, arguments: dict | None, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
-    if name == "voog_admin_api_read":
-        return _passthrough_read(arguments, client, base=client.base_url, label="admin")
-    if name == "voog_ecommerce_api_read":
-        return _passthrough_read(arguments, client, base=client.ecommerce_url, label="ecommerce")
-    if name == "voog_admin_api_call":
-        return _passthrough_call(
-            arguments,
-            client,
-            base=client.base_url,
-            label="admin",
-            deprecation_msg=_ADMIN_GET_DEPRECATION_MSG,
-            deprecation_prefix=_ADMIN_GET_DEPRECATION_PREFIX,
-        )
-    if name == "voog_ecommerce_api_call":
-        return _passthrough_call(
-            arguments,
-            client,
-            base=client.ecommerce_url,
-            label="ecommerce",
-            deprecation_msg=_ECOM_GET_DEPRECATION_MSG,
-            deprecation_prefix=_ECOM_GET_DEPRECATION_PREFIX,
-        )
+    if name not in _KNOWN_TOOLS:
+        return error_response(f"Unknown tool: {name}")
+
+    # S9: tag every HTTP request inside this dispatch with X-MCP-Tool +
+    # shared X-Request-Id. See VoogClient.with_tool docstring.
+    with client.with_tool(name):
+        if name == "voog_admin_api_read":
+            return _passthrough_read(arguments, client, base=client.base_url, label="admin")
+        if name == "voog_ecommerce_api_read":
+            return _passthrough_read(
+                arguments, client, base=client.ecommerce_url, label="ecommerce"
+            )
+        if name == "voog_admin_api_call":
+            return _passthrough_call(
+                arguments,
+                client,
+                base=client.base_url,
+                label="admin",
+                deprecation_msg=_ADMIN_GET_DEPRECATION_MSG,
+                deprecation_prefix=_ADMIN_GET_DEPRECATION_PREFIX,
+            )
+        if name == "voog_ecommerce_api_call":
+            return _passthrough_call(
+                arguments,
+                client,
+                base=client.ecommerce_url,
+                label="ecommerce",
+                deprecation_msg=_ECOM_GET_DEPRECATION_MSG,
+                deprecation_prefix=_ECOM_GET_DEPRECATION_PREFIX,
+            )
 
     return error_response(f"Unknown tool: {name}")
 

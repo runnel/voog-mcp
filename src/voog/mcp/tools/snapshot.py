@@ -35,7 +35,7 @@ import httpx
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog import __version__ as _voog_version
-from voog._concurrency import parallel_map
+from voog._concurrency import parallel_map, propagate_tool_context
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site, validate_output_dir, write_json
@@ -220,16 +220,28 @@ def get_tools() -> list[Tool]:
     ]
 
 
+_KNOWN_TOOLS = frozenset({"pages_snapshot", "site_snapshot"})
+
+
 def call_tool(
     name: str, arguments: dict | None, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
-    if name == "pages_snapshot":
-        return _pages_snapshot(arguments, client)
+    if name not in _KNOWN_TOOLS:
+        return error_response(f"Unknown tool: {name}")
 
-    if name == "site_snapshot":
-        return _site_snapshot(arguments, client)
+    # S9: tag every HTTP request inside this dispatch with X-MCP-Tool +
+    # shared X-Request-Id. See VoogClient.with_tool docstring. The
+    # parallel_map fan-outs inside _site_snapshot / _pages_snapshot
+    # propagate this tool context into worker threads via
+    # voog._concurrency.propagate_tool_context (worker threads don't
+    # inherit threading.local() across boundaries).
+    with client.with_tool(name):
+        if name == "pages_snapshot":
+            return _pages_snapshot(arguments, client)
+        if name == "site_snapshot":
+            return _site_snapshot(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 
@@ -304,8 +316,12 @@ def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response(f"pages_snapshot failed: {e}")
 
     page_ids = [p.get("id") for p in pages if p.get("id")]
+    # S9d: propagate the parent's tool-tracking state into worker threads
+    # so each /pages/{id}/contents fetch carries X-MCP-Tool +
+    # X-Request-Id. Without this, parallel_map workers see empty
+    # threading.local() state and emit untagged requests.
     page_content_results = parallel_map(
-        lambda pid: client.get(f"/pages/{pid}/contents"),
+        propagate_tool_context(client, lambda pid: client.get(f"/pages/{pid}/contents")),
         page_ids,
         max_workers=8,
     )
@@ -405,8 +421,10 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
 
         for endpoint, _params in SITE_SNAPSHOT_LIST_ENDPOINTS:
             manifest.attempted.append(endpoint)
+        # S9d: wrap with propagate_tool_context so each worker thread
+        # carries the with_tool scope's X-MCP-Tool + X-Request-Id headers.
         list_results = parallel_map(
-            _fetch_list,
+            propagate_tool_context(client, _fetch_list),
             SITE_SNAPSHOT_LIST_ENDPOINTS,
             max_workers=8,
         )
@@ -456,8 +474,9 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         page_ids = [p.get("id") for p in pages_data if p.get("id")]
         for pid in page_ids:
             manifest.attempted.append(f"/pages/{pid}/contents")
+        # S9d: worker threads carry the parent's X-MCP-Tool + X-Request-Id.
         page_content_results = parallel_map(
-            lambda pid: client.get(f"/pages/{pid}/contents"),
+            propagate_tool_context(client, lambda pid: client.get(f"/pages/{pid}/contents")),
             page_ids,
             max_workers=8,
         )
@@ -481,8 +500,9 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
         article_ids = [a.get("id") for a in articles_data if a.get("id")]
         for aid in article_ids:
             manifest.attempted.append(f"/articles/{aid}")
+        # S9d: worker threads carry the parent's X-MCP-Tool + X-Request-Id.
         article_detail_results = parallel_map(
-            lambda aid: client.get(f"/articles/{aid}"),
+            propagate_tool_context(client, lambda aid: client.get(f"/articles/{aid}")),
             article_ids,
             max_workers=8,
         )

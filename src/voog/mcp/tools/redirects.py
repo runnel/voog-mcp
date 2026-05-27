@@ -272,4 +272,7 @@ def call_tool(
     handler = _DISPATCH.get(name)
     if handler is None:
         return error_response(f"Unknown tool: {name}")
-    return handler(arguments, client)
+    # S9: tag every HTTP request inside this handler with X-MCP-Tool +
+    # shared X-Request-Id. See VoogClient.with_tool docstring.
+    with client.with_tool(name):
+        return handler(arguments, client)
