@@ -32,6 +32,15 @@ def error_response(
     if details:
         payload["details"] = details
     if extra:
+        # Defensive: `extra` flattens into the top-level payload, so a caller
+        # passing `extra={"error": "..."}` or `extra={"details": ...}` would
+        # silently clobber the canonical fields. Refuse the call instead.
+        overlap = set(extra) & {"error", "details"}
+        if overlap:
+            raise ValueError(
+                f"error_response: extra kwarg cannot override "
+                f"{sorted(overlap)}; use a distinct top-level key"
+            )
         payload.update(extra)
     return CallToolResult(
         content=[TextContent(type="text", text=json.dumps(payload, indent=2, ensure_ascii=False))],

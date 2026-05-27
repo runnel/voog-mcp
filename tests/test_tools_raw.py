@@ -85,6 +85,7 @@ class TestAdminApiCall(unittest.TestCase):
             "/forms/42",
             {"title": "X"},
             base="https://example.com/admin/api",
+            params=None,
         )
 
     def test_post_with_body(self):
@@ -104,6 +105,7 @@ class TestAdminApiCall(unittest.TestCase):
             "/articles",
             {"page_id": 1, "autosaved_title": "Draft"},
             base="https://example.com/admin/api",
+            params=None,
         )
 
     def test_delete_request(self):
@@ -138,6 +140,7 @@ class TestAdminApiCall(unittest.TestCase):
             "/site",
             {"title": "X"},
             base="https://example.com/admin/api",
+            params=None,
         )
 
     def test_rejects_percent_encoded_path_traversal(self):
@@ -262,6 +265,72 @@ class TestAdminApiCall(unittest.TestCase):
         self.assertTrue(result.isError)
         payload = json.loads(result.content[0].text)
         self.assertIn("422", payload["error"])
+
+    def test_post_forwards_params(self):
+        # PR #124 review: POST/PUT/PATCH branches dropped `params` pre-fix
+        # (only GET/DELETE forwarded it). S8 makes query-string filters
+        # first-class; passthrough must forward params on every method.
+        client = MagicMock()
+        client.base_url = "https://example.com/admin/api"
+        client.post.return_value = {"id": 7}
+        raw_tools.call_tool(
+            "voog_admin_api_call",
+            {
+                "method": "POST",
+                "path": "/articles",
+                "body": {"x": 1},
+                "params": {"include": "translations"},
+            },
+            client,
+        )
+        client.post.assert_called_once_with(
+            "/articles",
+            {"x": 1},
+            base="https://example.com/admin/api",
+            params={"include": "translations"},
+        )
+
+    def test_put_forwards_params(self):
+        client = MagicMock()
+        client.base_url = "https://example.com/admin/api"
+        client.put.return_value = {"id": 7}
+        raw_tools.call_tool(
+            "voog_admin_api_call",
+            {
+                "method": "PUT",
+                "path": "/articles/7",
+                "body": {"x": 1},
+                "params": {"include": "translations"},
+            },
+            client,
+        )
+        client.put.assert_called_once_with(
+            "/articles/7",
+            {"x": 1},
+            base="https://example.com/admin/api",
+            params={"include": "translations"},
+        )
+
+    def test_patch_forwards_params(self):
+        client = MagicMock()
+        client.base_url = "https://example.com/admin/api"
+        client.patch.return_value = {"id": 7}
+        raw_tools.call_tool(
+            "voog_admin_api_call",
+            {
+                "method": "PATCH",
+                "path": "/site",
+                "body": {"x": 1},
+                "params": {"include": "translations"},
+            },
+            client,
+        )
+        client.patch.assert_called_once_with(
+            "/site",
+            {"x": 1},
+            base="https://example.com/admin/api",
+            params={"include": "translations"},
+        )
 
 
 class TestEcommerceApiCall(unittest.TestCase):

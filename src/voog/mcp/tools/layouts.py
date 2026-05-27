@@ -491,6 +491,16 @@ def _layout_delete(arguments: dict, client: VoogClient) -> list[TextContent] | C
         # one round-trip. urllib.error.HTTPError exposes `code`; a
         # future httpx-based exception would expose `.response.status_code`
         # — we tolerate both via getattr.
+        #
+        # Status-code trigger is the documented Voog contract today
+        # (see https://www.voog.com/developers/api/resources/layouts —
+        # "Layout deletion is rejected when pages reference it"). If
+        # Voog ever migrates to 409 Conflict (closer to RFC semantics)
+        # the pre-flight silently disappears and callers see the bare
+        # original error again — that's a graceful degradation, not a
+        # correctness bug. PR #124 review followup: revisit when the
+        # third allowlisted PATCH route lands or when Voog versions
+        # the response.
         status = getattr(e, "code", None) or getattr(
             getattr(e, "response", None), "status_code", None
         )

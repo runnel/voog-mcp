@@ -367,16 +367,23 @@ def _passthrough_call(
         warnings.warn(deprecation_msg, DeprecationWarning, stacklevel=2)
 
     try:
+        # PR #124 review: forward `params` on every method. POST/PUT/PATCH
+        # branches used to drop it (pre-existing pre-1.4); Phase 1a added
+        # `params=` to every VoogClient method explicitly for consistency,
+        # and the S8 filter-hatch makes "pass a Voog filter via query
+        # string" a first-class pattern, so passthrough must forward it
+        # too. Without this, voog_admin_api_call(method="POST", path=...,
+        # body=..., params={"include": ...}) silently loses the include.
         if method == "GET":
             data = client.get(path, base=base, params=params)
         elif method == "DELETE":
             data = client.delete(path, base=base, params=params)
         elif method == "POST":
-            data = client.post(path, body, base=base)
+            data = client.post(path, body, base=base, params=params)
         elif method == "PUT":
-            data = client.put(path, body, base=base)
+            data = client.put(path, body, base=base, params=params)
         elif method == "PATCH":
-            data = client.patch(path, body, base=base)
+            data = client.patch(path, body, base=base, params=params)
     except Exception as e:
         return error_response(f"voog_{label}_api_call {method} {path} failed: {e}")
 
