@@ -33,11 +33,35 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog._payloads import build_product_payload
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
-from voog.mcp.tools._helpers import require_int, strip_site, validate_translations_shape
+from voog.mcp.tools._helpers import (
+    require_force,
+    require_int,
+    strip_site,
+    validate_translations_shape,
+)
 from voog.projections import (
     PRODUCTS_DETAIL_INCLUDE,
     PRODUCTS_LIST_INCLUDE,
     simplify_products,
+)
+
+# products_bulk_action: Voog's documented bulk-update verbs for the
+# `actions[].action` field. Whitelisted server-side; sending an unknown
+# verb returns a 422 round-trip. Source: live capture 2026-05-27 + Voog
+# docs page /developers/api/ecommerce/products.
+BULK_ACTION_VERBS = frozenset(
+    {
+        "set",
+        "increase_by_fixed",
+        "decrease_by_fixed",
+        "increase_by_percent",
+        "decrease_by_percent",
+        "round",
+        "round_upwards",
+        "round_downwards",
+        "merge",
+        "remove",
+    }
 )
 
 # Voog product PUT envelope: {"product": {...}}. Allowed keys at the root
@@ -123,12 +147,24 @@ def get_tools() -> list[Tool]:
                 "Read-only. Same shape as the voog://products resource — "
                 "consistent across the tools and resources surfaces. For "
                 "per-variant stock on a variant-bearing product, follow up "
-                "with product_get."
+                "with product_get. Pass `category_id` to filter to products "
+                "in that category (maps to q.product.category_ids.$in)."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "site": {"type": "string", "description": "Site name from voog_list_sites"},
+                    "site": {
+                        "type": "string",
+                        "description": "Site name from voog_list_sites",
+                    },
+                    "category_id": {
+                        "type": "integer",
+                        "description": (
+                            "Filter to products in this category. Maps to "
+                            "the Voog filter q.product.category_ids.$in. "
+                            "Omit for all products."
+                        ),
+                    },
                 },
                 "required": ["site"],
             },
@@ -292,15 +328,149 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": False,
             },
         ),
+        Tool(
+            name="product_delete",
+            description=(
+                "Delete a product (DELETE /admin/api/ecommerce/v1/products/"
+                "{id}). IRREVERSIBLE — Voog does not retain deleted products. "
+                "Requires force=true; without it the call is rejected to "
+                "prevent accidental deletion. Run products_list or product_get "
+                "first to confirm the id, and site_snapshot if the product "
+                "might be needed later."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "product_id": {"type": "integer"},
+                    "force": {
+                        "type": "boolean",
+                        "description": (
+                            "Must be true to actually perform the delete. "
+                            "Defaults to false (defensive opt-in)."
+                        ),
+                        "default": False,
+                    },
+                },
+                "required": ["site", "product_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": True,
+                "idempotentHint": False,
+            },
+        ),
+        Tool(
+            name="product_duplicate",
+            description=(
+                "Duplicate a product (POST /admin/api/ecommerce/v1/products/"
+                "{id}/duplicate). The new product inherits status='draft' per "
+                "Voog default — call product_update(status='live') after "
+                "editing if the duplicate should be public. Returns the new "
+                "product's full payload; summary surfaces new_id and new "
+                "title for easy chaining into product_update."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "product_id": {"type": "integer"},
+                },
+                "required": ["site", "product_id"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": False,
+            },
+        ),
+        Tool(
+            name="products_bulk_action",
+            description=(
+                "Apply the same actions to many products in one request "
+                "(PUT /admin/api/ecommerce/v1/products). This is NOT per-row "
+                "arbitrary updates — every product in target_ids receives "
+                "every action in actions. For one-off varied edits use "
+                "product_update.\n"
+                "\n"
+                "Request shape:\n"
+                "  - actions: list of {target_field, action, value, "
+                "source_field?}. Allowed action verbs: set, increase_by_fixed, "
+                "decrease_by_fixed, increase_by_percent, decrease_by_percent, "
+                "round, round_upwards, round_downwards, merge, remove.\n"
+                "  - target_ids: list of integer product ids, OR the literal "
+                "string 'all' to apply to every product on the site.\n"
+                "\n"
+                "Response: {counters: {processed, failed}, processed_ids, "
+                "failed_ids}. Duplicate ids in target_ids are collapsed "
+                "server-side. No empirical batch-size cap observed up to "
+                "1001 ids (Stella, 2026-05-27); send what you need."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "actions": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "target_field": {"type": "string", "minLength": 1},
+                                "action": {
+                                    "type": "string",
+                                    "enum": sorted(BULK_ACTION_VERBS),
+                                },
+                                "value": {},
+                                "source_field": {"type": "string"},
+                            },
+                            "required": ["target_field", "action"],
+                        },
+                        "description": (
+                            "Each {target_field, action, value, source_field?}. "
+                            "Same actions apply to every id in target_ids."
+                        ),
+                    },
+                    "target_ids": {
+                        "oneOf": [
+                            {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {"type": "integer"},
+                            },
+                            {"type": "string", "enum": ["all"]},
+                        ],
+                        "description": (
+                            "List of product ids, or the literal string "
+                            "'all' to target every product on the site."
+                        ),
+                    },
+                },
+                "required": ["site", "actions", "target_ids"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": False,
+            },
+        ),
     ]
 
 
 def _products_list(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    category_id = arguments.get("category_id")
+    if category_id is not None:
+        err = require_int("category_id", category_id, tool_name="products_list")
+        if err:
+            return error_response(err)
+    params: dict = {"include": PRODUCTS_LIST_INCLUDE}
+    if category_id is not None:
+        params["q.product.category_ids.$in"] = category_id
     try:
         products = client.get_all(
             "/products",
             base=client.ecommerce_url,
-            params={"include": PRODUCTS_LIST_INCLUDE},
+            params=params,
         )
         simplified = simplify_products(products)
         return success_response(simplified, summary=f"🛒 {len(simplified)} products")
@@ -601,11 +771,127 @@ def _product_create(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response(f"product_create failed: {e}")
 
 
+def _product_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    product_id = arguments.get("product_id")
+    err = require_int("product_id", product_id, tool_name="product_delete")
+    if err:
+        return error_response(err)
+    err = require_force(
+        arguments,
+        tool_name="product_delete",
+        target_desc=f"product {product_id}",
+        hint="Voog does not retain deleted products — consider running site_snapshot first.",
+    )
+    if err:
+        return error_response(err)
+    try:
+        client.delete(f"/products/{product_id}", base=client.ecommerce_url)
+        return success_response(
+            {"deleted": {"product_id": product_id}},
+            summary=f"🗑️  product {product_id} deleted",
+        )
+    except Exception as e:
+        return error_response(f"product_delete id={product_id} failed: {e}")
+
+
+def _product_duplicate(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    product_id = arguments.get("product_id")
+    err = require_int("product_id", product_id, tool_name="product_duplicate")
+    if err:
+        return error_response(err)
+    try:
+        result = client.post(
+            f"/products/{product_id}/duplicate",
+            {},
+            base=client.ecommerce_url,
+        )
+        new_id = result.get("id") if isinstance(result, dict) else None
+        new_title = None
+        if isinstance(result, dict):
+            translations = result.get("translations") or {}
+            if isinstance(translations, dict):
+                for lang_block in translations.values():
+                    if isinstance(lang_block, dict) and lang_block.get("name"):
+                        new_title = lang_block["name"]
+                        break
+        summary = (
+            f"📑 product {product_id} duplicated → id={new_id}"
+            + (f", title={new_title!r}" if new_title else "")
+            + " (status='draft' — call product_update(status='live') to publish)"
+        )
+        return success_response(result, summary=summary)
+    except Exception as e:
+        return error_response(f"product_duplicate id={product_id} failed: {e}")
+
+
+def _products_bulk_action(
+    arguments: dict, client: VoogClient
+) -> list[TextContent] | CallToolResult:
+    actions = arguments.get("actions")
+    target_ids = arguments.get("target_ids")
+
+    # actions: non-empty list of dicts with valid verb.
+    if not isinstance(actions, list) or not actions:
+        return error_response(
+            "products_bulk_action: actions must be a non-empty list of "
+            "{target_field, action, value, source_field?} objects"
+        )
+    for i, action in enumerate(actions):
+        if not isinstance(action, dict):
+            return error_response(
+                f"products_bulk_action: actions[{i}] must be an object "
+                f"(got {type(action).__name__})"
+            )
+        if not action.get("target_field"):
+            return error_response(f"products_bulk_action: actions[{i}] missing target_field")
+        verb = action.get("action")
+        if verb not in BULK_ACTION_VERBS:
+            return error_response(
+                f"products_bulk_action: actions[{i}].action must be one of "
+                f"{sorted(BULK_ACTION_VERBS)} (got {verb!r})"
+            )
+
+    # target_ids: list of ints (no-bool) OR the literal string "all".
+    if isinstance(target_ids, str):
+        if target_ids != "all":
+            return error_response(
+                "products_bulk_action: target_ids string must be exactly "
+                f"'all' (got {target_ids!r})"
+            )
+    elif isinstance(target_ids, list):
+        if not target_ids:
+            return error_response("products_bulk_action: target_ids list must be non-empty")
+        for j, tid in enumerate(target_ids):
+            err = require_int(f"target_ids[{j}]", tid, tool_name="products_bulk_action")
+            if err:
+                return error_response(err)
+    else:
+        return error_response(
+            "products_bulk_action: target_ids must be a list of ints or the string 'all'"
+        )
+
+    body = {"actions": list(actions), "target_ids": target_ids}
+    try:
+        result = client.put("/products", body, base=client.ecommerce_url)
+    except Exception as e:
+        return error_response(f"products_bulk_action failed: {e}")
+
+    counters = result.get("counters", {}) if isinstance(result, dict) else {}
+    processed = counters.get("processed", 0)
+    failed = counters.get("failed", 0)
+    verbs = ", ".join(a.get("action", "?") for a in actions)
+    summary = f"🛒 bulk action [{verbs}]: {processed} processed, {failed} failed"
+    return success_response(result, summary=summary)
+
+
 _DISPATCH = {
     "products_list": _products_list,
     "product_get": _product_get,
     "product_update": _product_update,
     "product_create": _product_create,
+    "product_delete": _product_delete,
+    "product_duplicate": _product_duplicate,
+    "products_bulk_action": _products_bulk_action,
 }
 
 
