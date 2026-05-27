@@ -258,13 +258,16 @@ class VoogClient:
         page = 1
         while True:
             # MD1 (v1.4): per_page=250 is Voog's documented server-side max
-            # (see docs/voog-mcp-endpoint-coverage.md "Pagination default: 50
-            # / max 250"). If Voog ever silently caps below 250, the
-            # `len(data) < per_page_resolved` termination check below would
-            # break the first page and silently truncate lists. The
-            # `if not data: break` guard above still terminates correctly on
-            # empty pages, so the worst-case failure mode is a missing tail —
-            # caught by live-smoke against any endpoint with >250 items.
+            # (Voog API docs: <https://www.voog.com/developers/api>
+            # "Pagination default 50 / max 250"; mirrored in
+            # docs/voog-mcp-endpoint-coverage.md). If Voog ever silently caps
+            # below 250, the `len(data) < per_page_resolved` termination
+            # check below would break the first page and silently truncate
+            # lists. The `if not data: break` guard above still terminates
+            # correctly on empty pages, so the worst-case failure mode is a
+            # missing tail — caught by live-smoke against any endpoint with
+            # >250 items (PR-1b checklist).
+            # Last verified against Voog API: 2026-05-26.
             page_params = {"per_page": 250, **(params or {}), "page": page}
             per_page_resolved = page_params["per_page"]
             data = self.get(path, base=base, params=page_params)

@@ -602,9 +602,23 @@ class TestSiteSnapshot(unittest.TestCase):
             self.assertEqual(call.kwargs.get("max_workers"), 8)
 
         items_per_call = [call.args[1] for call in mock_pm.call_args_list]
-        # Loop 1: list endpoints (now excluding /layouts — fetched separately
-        # post-S1) and excluding the standalone /products call.
+        # Loop 1: list endpoints — items are ``(endpoint, params_or_None)``
+        # tuples per v1.4 design fix (PR #123 pass-2 review).
         self.assertEqual(items_per_call[0], snapshot_tools.SITE_SNAPSHOT_LIST_ENDPOINTS)
+        # Pin specific endpoints + params to catch accidental constant edits
+        # — the shape-vs-constant equality above updates in lockstep with the
+        # constant itself, so these explicit-presence assertions catch the
+        # "oh, I'll just drop /layouts" regression (PR #123 pass-3 review).
+        # /products is intentionally NOT here — it has its own ecommerce-base
+        # fetch outside this loop.
+        endpoints_in_loop = [item[0] for item in items_per_call[0]]
+        self.assertIn("/layouts", endpoints_in_loop)
+        self.assertIn("/pages", endpoints_in_loop)
+        self.assertIn("/articles", endpoints_in_loop)
+        self.assertNotIn("/products", endpoints_in_loop)
+        # /layouts specifically carries include_body=true params.
+        layouts_entry = next(item for item in items_per_call[0] if item[0] == "/layouts")
+        self.assertEqual(layouts_entry[1], {"include_body": "true"})
         # Loop 2: page IDs
         self.assertEqual(items_per_call[1], [1, 2])
         # Loop 3: article IDs
