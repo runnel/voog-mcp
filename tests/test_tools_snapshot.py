@@ -504,6 +504,51 @@ class TestSiteSnapshot(unittest.TestCase):
         product_detail_calls = [p for p in get_calls if p.startswith("/products/")]
         self.assertEqual(product_detail_calls, [])
 
+    def test_site_snapshot_products_handles_stripped_list_response(self):
+        # S2 (PR #123 pass-4 review): pin current behaviour when Voog returns
+        # a stripped products list (no variants/translations). Today we write
+        # the list response as-is into both products.json and per-product
+        # files — no fallback to per-id detail fan-out. If a future change
+        # adds the fallback (mirroring S1's "trust the field, fall back when
+        # missing" pattern), this test will fail loudly so the design choice
+        # is deliberate.
+        client = _make_client()
+
+        def _get_all(path, **kwargs):
+            if path == "/products":
+                # Voog silently ignored the include — stripped items returned.
+                return [{"id": 500, "name": "Widget"}]
+            return []
+
+        client.get_all.side_effect = _get_all
+        get_calls: list = []
+
+        def _get(path, **kwargs):
+            get_calls.append(path)
+            return {}
+
+        client.get.side_effect = _get
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+            # File written, content is the stripped shape.
+            self.assertTrue((out / "product_500.json").exists())
+            detail = json.loads((out / "product_500.json").read_text(encoding="utf-8"))
+            self.assertEqual(detail, {"id": 500, "name": "Widget"})
+            self.assertNotIn("variants", detail)
+            self.assertNotIn("translations", detail)
+        # Today: NO per-id detail fetch attempted to recover the missing
+        # fields. If this test fails because /products/500 appears in
+        # get_calls, the design has changed — update the docstring at
+        # snapshot.py:_site_snapshot's S2 block to reflect the new behaviour.
+        product_detail_calls = [p for p in get_calls if p.startswith("/products/")]
+        self.assertEqual(product_detail_calls, [])
+
     def test_404_endpoints_skipped_not_fatal(self):
         # /elements often 404s on sites that don't use the elements feature.
         # Snapshot must continue, log the skip, but not fail.

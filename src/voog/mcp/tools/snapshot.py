@@ -341,6 +341,18 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
     # 5. Ecommerce: products list with include=variants,variant_types,translations
     # — list response carries the full detail shape, so the per-product detail
     # fan-out (one GET per product) is eliminated. S2 in v1.4.
+    #
+    # Asymmetric vs S1 by design: no per-id fallback if Voog silently strips
+    # the include from the list response. PRODUCTS_DETAIL_INCLUDE's docstring
+    # in voog.projections explicitly cites Voog's documented contract that
+    # `?include=` applies equally to list and detail responses, so silent
+    # stripping would be a Voog regression rather than a legacy-deploy
+    # variance (the S1 case). If that contract breaks, the right fix is to
+    # revert S2 — not to add a fuzzy detection heuristic that can't
+    # distinguish "Voog ignored include" from "this product genuinely has
+    # no variants." A 4xx rejection of the include lands in `skipped[]`
+    # below; downstream `voog site-snapshot` continues without products
+    # (same behaviour as any other list endpoint failure).
     try:
         products_data = client.get_all(
             "/products",

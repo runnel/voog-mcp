@@ -128,6 +128,8 @@ def cmd_site_snapshot(args, client: VoogClient) -> int:
     # 5. Ecommerce: products list with include=variants,variant_types,translations
     # — list response carries the full detail shape, so the per-product detail
     # fan-out (one GET per product) is eliminated. Mirrors MCP tool S2 (v1.4).
+    # See snapshot.py:_site_snapshot for the docs-citation + design rationale
+    # explaining why there's no per-id fallback (asymmetric vs S1).
     try:
         products_data = client.get_all(
             "/products",
