@@ -17,7 +17,13 @@ import sys
 from pathlib import Path
 
 from voog.cli.commands import (
+    articles as articles_cmd,
+)
+from voog.cli.commands import (
     config as config_cmd,
+)
+from voog.cli.commands import (
+    elements as elements_cmd,
 )
 from voog.cli.commands import (
     layouts as layouts_cmd,
@@ -52,6 +58,9 @@ from voog.cli.commands import (
 from voog.cli.commands import (
     snapshot as snapshot_cmd,
 )
+from voog.cli.commands import (
+    tags as tags_cmd,
+)
 from voog.client import VoogClient
 from voog.config import (
     ConfigError,
@@ -67,7 +76,9 @@ from voog.config import (
 )
 
 COMMANDS = [
+    articles_cmd,
     config_cmd,
+    elements_cmd,
     pull_cmd,
     push_cmd,
     list_cmd,
@@ -79,6 +90,7 @@ COMMANDS = [
     redirects_cmd,
     search_cmd,
     snapshot_cmd,
+    tags_cmd,
 ]
 
 
