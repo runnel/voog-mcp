@@ -129,6 +129,95 @@ class TestDiscountDelete(unittest.TestCase):
         self.assertIs(ann.destructiveHint, True)
 
 
+class TestDiscountEnumValidation(unittest.TestCase):
+    """Empirically-verified closed enum sets (Stella OLD probe 2026-05-27).
+    Client-side guard surfaces typos as clean local errors instead of
+    Voog 422 round-trips.
+    """
+
+    def _full_payload(self, **overrides):
+        body = {
+            "code": "TEST",
+            "amount": 5,
+            "amount_mode": "net",
+            "discount_type": "fixed",
+            "status": "open",
+            "applies_to": "cart",
+            "currency": "EUR",
+        }
+        body.update(overrides)
+        return body
+
+    def test_invalid_status_rejected(self):
+        # plan's old 'active' would have failed at Voog with 422; now
+        # caught locally.
+        client = _make_client()
+        result = dt.call_tool("discount_create", self._full_payload(status="active"), client)
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_invalid_amount_mode_rejected(self):
+        # 'percent' looks reasonable but Voog only accepts 'net' / 'gross'.
+        client = _make_client()
+        result = dt.call_tool("discount_create", self._full_payload(amount_mode="percent"), client)
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_invalid_discount_type_rejected(self):
+        client = _make_client()
+        result = dt.call_tool(
+            "discount_create", self._full_payload(discount_type="absolute"), client
+        )
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_invalid_applies_to_rejected(self):
+        client = _make_client()
+        result = dt.call_tool("discount_create", self._full_payload(applies_to="all"), client)
+        client.post.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_valid_enum_combinations_accepted(self):
+        from voog.mcp.tools.discounts import (
+            VALID_DISCOUNT_AMOUNT_MODE,
+            VALID_DISCOUNT_APPLIES_TO,
+            VALID_DISCOUNT_STATUS,
+            VALID_DISCOUNT_TYPE,
+        )
+
+        # Smoke: every empirically-valid enum value passes the client-side
+        # guard. Catches typos in the frozensets that would otherwise
+        # only show up under live API usage.
+        for status in VALID_DISCOUNT_STATUS:
+            for amount_mode in VALID_DISCOUNT_AMOUNT_MODE:
+                for dtype in VALID_DISCOUNT_TYPE:
+                    for applies_to in VALID_DISCOUNT_APPLIES_TO:
+                        client = _make_client()
+                        client.post.return_value = {"id": 1, "code": "X"}
+                        result = dt.call_tool(
+                            "discount_create",
+                            self._full_payload(
+                                status=status,
+                                amount_mode=amount_mode,
+                                discount_type=dtype,
+                                applies_to=applies_to,
+                            ),
+                            client,
+                        )
+                        client.post.assert_called_once()
+                        self.assertFalse(getattr(result, "isError", False))
+
+    def test_update_also_validates_enums(self):
+        client = _make_client()
+        result = dt.call_tool(
+            "discount_update",
+            {"discount_id": 1, "status": "active"},  # invalid
+            client,
+        )
+        client.put.assert_not_called()
+        self.assertTrue(result.isError)
+
+
 class TestServerToolRegistry(unittest.TestCase):
     def test_discounts_in_tool_groups(self):
         from voog.mcp import server

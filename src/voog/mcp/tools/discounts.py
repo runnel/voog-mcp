@@ -13,11 +13,17 @@ Writable fields (verified by live capture + create probe 2026-05-27):
   applies_to, valid_from, valid_to, redemption_limit, stackable,
   currency.
 
-Enum values that surfaced empirically (Voog rejects others with 422):
+Enum values verified empirically by probing Stella OLD with each
+candidate value and checking which Voog accepts (others 422 with
+"This value is not included in the list"):
   status:        open | closed
-  amount_mode:   net | percent (per real data: 'net')
-  discount_type: percentage | fixed (per real data: 'percentage')
-  applies_to:    cart | … (per real data: 'cart')
+  amount_mode:   net | gross
+  discount_type: fixed | percentage
+  applies_to:    cart | cart_and_shipping | categories | products | shipping
+
+Client-side enforced via the ``VALID_*`` frozensets below — typos get a
+clean local error instead of a Voog 422 round-trip. Mirrors the pattern
+used by ``products.VALID_STATUS`` for product.status.
 
 The plan's speculative ``active`` / ``percent`` / ``starts_at`` /
 ``ends_at`` / ``minimum_order_amount`` / ``max_uses`` /
@@ -47,6 +53,40 @@ DISCOUNT_FIELDS = (
     "stackable",
     "currency",
 )
+
+# Empirically-verified closed enum sets (Stella OLD probe 2026-05-27).
+# Each value tested by POST; rejected values surface as
+# "This value is not included in the list" 422s.
+VALID_DISCOUNT_STATUS = frozenset({"open", "closed"})
+VALID_DISCOUNT_AMOUNT_MODE = frozenset({"net", "gross"})
+VALID_DISCOUNT_TYPE = frozenset({"fixed", "percentage"})
+VALID_DISCOUNT_APPLIES_TO = frozenset(
+    {"cart", "cart_and_shipping", "categories", "products", "shipping"}
+)
+
+_DISCOUNT_ENUM_FIELDS = (
+    ("status", VALID_DISCOUNT_STATUS),
+    ("amount_mode", VALID_DISCOUNT_AMOUNT_MODE),
+    ("discount_type", VALID_DISCOUNT_TYPE),
+    ("applies_to", VALID_DISCOUNT_APPLIES_TO),
+)
+
+
+def _validate_discount_enums(arguments: dict, *, tool_name: str) -> str | None:
+    """Return an error message if any enum-restricted field has an unknown
+    value; None otherwise. Skips fields the caller didn't supply.
+    """
+    for field, allowed in _DISCOUNT_ENUM_FIELDS:
+        val = arguments.get(field)
+        if val is None:
+            continue
+        if val not in allowed:
+            return (
+                f"{tool_name}: {field}={val!r} not in {sorted(allowed)} "
+                f"(empirically verified against Voog; rejected server-side "
+                f"with 422)"
+            )
+    return None
 
 
 def _build_discount_payload(body: dict) -> dict:
@@ -95,11 +135,16 @@ def get_tools() -> list[Tool]:
             name="discount_create",
             description=(
                 "Create a discount (POST /admin/api/ecommerce/v1/discounts). "
-                "Envelope {discount: {...}}. Required: code. Real enum "
-                "values: status (open|closed), amount_mode (net|percent), "
-                "discount_type (percentage|fixed), applies_to (cart|…). "
-                "Optional: name, description, amount, valid_from "
-                "(ISO8601), valid_to, redemption_limit, stackable, currency."
+                "Envelope {discount: {...}}. Required: code. Empirically-"
+                "verified enum values (rejected client-side with a clear "
+                "error before round-tripping to Voog):\n"
+                "  status         ∈ {open, closed}\n"
+                "  amount_mode    ∈ {net, gross}\n"
+                "  discount_type  ∈ {fixed, percentage}\n"
+                "  applies_to     ∈ {cart, cart_and_shipping, categories, "
+                "products, shipping}\n"
+                "Optional: name, description, amount, valid_from (ISO8601), "
+                "valid_to, redemption_limit, stackable, currency."
             ),
             inputSchema={
                 "type": "object",
@@ -109,10 +154,22 @@ def get_tools() -> list[Tool]:
                     "name": {"type": "string"},
                     "description": {"type": "string"},
                     "amount": {"type": "number"},
-                    "amount_mode": {"type": "string"},
-                    "discount_type": {"type": "string"},
-                    "status": {"type": "string"},
-                    "applies_to": {"type": "string"},
+                    "amount_mode": {
+                        "type": "string",
+                        "enum": sorted(VALID_DISCOUNT_AMOUNT_MODE),
+                    },
+                    "discount_type": {
+                        "type": "string",
+                        "enum": sorted(VALID_DISCOUNT_TYPE),
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": sorted(VALID_DISCOUNT_STATUS),
+                    },
+                    "applies_to": {
+                        "type": "string",
+                        "enum": sorted(VALID_DISCOUNT_APPLIES_TO),
+                    },
                     "valid_from": {"type": "string"},
                     "valid_to": {"type": "string"},
                     "redemption_limit": {"type": "integer"},
@@ -132,7 +189,11 @@ def get_tools() -> list[Tool]:
             description=(
                 "Update a discount (PUT /admin/api/ecommerce/v1/discounts/"
                 "{id}). Envelope {discount: {...}}. Partial — at least one "
-                "discount field must be supplied."
+                "discount field must be supplied. Enum-restricted fields "
+                "(client-validated): status ∈ {open, closed}; amount_mode ∈ "
+                "{net, gross}; discount_type ∈ {fixed, percentage}; "
+                "applies_to ∈ {cart, cart_and_shipping, categories, "
+                "products, shipping}."
             ),
             inputSchema={
                 "type": "object",
@@ -143,10 +204,22 @@ def get_tools() -> list[Tool]:
                     "name": {"type": "string"},
                     "description": {"type": "string"},
                     "amount": {"type": "number"},
-                    "amount_mode": {"type": "string"},
-                    "discount_type": {"type": "string"},
-                    "status": {"type": "string"},
-                    "applies_to": {"type": "string"},
+                    "amount_mode": {
+                        "type": "string",
+                        "enum": sorted(VALID_DISCOUNT_AMOUNT_MODE),
+                    },
+                    "discount_type": {
+                        "type": "string",
+                        "enum": sorted(VALID_DISCOUNT_TYPE),
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": sorted(VALID_DISCOUNT_STATUS),
+                    },
+                    "applies_to": {
+                        "type": "string",
+                        "enum": sorted(VALID_DISCOUNT_APPLIES_TO),
+                    },
                     "valid_from": {"type": "string"},
                     "valid_to": {"type": "string"},
                     "redemption_limit": {"type": "integer"},
@@ -218,6 +291,9 @@ def _discount_create(arguments: dict, client: VoogClient) -> list[TextContent] |
         )
         if err:
             return error_response(err)
+    err = _validate_discount_enums(arguments, tool_name="discount_create")
+    if err:
+        return error_response(err)
     body: dict = {}
     for key in DISCOUNT_FIELDS:
         if arguments.get(key) is not None:
@@ -252,6 +328,9 @@ def _discount_update(arguments: dict, client: VoogClient) -> list[TextContent] |
         )
         if err:
             return error_response(err)
+    err = _validate_discount_enums(arguments, tool_name="discount_update")
+    if err:
+        return error_response(err)
     body: dict = {}
     for key in DISCOUNT_FIELDS:
         if arguments.get(key) is not None:
