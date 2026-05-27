@@ -74,6 +74,15 @@ _REDACTED_KEYS = frozenset(
         "translations",  # per-language string maps on products / variants
         "attributes",  # product create/update attributes dict (price, stock, etc.)
         "fields",  # legacy product fields
+        # PR #125 — voog_list_my_sites raw-token fallback. The tool's
+        # own description acknowledges "transcripts and host logs" as
+        # exposure surfaces; this redacts the **host logs** half (the
+        # transcript half is owned by the MCP host's UI). `token_env`
+        # is intentionally NOT redacted — it's just an env-var NAME,
+        # not a secret, and seeing it in the log is useful operationally.
+        "token",
+        "api_token",
+        "api_key",
     }
 )
 _STRING_CAP = 500  # characters; any single string value longer than this is truncated

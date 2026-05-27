@@ -54,6 +54,13 @@ class TestListMySitesCLI(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("not set", err.getvalue())
 
+    def test_token_env_set_but_empty(self):
+        with patch.dict("os.environ", {"VOOG_EMPTY": ""}, clear=False):
+            with patch("sys.stderr", new_callable=StringIO) as err:
+                rc = me_cmd.run(self._args(token_env="VOOG_EMPTY"))
+        self.assertEqual(rc, 1)
+        self.assertIn("empty", err.getvalue().lower())
+
     def test_both_token_and_token_env_rejected(self):
         with patch("sys.stderr", new_callable=StringIO) as err:
             rc = me_cmd.run(self._args(token="x", token_env="Y"))
@@ -76,11 +83,12 @@ class TestListMySitesCLI(unittest.TestCase):
         self.assertIn("site-scoped", out.getvalue())
 
     def test_custom_host_forwarded(self):
+        # Real-world: tenant on their own primary domain.
         with patch("voog.cli.commands.me.VoogClient") as MockClient:
             MockClient.return_value.get.return_value = []
             with patch("sys.stdout", new_callable=StringIO):
-                me_cmd.run(self._args(token="vk", host="tenant.example.com"))
-        MockClient.assert_called_once_with(host="tenant.example.com", api_token="vk")
+                me_cmd.run(self._args(token="vk", host="stellasoomlais.com"))
+        MockClient.assert_called_once_with(host="stellasoomlais.com", api_token="vk")
 
     def test_unexpected_shape(self):
         with patch("voog.cli.commands.me.VoogClient") as MockClient:

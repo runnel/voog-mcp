@@ -54,10 +54,19 @@ def run(args) -> int:
         return 1
     token: str | None = None
     if args.token_env:
-        token = os.environ.get(args.token_env)
-        if not token:
+        resolved = os.environ.get(args.token_env)
+        # Distinguish unset from set-but-empty so operators with a
+        # truncated `.env` paste get a useful error message.
+        if resolved is None:
             sys.stderr.write(f"error: env var {args.token_env!r} is not set\n")
             return 1
+        if not resolved.strip():
+            sys.stderr.write(
+                f"error: env var {args.token_env!r} is set but empty "
+                "(check your .env or shell export)\n"
+            )
+            return 1
+        token = resolved
     elif args.token:
         token = args.token
     else:

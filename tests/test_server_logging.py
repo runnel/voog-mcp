@@ -86,6 +86,28 @@ class TestRedactArgumentsSensitiveKeys(unittest.TestCase):
         result = _redact_arguments({"fields": [{"name": "size", "value": "L"}]})
         self.assertEqual(result["fields"], "<redacted>")
 
+    def test_token_redacted(self):
+        # PR #125 — voog_list_my_sites raw-token fallback.
+        result = _redact_arguments({"token": "vk_secret_123"})
+        self.assertEqual(result["token"], "<redacted>")
+
+    def test_api_token_redacted(self):
+        result = _redact_arguments({"api_token": "vk_secret_123"})
+        self.assertEqual(result["api_token"], "<redacted>")
+
+    def test_api_key_redacted(self):
+        result = _redact_arguments({"api_key": "vk_secret_123"})
+        self.assertEqual(result["api_key"], "<redacted>")
+
+    def test_token_env_NOT_redacted(self):
+        # `token_env` is an env-var NAME, not a secret. Seeing the
+        # name in the log is useful operationally (shows the operator
+        # which env var the tool resolved against). Only the resolved
+        # value would be a secret, and that never enters the tool
+        # arguments dict.
+        result = _redact_arguments({"token_env": "VOOG_API_KEY"})
+        self.assertEqual(result["token_env"], "VOOG_API_KEY")
+
     def test_all_redacted_keys_covered(self):
         """Every key in _REDACTED_KEYS must produce '<redacted>'."""
         for key in _REDACTED_KEYS:
