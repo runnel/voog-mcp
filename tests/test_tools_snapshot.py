@@ -896,6 +896,9 @@ class TestServerToolRegistry(unittest.TestCase):
             articles as articles_t,
         )
         from voog.mcp.tools import (
+            comments as comments_t,
+        )
+        from voog.mcp.tools import (
             content_partials as content_partials_t,
         )
         from voog.mcp.tools import (
@@ -949,6 +952,7 @@ class TestServerToolRegistry(unittest.TestCase):
 
         expected = {
             articles_t,
+            comments_t,
             content_partials_t,
             ecommerce_settings_t,
             elements_t,
