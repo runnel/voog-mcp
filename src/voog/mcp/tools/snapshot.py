@@ -26,6 +26,7 @@ site produces equivalent output).
 import re
 import urllib.error
 import urllib.request
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
@@ -67,6 +68,73 @@ SITE_SNAPSHOT_LIST_ENDPOINTS: list[tuple[str, dict | None]] = [
 
 # Standard /admin/api/ singletons (no list).
 SITE_SNAPSHOT_SINGLETONS = ["/site", "/me"]
+
+
+@dataclass
+class _Manifest:
+    """Snapshot manifest — written to ``<output_dir>/_meta.json``.
+
+    Built progressively during ``_site_snapshot``: every list endpoint,
+    singleton, per-page contents, per-article detail, per-product detail,
+    and rendered HTML sample is appended to ``attempted`` on dispatch and
+    to ``succeeded`` / ``skipped`` / ``failed`` on completion. Mid-snapshot
+    abort (Phase 6 S-6/S-7 budget / quota exceeded) sets ``aborted_reason``
+    in the snapshot's ``finally`` block before re-raising the exception,
+    so the manifest reflects the partial state.
+
+    ``partial`` is computed at write time by ``to_dict``: True iff any of
+    ``skipped`` / ``failed`` is non-empty OR ``aborted_reason`` is not
+    None OR ``attempted`` differs from ``succeeded``. Restore tooling
+    (v1.5+) refuses to load a partial snapshot without ``--allow-partial``.
+    """
+
+    voog_mcp_version: str
+    site: str
+    host: str
+    created_at: str  # ISO-8601 UTC
+    attempted: list[str] = field(default_factory=list)
+    succeeded: list[str] = field(default_factory=list)
+    skipped: list[dict] = field(default_factory=list)  # [{endpoint, reason}]
+    failed: list[dict] = field(default_factory=list)  # [{endpoint, reason}]
+    request_count: int = 0
+    duration_seconds: float = 0.0
+    aborted_reason: str | None = None
+
+    def to_dict(self) -> dict:
+        # NOTE: `partial` is a *computed* field, not stored on the dataclass,
+        # so callers can re-compute after every list mutation without state.
+        partial = bool(
+            self.skipped
+            or self.failed
+            or self.aborted_reason
+            or set(self.attempted) != set(self.succeeded)
+        )
+        return {
+            "voog_mcp_version": self.voog_mcp_version,
+            "created_at": self.created_at,
+            "site": self.site,
+            "host": self.host,
+            "attempted": list(self.attempted),
+            "succeeded": list(self.succeeded),
+            "skipped": list(self.skipped),
+            "failed": list(self.failed),
+            "request_count": self.request_count,
+            "duration_seconds": round(self.duration_seconds, 3),
+            "aborted_reason": self.aborted_reason,
+            "partial": partial,
+        }
+
+
+def _write_manifest(out: Path, manifest: _Manifest) -> None:
+    """Write ``_meta.json`` to ``out``. Safe to call from ``finally`` — does
+    NOT raise; on a filesystem error it best-effort-logs and returns. The
+    snapshot's primary failure path should not be obscured by a manifest
+    write error.
+    """
+    try:
+        write_json(out / "_meta.json", manifest.to_dict())
+    except Exception:  # pragma: no cover — defensive only
+        pass
 
 
 def get_tools() -> list[Tool]:

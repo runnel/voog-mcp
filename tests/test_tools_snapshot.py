@@ -869,6 +869,119 @@ class TestPickSamplePagePaths(unittest.TestCase):
         self.assertEqual(result_b, ["/", "/blog/x"])
 
 
+class TestManifestSchema(unittest.TestCase):
+    """Manifest dataclass schema — what restore tooling will consume."""
+
+    def test_to_dict_has_all_required_keys(self):
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="stella",
+            host="stellasoomlais.com",
+            created_at="2026-05-26T13:42:18Z",
+        )
+        d = m.to_dict()
+        expected_keys = {
+            "voog_mcp_version",
+            "created_at",
+            "site",
+            "host",
+            "attempted",
+            "succeeded",
+            "skipped",
+            "failed",
+            "request_count",
+            "duration_seconds",
+            "aborted_reason",
+            "partial",
+        }
+        self.assertEqual(set(d.keys()), expected_keys)
+
+    def test_partial_false_when_all_succeed(self):
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="x",
+            host="x.com",
+            created_at="2026-05-26T00:00:00Z",
+            attempted=["/pages", "/articles"],
+            succeeded=["/pages", "/articles"],
+        )
+        self.assertFalse(m.to_dict()["partial"])
+
+    def test_partial_true_when_skipped_nonempty(self):
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="x",
+            host="x.com",
+            created_at="2026-05-26T00:00:00Z",
+            attempted=["/pages", "/elements"],
+            succeeded=["/pages"],
+            skipped=[{"endpoint": "/elements", "reason": "404"}],
+        )
+        self.assertTrue(m.to_dict()["partial"])
+
+    def test_partial_true_when_failed_nonempty(self):
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="x",
+            host="x.com",
+            created_at="2026-05-26T00:00:00Z",
+            attempted=["/pages"],
+            succeeded=[],
+            failed=[{"endpoint": "/pages", "reason": "HTTP 500"}],
+        )
+        self.assertTrue(m.to_dict()["partial"])
+
+    def test_partial_true_when_aborted_reason_set(self):
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="x",
+            host="x.com",
+            created_at="2026-05-26T00:00:00Z",
+            attempted=["/pages"],
+            succeeded=["/pages"],
+            aborted_reason="request_budget_exceeded",
+        )
+        self.assertTrue(m.to_dict()["partial"])
+
+    def test_partial_true_when_attempted_differs_from_succeeded(self):
+        # Edge case: a fetch dispatched (in attempted) but never categorised
+        # (not in succeeded/skipped/failed). Should still surface as partial,
+        # since the caller is missing data they expected.
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="x",
+            host="x.com",
+            created_at="2026-05-26T00:00:00Z",
+            attempted=["/pages", "/articles"],
+            succeeded=["/pages"],
+        )
+        self.assertTrue(m.to_dict()["partial"])
+
+    def test_duration_seconds_rounded_to_3_decimals(self):
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="x",
+            host="x.com",
+            created_at="2026-05-26T00:00:00Z",
+            duration_seconds=18.4156789,
+        )
+        self.assertEqual(m.to_dict()["duration_seconds"], 18.416)
+
+
 class TestServerToolRegistry(unittest.TestCase):
     """Phase C contract — snapshot_tools joined to TOOL_GROUPS."""
 
