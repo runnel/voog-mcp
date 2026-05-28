@@ -114,10 +114,17 @@ def get_tools() -> list[Tool]:
                 "required": ["site"],
             },
             annotations={
+                # readOnlyHint=True is factual — the tool doesn't write to
+                # Voog. Hosts that skip prompts on readOnlyHint=True keep
+                # the routine PII-stripped read fast.
                 "readOnlyHint": True,
-                # destructiveHint=True when include_pii is requested:
-                # MCP hosts surface a confirmation, gating prompt-injected
-                # PII-exfiltration via include_pii=true.
+                # destructiveHint=True signals the include_pii=true
+                # potential. Per MCP spec destructiveHint is "only
+                # meaningful when readOnlyHint is false" — so spec-strict
+                # hosts will skip the prompt. The load-bearing defense is
+                # the handler-side force-gate (refuses include_pii=true
+                # without force=true); the annotation is best-effort UX
+                # for hosts that surface a prompt regardless.
                 "destructiveHint": True,
                 "idempotentHint": True,
             },

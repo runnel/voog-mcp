@@ -187,6 +187,17 @@ class TestOrderGet(unittest.TestCase):
         self.assertIs(ann.readOnlyHint, True)
         # H2 (v1.4 review): destructiveHint=True surfaces the PII gate
         # in MCP host approval UI when include_pii=true is requested.
+        # Spec-strict hosts may treat readOnlyHint=True as authoritative
+        # and skip the prompt; handler-side force-gate is the load-
+        # bearing defense regardless.
+        self.assertIs(ann.destructiveHint, True)
+
+    def test_orders_list_annotations(self):
+        # H2 mirror — orders_list has the same include_pii surface, so
+        # it carries the same annotation pair. Drift between the two
+        # would be a surprise.
+        ann = {t.name: t for t in ot.get_tools()}["orders_list"].annotations
+        self.assertIs(ann.readOnlyHint, True)
         self.assertIs(ann.destructiveHint, True)
 
 
