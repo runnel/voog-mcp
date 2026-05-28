@@ -19,14 +19,32 @@ from __future__ import annotations
 
 import logging
 
-# Empirically verified against httpx[http2] (httpcore 1.x, hpack 4.x).
-# Each entry is a logger that has been observed emitting raw header
-# bytes or HPACK frames at DEBUG level.
+# Empirically verified against httpx[http2] (httpcore 1.x, hpack 4.x, h2 4.x).
+# Each entry is a logger that has been observed — or is a parent of a logger
+# that has been observed — emitting raw header bytes or HPACK frames at DEBUG
+# level.
+#
+# Why both parents AND children are listed (instead of relying on Python's
+# logger hierarchy to propagate WARNING from the parent down): a parent's
+# ``setLevel(WARNING)`` only takes effect for children whose level is
+# ``NOTSET``. If a parent process, a pytest fixture, or a debug shim has
+# already called ``logging.getLogger("httpcore.http2").setLevel(DEBUG)``
+# *before* voog-mcp's entry point runs, a parent-only clamp would leave that
+# child at DEBUG. The redundant explicit list actively resets the known
+# leaky children — belt and suspenders.
+#
+# Verified non-leaky (as of 2026-05-28, h2 4.3.0): the ``h2`` package
+# registers no loggers under its own name — nothing to clamp.
+#
+# Maintenance trigger: if ``httpx[http2]`` upgrades to a major version, re-run
+# the smoke (``logging.basicConfig(level=DEBUG)`` + a real authenticated
+# request) and append any new logger names that emit header bytes here.
 _TRANSPORT_LOGGER_NAMES: tuple[str, ...] = (
     "httpcore",
     "httpcore.connection",
     "httpcore.http11",
     "httpcore.http2",
+    "httpcore.proxy",
     "httpx",
     "hpack",
     "hpack.hpack",

@@ -18,11 +18,13 @@ import logging
 import voog.logging as voog_logging
 
 # Names verified empirically against httpx[http2] (httpcore 1.x, hpack 4.x).
+# Must stay in sync with voog.logging._TRANSPORT_LOGGER_NAMES.
 _TRANSPORT_LOGGER_NAMES = (
     "httpcore",
     "httpcore.connection",
     "httpcore.http11",
     "httpcore.http2",
+    "httpcore.proxy",
     "httpx",
     "hpack",
     "hpack.hpack",
