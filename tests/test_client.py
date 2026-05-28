@@ -913,10 +913,15 @@ class TestWithTool(unittest.TestCase):
         # per-call header set has the (tool=...) suffix.
         self.assertNotIn("tool=", client.headers["User-Agent"])
 
-    def test_nested_with_tool_asserts(self):
+    def test_nested_with_tool_raises(self):
+        # Safety invariant — RuntimeError (NOT AssertionError) so it survives
+        # ``python -O`` / ``PYTHONOPTIMIZE=1`` stripping assert statements.
+        # Under ``-O`` an assert-only guard would compile out, and the inner
+        # scope's ``finally`` would clear the outer scope's tracking state,
+        # silently leaving outer-scope requests untagged.
         client = VoogClient(host="x.com", api_token="t")
         with client.with_tool("page_update"):
-            with self.assertRaises(AssertionError):
+            with self.assertRaises(RuntimeError):
                 with client.with_tool("article_update"):
                     pass
 

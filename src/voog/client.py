@@ -132,11 +132,18 @@ class VoogClient:
         ``call_tool`` directly (rather than the public ``client.get``
         etc.), the assertion catches it before silent header pollution.
         """
-        assert not getattr(self._local, "tool_name", None), (
-            f"with_tool nesting is unsupported (current={self._local.tool_name!r}, "
-            f"new={tool_name!r}). Tools must not re-enter each other's call_tool; "
-            f"go via client.get / client.post / etc."
-        )
+        # Safety invariant — NOT an ``assert`` because ``python -O`` /
+        # ``PYTHONOPTIMIZE=1`` strips assert statements. Under that flag a
+        # silently-overwritten outer scope would lose its tracking state
+        # when the inner scope's ``finally`` clears it (the outer scope's
+        # subsequent calls would emit untagged requests). Explicit raise
+        # keeps the guard load-bearing across all Python optimisation levels.
+        if getattr(self._local, "tool_name", None):
+            raise RuntimeError(
+                f"with_tool nesting is unsupported (current={self._local.tool_name!r}, "
+                f"new={tool_name!r}). Tools must not re-enter each other's call_tool; "
+                f"go via client.get / client.post / etc."
+            )
         self._local.tool_name = tool_name
         self._local.request_id = uuid.uuid4().hex
         try:

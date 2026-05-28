@@ -99,20 +99,31 @@ class _Manifest:
     succeeded: list[str] = field(default_factory=list)
     skipped: list[dict] = field(default_factory=list)  # [{endpoint, reason}]
     failed: list[dict] = field(default_factory=list)  # [{endpoint, reason}]
-    request_count: int = 0
+    # ``None`` (not 0) until Phase 6's S-6 request budget lands the
+    # counter on VoogClient. ``to_dict`` omits the field entirely when
+    # None — emitting ``"request_count": 0`` would look like a counting
+    # bug rather than a forward-compat placeholder.
+    request_count: int | None = None
     duration_seconds: float = 0.0
     aborted_reason: str | None = None
 
     def to_dict(self) -> dict:
         # NOTE: `partial` is a *computed* field, not stored on the dataclass,
         # so callers can re-compute after every list mutation without state.
+        # The fourth clause (attempted != succeeded) is defense-in-depth —
+        # in well-formed code it's implied by `skipped or failed` being
+        # empty (every attempted endpoint lands in exactly one bucket on
+        # the normal exit path), but the redundancy catches a hypothetical
+        # bookkeeping bug where an attempt fails to be categorised into
+        # any bucket. Cheap to keep, prevents a partial-snapshot from
+        # silently looking complete.
         partial = bool(
             self.skipped
             or self.failed
             or self.aborted_reason
             or set(self.attempted) != set(self.succeeded)
         )
-        return {
+        payload: dict = {
             "voog_mcp_version": self.voog_mcp_version,
             "created_at": self.created_at,
             "site": self.site,
@@ -121,11 +132,15 @@ class _Manifest:
             "succeeded": list(self.succeeded),
             "skipped": list(self.skipped),
             "failed": list(self.failed),
-            "request_count": self.request_count,
             "duration_seconds": round(self.duration_seconds, 3),
             "aborted_reason": self.aborted_reason,
             "partial": partial,
         }
+        # Omit ``request_count`` entirely until Phase 6's counter lands —
+        # a literal ``0`` would mislead operators reading _meta.json.
+        if self.request_count is not None:
+            payload["request_count"] = self.request_count
+        return payload
 
 
 def _write_manifest(out: Path, manifest: _Manifest) -> None:
@@ -269,18 +284,39 @@ def _is_abort_exception(exc: BaseException) -> bool:
     return type(exc).__name__ in {"RequestBudgetExceeded", "DailyQuotaExceeded"}
 
 
+# 4xx codes that should land in ``failed[]`` (not ``skipped[]``) because
+# they indicate "the fetch should have worked but the server pushed back"
+# rather than "this endpoint isn't available to this caller":
+#
+#   408 Request Timeout — server gave up waiting; the request itself was
+#       fine, retry would have plausibly succeeded.
+#   429 Too Many Requests — rate-limited; ``_request`` already retries
+#       this status with Retry-After backoff, so a 429 reaching the
+#       classifier means retry exhaustion (a real failure, not absence).
+#
+# All other 4xx remain ``skipped`` (404 = endpoint not on this tenant,
+# 403 = API key lacks scope, 401 = bad token, etc. — caller can't fix
+# by retry).
+_RETRYABLE_4XX_FAILED = frozenset({408, 429})
+
+
 def _classify_api_exc(exc: Exception) -> str:
-    """Return ``"skipped"`` for 4xx (endpoint not available on this tenant /
-    permission denied) and ``"failed"`` for 5xx / network errors / anything
-    else. Restore tooling reads ``failed`` more strictly than ``skipped``.
+    """Return ``"skipped"`` for "endpoint not available to this caller"
+    (most 4xx) and ``"failed"`` for "should have worked" (5xx + network +
+    408 + 429). Restore tooling reads ``failed`` more strictly than
+    ``skipped`` — a 429 silently tolerated as "skipped" would be wrong.
 
     Voog API errors are httpx.HTTPStatusError post-Phase-1a; the public
     HTML fetch in step 6 still uses raw urllib so we accept both shapes.
     """
     if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
+        if code in _RETRYABLE_4XX_FAILED:
+            return "failed"
         return "skipped" if 400 <= code < 500 else "failed"
     if isinstance(exc, urllib.error.HTTPError) and exc.code is not None:
+        if exc.code in _RETRYABLE_4XX_FAILED:
+            return "failed"
         return "skipped" if 400 <= exc.code < 500 else "failed"
     return "failed"
 
@@ -629,9 +665,17 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
 
     finally:
         # MD4: ``_meta.json`` MUST be written even on abort.
-        # request_count: best-effort read from client. Phase 6 S-6 lands
-        # the real counter; until then ``getattr`` falls back to 0.
-        manifest.request_count = int(getattr(client, "_request_count", 0))
+        # request_count: only set if the client carries the counter
+        # (Phase 6 S-6 lands it). Until then ``_request_count`` is absent
+        # and manifest.request_count stays None — _to_dict omits the
+        # field rather than emit a misleading 0.
+        if hasattr(client, "_request_count"):
+            try:
+                manifest.request_count = int(client._request_count)
+            except (TypeError, ValueError):
+                # Defensive: future client.could carry a non-int counter
+                # (MagicMock auto-attr in tests, etc.). Drop silently.
+                pass
         manifest.duration_seconds = time.monotonic() - started_at
         _write_manifest(out, manifest)
 

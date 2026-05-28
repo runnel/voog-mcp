@@ -886,7 +886,10 @@ class TestPickSamplePagePaths(unittest.TestCase):
 class TestManifestSchema(unittest.TestCase):
     """Manifest dataclass schema — what restore tooling will consume."""
 
-    def test_to_dict_has_all_required_keys(self):
+    def test_to_dict_has_all_required_keys_when_request_count_absent(self):
+        # request_count is omitted until Phase 6's counter lands — until
+        # then operators reading _meta.json should NOT see a misleading
+        # "0" value that looks like a counting bug.
         from voog.mcp.tools.snapshot import _Manifest
 
         m = _Manifest(
@@ -905,12 +908,27 @@ class TestManifestSchema(unittest.TestCase):
             "succeeded",
             "skipped",
             "failed",
-            "request_count",
             "duration_seconds",
             "aborted_reason",
             "partial",
         }
         self.assertEqual(set(d.keys()), expected_keys)
+        self.assertNotIn("request_count", d)
+
+    def test_to_dict_emits_request_count_when_set(self):
+        # Forward-compat: once Phase 6's counter lands and populates
+        # manifest.request_count, the field appears.
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="stella",
+            host="stellasoomlais.com",
+            created_at="2026-05-26T13:42:18Z",
+            request_count=42,
+        )
+        d = m.to_dict()
+        self.assertEqual(d["request_count"], 42)
 
     def test_partial_false_when_all_succeed(self):
         from voog.mcp.tools.snapshot import _Manifest
@@ -1221,9 +1239,9 @@ class TestManifestEmission(unittest.TestCase):
         self.assertIn("[PARTIAL]", result[0].text)
 
     def test_request_count_read_from_client_attribute(self):
-        # Phase 5 lands the read; Phase 6 S-6 lands the writer. If the
-        # client doesn't have ``_request_count``, manifest records 0
-        # (getattr fallback) — must not raise.
+        # Forward-compat: when Phase 6 lands ``_request_count`` on the
+        # client, manifest picks it up. Phase 5 omits the field entirely
+        # when the counter doesn't exist (avoids misleading zero).
         client = _make_client()
         client.get_all.return_value = []
         client.get.return_value = {}
@@ -1239,6 +1257,27 @@ class TestManifestEmission(unittest.TestCase):
             )
             meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
             self.assertEqual(meta["request_count"], 42)
+
+    def test_request_count_absent_when_counter_not_yet_landed(self):
+        # Phase 5 reality: VoogClient has no ``_request_count`` yet.
+        # The manifest omits the field entirely — operators reading
+        # _meta.json don't see "0" and assume a counting bug.
+        client = _make_client()
+        # MagicMock auto-creates ``_request_count`` as a MagicMock attr,
+        # so we explicitly delete it to simulate the no-counter scenario:
+        del client._request_count
+        client.get_all.return_value = []
+        client.get.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            self.assertNotIn("request_count", meta)
 
 
 class TestClassifyApiExc(unittest.TestCase):
@@ -1265,6 +1304,29 @@ class TestClassifyApiExc(unittest.TestCase):
         from voog.mcp.tools.snapshot import _classify_api_exc
 
         self.assertEqual(_classify_api_exc(_http_status_error(502)), "failed")
+
+    def test_429_httpx_is_failed_not_skipped(self):
+        # 429 reaching the snapshot classifier means _request's retry
+        # loop already exhausted (429 IS in _RETRYABLE_STATUS). That's a
+        # real failure ("should have worked, server pushed back"), not
+        # "endpoint not available to this caller". Restore tooling
+        # tolerating 429 as ``skipped`` would be wrong.
+        from voog.mcp.tools.snapshot import _classify_api_exc
+
+        self.assertEqual(_classify_api_exc(_http_status_error(429)), "failed")
+
+    def test_408_httpx_is_failed_not_skipped(self):
+        # 408 Request Timeout — server gave up waiting; the request
+        # itself was fine. Same "should have worked" bucket as 429 + 5xx.
+        from voog.mcp.tools.snapshot import _classify_api_exc
+
+        self.assertEqual(_classify_api_exc(_http_status_error(408)), "failed")
+
+    def test_429_urllib_is_failed_not_skipped(self):
+        from voog.mcp.tools.snapshot import _classify_api_exc
+
+        exc = urllib.error.HTTPError("u", 429, "Too Many Requests", {}, None)
+        self.assertEqual(_classify_api_exc(exc), "failed")
 
     def test_urllib_404_is_skipped(self):
         from voog.mcp.tools.snapshot import _classify_api_exc
