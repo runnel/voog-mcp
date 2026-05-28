@@ -74,9 +74,10 @@ finding):
    - Document the quirk in the tool description AND in a CHANGELOG
      `Fixed` entry — operators learn what the wrapper now handles.
    - If the auto-fix changes wire bytes for any existing caller, tag
-     it as a BREAKING CHANGE and bump the minor version (voog-mcp
-     ships breaking changes in minor versions pre-1.0 — see CHANGELOG
-     header).
+     it as a BREAKING CHANGE and bump the minor version. voog-mcp's
+     minor versions may include breaking changes; major version
+     bumps are reserved for transport-layer or auth-model overhauls.
+     See CHANGELOG header for the matching note.
 4. If document+force-gate:
    - Add an explicit `force` parameter to the affected tool (boolean,
      default false).

@@ -10,11 +10,11 @@ versioning: [PEP 440](https://peps.python.org/pep-0440/).
 
 ## [1.4] — 2026-05-28
 
-> voog-mcp is pre-1.0 by intent: until v2.0 the project reserves the
-> right to break minor versions when the alternative is shipping a
-> known foot-gun forever. See `docs/voog-mcp-design-decisions.md` for
-> the auto-fix-vs-document policy that drives breaking-vs-additive
-> calls.
+> voog-mcp's minor versions may include breaking changes when the
+> alternative is shipping a known foot-gun forever; major version
+> bumps are reserved for transport-layer or auth-model overhauls.
+> See `docs/voog-mcp-design-decisions.md` for the auto-fix-vs-document
+> policy that drives breaking-vs-additive calls.
 
 ### Breaking changes
 - **S4 (Phase 2):** ``page_update(data=...)`` and ``article_update(data=...)`` now route via PATCH (merge semantics) instead of PUT (full replace). Voog only touches the keys you pass — keys you omit are preserved. Migration: callers that relied on the pre-v1.4 PUT-clobber behaviour to remove keys must now use ``page_delete_data`` / ``article_delete_data`` to remove specific keys before re-writing. Blast radius verified empirically zero against Stella + Runnel call sites (no live caller relied on PUT-clobber). PATCH dispatch opts into the per-call retry loop via ``client.patch(..., _voog_documented_idempotent=True)`` — the page and article PATCH routes are documented merge-idempotent by Voog. The module-level ``_RETRYABLE_METHODS`` frozen set is unchanged.

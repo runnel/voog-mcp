@@ -17,6 +17,11 @@ see plan Task 1 R7); each key's value is ``{lang: text}``.
 Cache contract:
   - Keyed on site identity (``client.host``). Per-language is NOT
     needed because ``translations.keys()`` is language-agnostic.
+  - Per-token allowlist variance is assumed zero — translatable
+    keys are settings-schema-level, not permission-level (verified
+    empirically against Stella's tenant, 2026-05-28 R7 probe). If a
+    future Voog feature ever gates allowlist keys per token, swap
+    the cache key for a ``(host, token-hash)`` tuple.
   - 60-second TTL — new server-side keys picked up within 60s. No
     invalidation API; restart the MCP server if you need a faster
     refresh.
