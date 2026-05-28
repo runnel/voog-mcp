@@ -198,6 +198,158 @@ class TestSiteSnapshotEndpoints(unittest.TestCase):
             self.assertTrue(out.exists())
 
 
+class TestSiteSnapshotMetaJson(unittest.TestCase):
+    """CLI site-snapshot writes _meta.json manifest in parity with the
+    MCP _site_snapshot path (Phase 5 S7 + MD4). Same fields, same
+    abort-handling, same partial-detection.
+    """
+
+    def test_meta_json_written_on_success(self):
+        client = _make_client()
+        client.get_all.return_value = []
+        client.get.return_value = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "snap"
+            args = MagicMock()
+            args.output_dir = out
+            with patch("sys.stdout"):
+                with patch("urllib.request.urlopen"):
+                    rc = snap_cmd.cmd_site_snapshot(args, client)
+            self.assertEqual(rc, 0)
+            meta_path = out / "_meta.json"
+            self.assertTrue(meta_path.exists(), "_meta.json must be written")
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            self.assertIn("voog_mcp_version", meta)
+            self.assertIn("created_at", meta)
+            self.assertEqual(meta["host"], "example.com")
+            self.assertIn("attempted", meta)
+            self.assertIn("succeeded", meta)
+            self.assertIn("skipped", meta)
+            self.assertIn("failed", meta)
+            self.assertIn("partial", meta)
+            self.assertIn("duration_seconds", meta)
+            # No skipped / failed on this fixture → partial=False.
+            self.assertEqual(meta["skipped"], [])
+            self.assertEqual(meta["failed"], [])
+            self.assertFalse(meta["partial"])
+
+    def test_meta_json_records_site_name_from_client(self):
+        client = _make_client()
+        client.site_name = "stella"
+        client.get_all.return_value = []
+        client.get.return_value = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "snap"
+            args = MagicMock()
+            args.output_dir = out
+            with patch("sys.stdout"):
+                with patch("urllib.request.urlopen"):
+                    snap_cmd.cmd_site_snapshot(args, client)
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            self.assertEqual(meta["site"], "stella")
+
+    def test_meta_json_marks_partial_on_failed_endpoint(self):
+        # A 5xx-class error on a list endpoint lands in `failed` and
+        # makes the snapshot partial. Mirrors MCP behavior:
+        # _classify_api_exc routes non-4xx exceptions to `failed`.
+        client = _make_client()
+
+        def get_all_dispatch(endpoint, **kwargs):
+            if endpoint == "/pages":
+                raise RuntimeError("connection reset by peer")
+            return []
+
+        client.get_all.side_effect = get_all_dispatch
+        client.get.return_value = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "snap"
+            args = MagicMock()
+            args.output_dir = out
+            with patch("sys.stdout"):
+                with patch("urllib.request.urlopen"):
+                    snap_cmd.cmd_site_snapshot(args, client)
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            self.assertTrue(meta["partial"])
+            failed_endpoints = [f["endpoint"] for f in meta["failed"]]
+            self.assertIn("/pages", failed_endpoints)
+            # The endpoint was attempted but not in succeeded.
+            self.assertIn("/pages", meta["attempted"])
+            self.assertNotIn("/pages", meta["succeeded"])
+
+    def test_meta_json_records_request_count(self):
+        client = _make_client()
+        client._request_count = 42
+        client.get_all.return_value = []
+        client.get.return_value = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "snap"
+            args = MagicMock()
+            args.output_dir = out
+            with patch("sys.stdout"):
+                with patch("urllib.request.urlopen"):
+                    snap_cmd.cmd_site_snapshot(args, client)
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            self.assertEqual(meta["request_count"], 42)
+
+    def test_unexpected_exception_writes_meta_then_reraises(self):
+        # Unexpected exceptions (not known operational aborts) must
+        # re-raise after recording aborted_reason — operator gets the
+        # real Python traceback rather than a clean rc=1 hiding a
+        # programming bug. _meta.json still lands via the try/finally.
+        # A disk-write failure (_write_json) is the most realistic
+        # path — it raises OUTSIDE the per-endpoint try/except that
+        # wraps the API call, so it escapes to the outer handler.
+        client = _make_client()
+        client.get_all.return_value = [{"id": 1, "title": "x"}]
+        client.get.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "snap"
+            args = MagicMock()
+            args.output_dir = out
+            with patch("sys.stdout"), patch("sys.stderr"):
+                with patch(
+                    "voog.cli.commands.snapshot._write_json",
+                    side_effect=OSError("disk full"),
+                ):
+                    with self.assertRaises(OSError):
+                        snap_cmd.cmd_site_snapshot(args, client)
+            self.assertTrue((out / "_meta.json").exists())
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            self.assertEqual(meta["aborted_reason"], "unexpected:OSError")
+            self.assertTrue(meta["partial"])
+
+    def test_meta_json_written_on_request_budget_exceeded(self):
+        # MD4: manifest must land even on mid-snapshot abort. The CLI
+        # should re-raise the underlying error (no silent recovery)
+        # while still producing _meta.json with aborted_reason set.
+        from voog.errors import RequestBudgetExceeded
+
+        client = _make_client()
+
+        def get_all_dispatch(endpoint, **kwargs):
+            if endpoint == "/pages":
+                raise RequestBudgetExceeded("request cap exceeded")
+            return []
+
+        client.get_all.side_effect = get_all_dispatch
+        client.get.return_value = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "snap"
+            args = MagicMock()
+            args.output_dir = out
+            with patch("sys.stdout"):
+                with patch("sys.stderr"):
+                    rc = snap_cmd.cmd_site_snapshot(args, client)
+            # Even though the snapshot aborted, _meta.json was written.
+            self.assertTrue((out / "_meta.json").exists())
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            self.assertEqual(meta["aborted_reason"], "request_budget_exceeded")
+            self.assertTrue(meta["partial"])
+            # Non-zero exit code so callers (cron, CI) detect the abort.
+            self.assertNotEqual(rc, 0)
+
+
 class TestPagesSnapshot(unittest.TestCase):
     def test_writes_pages_json_and_per_page_contents(self):
         client = _make_client()
