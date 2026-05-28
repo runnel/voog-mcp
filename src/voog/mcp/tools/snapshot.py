@@ -673,7 +673,7 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
             try:
                 manifest.request_count = int(client._request_count)
             except (TypeError, ValueError):
-                # Defensive: future client.could carry a non-int counter
+                # Defensive: a future client could carry a non-int counter
                 # (MagicMock auto-attr in tests, etc.). Drop silently.
                 pass
         manifest.duration_seconds = time.monotonic() - started_at

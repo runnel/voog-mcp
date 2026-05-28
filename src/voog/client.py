@@ -126,11 +126,13 @@ class VoogClient:
         tool tracking to follow into worker threads must wrap each callable
         with ``voog._concurrency.propagate_tool_context(client, fn)``.
 
-        Re-entry: nesting ``with_tool`` is unsupported and asserts. The
-        outer caller (tool's ``call_tool`` wrapper) is the single point
-        of entry; if a handler ever calls back into a sibling tool's
-        ``call_tool`` directly (rather than the public ``client.get``
-        etc.), the assertion catches it before silent header pollution.
+        Re-entry: nesting ``with_tool`` is unsupported and raises
+        ``RuntimeError``. The outer caller (tool's ``call_tool`` wrapper)
+        is the single point of entry; if a handler ever calls back into a
+        sibling tool's ``call_tool`` directly (rather than the public
+        ``client.get`` etc.), the explicit guard catches it before silent
+        header pollution. The guard is an explicit ``raise`` (not an
+        ``assert``) so it survives ``python -O`` / ``PYTHONOPTIMIZE=1``.
         """
         # Safety invariant — NOT an ``assert`` because ``python -O`` /
         # ``PYTHONOPTIMIZE=1`` strips assert statements. Under that flag a
