@@ -182,7 +182,12 @@ class ClientFactory:
             )
         site = self._global_cfg.sites[site_name]
         token = resolve_site_token(site, self._env)
-        client = VoogClient(host=site.host, api_token=token)
+        client = VoogClient(
+            host=site.host,
+            api_token=token,
+            site_name=site.name,
+            daily_request_quota=site.daily_request_quota,
+        )
         self._cache[site_name] = client
         return client
 

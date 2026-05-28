@@ -37,7 +37,12 @@ from mcp.types import CallToolResult, TextContent, Tool
 from voog import __version__ as _voog_version
 from voog._concurrency import parallel_map, propagate_tool_context
 from voog.client import VoogClient
-from voog.errors import error_response, success_response
+from voog.errors import (
+    DailyQuotaExceeded,
+    RequestBudgetExceeded,
+    error_response,
+    success_response,
+)
 from voog.mcp.tools._helpers import strip_site, validate_output_dir, write_json
 from voog.projections import LAYOUTS_INCLUDE_BODY, PRODUCTS_DETAIL_INCLUDE
 
@@ -99,10 +104,11 @@ class _Manifest:
     succeeded: list[str] = field(default_factory=list)
     skipped: list[dict] = field(default_factory=list)  # [{endpoint, reason}]
     failed: list[dict] = field(default_factory=list)  # [{endpoint, reason}]
-    # ``None`` (not 0) until Phase 6's S-6 request budget lands the
-    # counter on VoogClient. ``to_dict`` omits the field entirely when
-    # None — emitting ``"request_count": 0`` would look like a counting
-    # bug rather than a forward-compat placeholder.
+    # Populated from ``client._request_count`` in the ``finally`` block.
+    # Stays ``None`` only when the test fixture explicitly deletes the
+    # counter (the backwards-compat path) — Phase 6's S-6 always sets
+    # ``_request_count = 0`` on real ``VoogClient`` instances, so real
+    # snapshots emit the field with the actual request total.
     request_count: int | None = None
     duration_seconds: float = 0.0
     aborted_reason: str | None = None
@@ -136,8 +142,10 @@ class _Manifest:
             "aborted_reason": self.aborted_reason,
             "partial": partial,
         }
-        # Omit ``request_count`` entirely until Phase 6's counter lands —
-        # a literal ``0`` would mislead operators reading _meta.json.
+        # Phase 6's S-6 always populates request_count via the finally
+        # block; the ``is not None`` guard remains so test fixtures that
+        # ``del client._request_count`` (backwards-compat coverage) still
+        # produce a clean manifest without the field.
         if self.request_count is not None:
             payload["request_count"] = self.request_count
         return payload
@@ -270,18 +278,13 @@ def _is_abort_exception(exc: BaseException) -> bool:
     """True if ``exc`` is a Phase 6 budget/quota signal that must bypass
     the per-endpoint forgiveness and abort the whole snapshot.
 
-    Phase 5 lands before Phase 6, so the exception classes
-    (``RequestBudgetExceeded`` / ``DailyQuotaExceeded``) don't exist yet
-    — we key on class name for forward-compatibility. Phase 6's PR
-    tightens this to ``isinstance(exc, (RequestBudgetExceeded, ...))``.
-
     Why this matters: both ``parallel_map`` workers AND the per-step
     ``try/except Exception`` would normally swallow these into
     ``manifest.failed``, so a budget hit would silently degrade to a
     partial snapshot instead of aborting. The whole point of the budget
     is to *stop work* once it's tripped.
     """
-    return type(exc).__name__ in {"RequestBudgetExceeded", "DailyQuotaExceeded"}
+    return isinstance(exc, (RequestBudgetExceeded, DailyQuotaExceeded))
 
 
 # 4xx codes that should land in ``failed[]`` (not ``skipped[]``) because
@@ -643,38 +646,38 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
             rendered_count += 1
             manifest.succeeded.append(endpoint)
 
-    except Exception as exc:
-        # MD4: forward-compatible catch for Phase 6's budget/quota
-        # exceptions. Phase 6 introduces ``RequestBudgetExceeded`` and
-        # ``DailyQuotaExceeded`` in ``voog.errors``; until that import
-        # exists, key on class name. Phase 6's PR tightens this to
-        # ``except (RequestBudgetExceeded, DailyQuotaExceeded) as exc:``.
-        exc_class = type(exc).__name__
-        if exc_class == "RequestBudgetExceeded":
-            manifest.aborted_reason = "request_budget_exceeded"
-        elif exc_class == "DailyQuotaExceeded":
-            manifest.aborted_reason = "daily_quota_exceeded"
-        else:
-            # Any other unexpected exception still gets a recorded
-            # aborted_reason so the manifest reflects "snapshot didn't
-            # complete normally". The exception itself still re-raises.
-            manifest.aborted_reason = f"unexpected:{exc_class}"
-        # Re-raise — MD4 contract: manifest written in finally, exception
+    except RequestBudgetExceeded:
+        # MD4: snapshot aborted by the per-VoogClient request budget.
+        # ``_meta.json`` records the abort reason; the exception
         # propagates so the caller sees the real failure.
+        manifest.aborted_reason = "request_budget_exceeded"
+        raise
+    except DailyQuotaExceeded:
+        # MD4: snapshot aborted by the per-site daily quota.
+        manifest.aborted_reason = "daily_quota_exceeded"
+        raise
+    except Exception as exc:
+        # Any other unexpected exception still gets a recorded
+        # aborted_reason so the manifest reflects "snapshot didn't
+        # complete normally". The exception itself still re-raises.
+        manifest.aborted_reason = f"unexpected:{type(exc).__name__}"
         raise
 
     finally:
         # MD4: ``_meta.json`` MUST be written even on abort.
-        # request_count: only set if the client carries the counter
-        # (Phase 6 S-6 lands it). Until then ``_request_count`` is absent
-        # and manifest.request_count stays None — _to_dict omits the
-        # field rather than emit a misleading 0.
+        # request_count: Phase 6 S-6 always sets ``_request_count = 0``
+        # on ``VoogClient.__init__``, so real client instances always
+        # carry the counter. The ``hasattr`` guard remains for the test
+        # fixture that explicitly ``del client._request_count`` — without
+        # it, MagicMock's auto-attr would surface as a MagicMock object
+        # rather than an int.
         if hasattr(client, "_request_count"):
             try:
                 manifest.request_count = int(client._request_count)
             except (TypeError, ValueError):
-                # Defensive: a future client could carry a non-int counter
-                # (MagicMock auto-attr in tests, etc.). Drop silently.
+                # Defensive: a non-int counter (MagicMock auto-attr in a
+                # test that forgot the ``del``) is dropped silently
+                # rather than crashing the manifest write.
                 pass
         manifest.duration_seconds = time.monotonic() - started_at
         _write_manifest(out, manifest)
