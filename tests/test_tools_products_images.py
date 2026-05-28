@@ -740,5 +740,169 @@ class TestAllToolsRequireSite(unittest.TestCase):
             )
 
 
+class TestConfirmRetry(unittest.TestCase):
+    """S10 — step-3 confirm retries on TimeoutError up to 3 times.
+
+    Mocks ``time.sleep`` to avoid the 3.5s of real sleep (0.5 + 1.0 + 2.0)
+    that the worst-case test would otherwise burn. All tests complete in
+    under 0.5s with the patch.
+    """
+
+    def _make_client(self):
+        client = _make_client()
+        client.get.return_value = {"id": 42, "name": "Widget", "asset_ids": []}
+        client.post.return_value = {
+            "id": 100,
+            "upload_url": "https://voog-test.s3.amazonaws.com/up100",
+        }
+        return client
+
+    def _write_one_image(self, tmpdir: Path):
+        return _write_image(tmpdir, "img.jpg")
+
+    def test_confirm_succeeds_first_try_no_sleep(self):
+        # Happy path: confirm returns immediately; no retry, no sleep.
+        client = self._make_client()
+
+        # PUT handler: confirm + final product PUT.
+        def _put(path, body=None, **kwargs):
+            if path.endswith("/confirm"):
+                return {"public_url": "https://cdn/100.jpg", "width": 1, "height": 1}
+            return {"id": 42}
+
+        client.put.side_effect = _put
+
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._write_one_image(Path(tmp))
+            with (
+                patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen,
+                patch("voog.mcp.tools.products_images.time.sleep") as mock_sleep,
+            ):
+                mock_urlopen.return_value.__enter__.return_value.status = 200
+                result = products_images_tools.call_tool(
+                    "product_set_images",
+                    {"product_id": 42, "files": [str(f)], "force": True},
+                    client,
+                )
+        self.assertFalse(getattr(result, "isError", False))
+        mock_sleep.assert_not_called()
+
+    def test_confirm_retries_on_timeout_then_succeeds(self):
+        client = self._make_client()
+        confirm_calls = {"n": 0}
+
+        def _put(path, body=None, **kwargs):
+            if path.endswith("/confirm"):
+                confirm_calls["n"] += 1
+                if confirm_calls["n"] == 1:
+                    raise TimeoutError("S3 confirm timed out")
+                return {"public_url": "https://cdn/100.jpg", "width": 1, "height": 1}
+            return {"id": 42}
+
+        client.put.side_effect = _put
+
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._write_one_image(Path(tmp))
+            with (
+                patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen,
+                patch("voog.mcp.tools.products_images.time.sleep") as mock_sleep,
+            ):
+                mock_urlopen.return_value.__enter__.return_value.status = 200
+                result = products_images_tools.call_tool(
+                    "product_set_images",
+                    {"product_id": 42, "files": [str(f)], "force": True},
+                    client,
+                )
+        self.assertFalse(getattr(result, "isError", False))
+        self.assertEqual(confirm_calls["n"], 2)
+        # Slept exactly once, with 0.5s backoff before retry 1
+        mock_sleep.assert_called_once_with(0.5)
+
+    def test_confirm_retries_all_three_backoffs_then_succeeds(self):
+        client = self._make_client()
+        confirm_calls = {"n": 0}
+
+        def _put(path, body=None, **kwargs):
+            if path.endswith("/confirm"):
+                confirm_calls["n"] += 1
+                if confirm_calls["n"] < 4:
+                    raise TimeoutError(f"timeout #{confirm_calls['n']}")
+                return {"public_url": "https://cdn/100.jpg"}
+            return {"id": 42}
+
+        client.put.side_effect = _put
+
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._write_one_image(Path(tmp))
+            with (
+                patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen,
+                patch("voog.mcp.tools.products_images.time.sleep") as mock_sleep,
+            ):
+                mock_urlopen.return_value.__enter__.return_value.status = 200
+                result = products_images_tools.call_tool(
+                    "product_set_images",
+                    {"product_id": 42, "files": [str(f)], "force": True},
+                    client,
+                )
+        self.assertFalse(getattr(result, "isError", False))
+        self.assertEqual(confirm_calls["n"], 4)
+        # 3 sleeps: 0.5, 1.0, 2.0 — the documented backoff schedule
+        self.assertEqual(
+            [c.args[0] for c in mock_sleep.call_args_list],
+            [0.5, 1.0, 2.0],
+        )
+
+    def test_confirm_exhausts_retries_then_propagates(self):
+        client = self._make_client()
+
+        def _put(path, body=None, **kwargs):
+            if path.endswith("/confirm"):
+                raise TimeoutError("persistent timeout")
+            return {"id": 42}
+
+        client.put.side_effect = _put
+
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._write_one_image(Path(tmp))
+            with (
+                patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen,
+                patch("voog.mcp.tools.products_images.time.sleep") as mock_sleep,
+            ):
+                mock_urlopen.return_value.__enter__.return_value.status = 200
+                result = products_images_tools.call_tool(
+                    "product_set_images",
+                    {"product_id": 42, "files": [str(f)], "force": True},
+                    client,
+                )
+        # Timeout exhausted → per-file failed list → no product PUT →
+        # tool reports isError.
+        self.assertTrue(getattr(result, "isError", False))
+        # 3 sleeps consumed before the final propagate
+        self.assertEqual(mock_sleep.call_count, 3)
+
+    def test_non_timeout_does_not_retry(self):
+        # Any exception other than TimeoutError propagates immediately —
+        # no extra sleep, no extra attempt. Mirrors _request's general
+        # "no retry on write timeouts" policy: the confirm-specific retry
+        # is narrow to TimeoutError, not "any failure".
+        client = self._make_client()
+        client.put.side_effect = urllib.error.HTTPError("u", 500, "Server Error", {}, None)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            f = self._write_one_image(Path(tmp))
+            with (
+                patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen,
+                patch("voog.mcp.tools.products_images.time.sleep") as mock_sleep,
+            ):
+                mock_urlopen.return_value.__enter__.return_value.status = 200
+                result = products_images_tools.call_tool(
+                    "product_set_images",
+                    {"product_id": 42, "files": [str(f)], "force": True},
+                    client,
+                )
+        self.assertTrue(getattr(result, "isError", False))
+        mock_sleep.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

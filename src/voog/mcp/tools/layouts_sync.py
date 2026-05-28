@@ -111,16 +111,24 @@ def get_tools() -> list[Tool]:
     ]
 
 
+_KNOWN_TOOLS = frozenset({"layouts_pull", "layouts_push"})
+
+
 def call_tool(
     name: str, arguments: dict | None, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
-    if name == "layouts_pull":
-        return _layouts_pull(arguments, client)
+    if name not in _KNOWN_TOOLS:
+        return error_response(f"Unknown tool: {name}")
 
-    if name == "layouts_push":
-        return _layouts_push(arguments, client)
+    # S9: tag every HTTP request inside this handler with X-MCP-Tool +
+    # shared X-Request-Id. See VoogClient.with_tool docstring.
+    with client.with_tool(name):
+        if name == "layouts_pull":
+            return _layouts_pull(arguments, client)
+        if name == "layouts_push":
+            return _layouts_push(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 

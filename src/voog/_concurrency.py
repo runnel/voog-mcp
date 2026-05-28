@@ -62,3 +62,44 @@ def parallel_map(
             except Exception as e:
                 results[idx] = (item, None, e)
     return results
+
+
+def propagate_tool_context(client, fn: Callable[[T], R]) -> Callable[[T], R]:
+    """Wrap ``fn`` so a ``ThreadPoolExecutor`` worker thread inherits the
+    dispatching thread's ``client._local`` (tool_name + request_id) for
+    the duration of one call.
+
+    ``threading.local()`` is per-thread by design, so a naked
+    ``parallel_map(client.get, items)`` call from inside a ``with
+    client.with_tool(...)`` scope would emit worker HTTP requests with
+    empty thread-local state — losing the ``X-MCP-Tool`` /
+    ``X-Request-Id`` headers. This helper snapshots the parent's state
+    at wrap time and re-sets it inside the worker before invoking ``fn``.
+
+    Snapshot-at-wrap-time (not at-call-time) is intentional: the parent's
+    ``with_tool`` scope might exit after dispatch but before the worker
+    runs. parallel_map awaits all futures synchronously today so this is
+    hypothetical, but the snapshot-then-yield contract is robust to a
+    future async refactor.
+
+    Single-item parallel_map runs synchronously on the calling thread —
+    this wrapper still re-sets and clears ``_local``, which is a no-op
+    when the parent state is already there (re-sets the same value).
+    """
+    parent_tool = getattr(client._local, "tool_name", None)
+    parent_rid = getattr(client._local, "request_id", None)
+
+    def _wrapped(item: T) -> R:
+        if parent_tool:
+            client._local.tool_name = parent_tool
+        if parent_rid:
+            client._local.request_id = parent_rid
+        try:
+            return fn(item)
+        finally:
+            # Clear so this worker thread doesn't carry stale state into
+            # an unrelated future parallel_map run.
+            client._local.tool_name = None
+            client._local.request_id = None
+
+    return _wrapped

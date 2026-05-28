@@ -7,8 +7,22 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import httpx
+
 from tests._test_helpers import _ann_get
 from voog.mcp.tools import snapshot as snapshot_tools
+
+
+def _http_status_error(
+    status_code: int,
+    msg: str = "",
+    url: str = "https://test.example.com/admin/api/x",
+) -> httpx.HTTPStatusError:
+    """Build a real httpx.HTTPStatusError with a populated response —
+    matches the shape that the post-Phase-1a VoogClient raises."""
+    req = httpx.Request("GET", url)
+    resp = httpx.Response(status_code=status_code, request=req, content=b"")
+    return httpx.HTTPStatusError(message=msg or f"HTTP {status_code}", request=req, response=resp)
 
 
 def _make_client():
@@ -867,6 +881,489 @@ class TestPickSamplePagePaths(unittest.TestCase):
         # Front page first, then "blog" (sorted before "shop")
         self.assertEqual(result_a, ["/", "/blog/x"])
         self.assertEqual(result_b, ["/", "/blog/x"])
+
+
+class TestManifestSchema(unittest.TestCase):
+    """Manifest dataclass schema — what restore tooling will consume."""
+
+    def test_to_dict_has_all_required_keys_when_request_count_absent(self):
+        # request_count is omitted until Phase 6's counter lands — until
+        # then operators reading _meta.json should NOT see a misleading
+        # "0" value that looks like a counting bug.
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="stella",
+            host="stellasoomlais.com",
+            created_at="2026-05-26T13:42:18Z",
+        )
+        d = m.to_dict()
+        expected_keys = {
+            "voog_mcp_version",
+            "created_at",
+            "site",
+            "host",
+            "attempted",
+            "succeeded",
+            "skipped",
+            "failed",
+            "duration_seconds",
+            "aborted_reason",
+            "partial",
+        }
+        self.assertEqual(set(d.keys()), expected_keys)
+        self.assertNotIn("request_count", d)
+
+    def test_to_dict_emits_request_count_when_set(self):
+        # Forward-compat: once Phase 6's counter lands and populates
+        # manifest.request_count, the field appears.
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="stella",
+            host="stellasoomlais.com",
+            created_at="2026-05-26T13:42:18Z",
+            request_count=42,
+        )
+        d = m.to_dict()
+        self.assertEqual(d["request_count"], 42)
+
+    def test_partial_false_when_all_succeed(self):
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="x",
+            host="x.com",
+            created_at="2026-05-26T00:00:00Z",
+            attempted=["/pages", "/articles"],
+            succeeded=["/pages", "/articles"],
+        )
+        self.assertFalse(m.to_dict()["partial"])
+
+    def test_partial_true_when_skipped_nonempty(self):
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="x",
+            host="x.com",
+            created_at="2026-05-26T00:00:00Z",
+            attempted=["/pages", "/elements"],
+            succeeded=["/pages"],
+            skipped=[{"endpoint": "/elements", "reason": "404"}],
+        )
+        self.assertTrue(m.to_dict()["partial"])
+
+    def test_partial_true_when_failed_nonempty(self):
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="x",
+            host="x.com",
+            created_at="2026-05-26T00:00:00Z",
+            attempted=["/pages"],
+            succeeded=[],
+            failed=[{"endpoint": "/pages", "reason": "HTTP 500"}],
+        )
+        self.assertTrue(m.to_dict()["partial"])
+
+    def test_partial_true_when_aborted_reason_set(self):
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="x",
+            host="x.com",
+            created_at="2026-05-26T00:00:00Z",
+            attempted=["/pages"],
+            succeeded=["/pages"],
+            aborted_reason="request_budget_exceeded",
+        )
+        self.assertTrue(m.to_dict()["partial"])
+
+    def test_partial_true_when_attempted_differs_from_succeeded(self):
+        # Edge case: a fetch dispatched (in attempted) but never categorised
+        # (not in succeeded/skipped/failed). Should still surface as partial,
+        # since the caller is missing data they expected.
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="x",
+            host="x.com",
+            created_at="2026-05-26T00:00:00Z",
+            attempted=["/pages", "/articles"],
+            succeeded=["/pages"],
+        )
+        self.assertTrue(m.to_dict()["partial"])
+
+    def test_duration_seconds_rounded_to_3_decimals(self):
+        from voog.mcp.tools.snapshot import _Manifest
+
+        m = _Manifest(
+            voog_mcp_version="1.4",
+            site="x",
+            host="x.com",
+            created_at="2026-05-26T00:00:00Z",
+            duration_seconds=18.4156789,
+        )
+        self.assertEqual(m.to_dict()["duration_seconds"], 18.416)
+
+
+class TestManifestEmission(unittest.TestCase):
+    """MD4 / S7 — ``_meta.json`` is written on every exit path."""
+
+    def test_manifest_written_on_full_success(self):
+        client = _make_client()
+        client.get_all.return_value = []  # all list endpoints empty
+        client.get.return_value = {}  # all singletons OK, no per-id fanout
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            result = snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+            meta_path = out / "_meta.json"
+            self.assertTrue(meta_path.exists())
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            self.assertEqual(meta["voog_mcp_version"], snapshot_tools._voog_version)
+            self.assertEqual(meta["host"], "test.example.com")
+            self.assertIn("/pages", meta["attempted"])
+            self.assertIn("/site", meta["attempted"])
+            self.assertIn("/products", meta["attempted"])
+            # All list endpoints succeeded (empty arrays are still successful)
+            self.assertIn("/pages", meta["succeeded"])
+            self.assertEqual(meta["failed"], [])
+            self.assertIsNone(meta["aborted_reason"])
+            self.assertGreaterEqual(meta["duration_seconds"], 0.0)
+
+        breakdown = json.loads(result[1].text)
+        self.assertIn("manifest_path", breakdown)
+        self.assertIn("partial", breakdown)
+        # Empty data + all-succeed branch → partial=False
+        self.assertFalse(breakdown["partial"])
+
+    def test_manifest_records_404_as_skipped(self):
+        # 4xx → skipped (endpoint not available on this tenant).
+        client = _make_client()
+
+        def _get_all(path, **kwargs):
+            if path == "/elements":
+                raise _http_status_error(404, "Not Found")
+            return []
+
+        client.get_all.side_effect = _get_all
+        client.get.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            skipped_endpoints = [s["endpoint"] for s in meta["skipped"]]
+            failed_endpoints = [s["endpoint"] for s in meta["failed"]]
+            self.assertIn("/elements", skipped_endpoints)
+            self.assertNotIn("/elements", failed_endpoints)
+            self.assertTrue(meta["partial"])
+
+    def test_manifest_records_403_singleton_as_skipped(self):
+        # Mirrors the real-world Stella OLD baseline: /me returns 403
+        # because the API key lacks the user-info scope. Must land in
+        # skipped[], not failed[].
+        client = _make_client()
+        client.get_all.return_value = []
+
+        def _get(path, **kwargs):
+            if path == "/me":
+                raise _http_status_error(403, "Forbidden")
+            return {}
+
+        client.get.side_effect = _get
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            skipped_endpoints = [s["endpoint"] for s in meta["skipped"]]
+            self.assertIn("/me", skipped_endpoints)
+            # /site should still succeed
+            self.assertIn("/site", meta["succeeded"])
+
+    def test_manifest_records_500_as_failed(self):
+        # 5xx → failed (the fetch should have worked).
+        client = _make_client()
+
+        def _get_all(path, **kwargs):
+            if path == "/pages":
+                raise _http_status_error(500, "Server Error")
+            return []
+
+        client.get_all.side_effect = _get_all
+        client.get.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            result = snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            failed_endpoints = [s["endpoint"] for s in meta["failed"]]
+            self.assertIn("/pages", failed_endpoints)
+
+        breakdown = json.loads(result[1].text)
+        self.assertTrue(breakdown["partial"])
+
+    def test_manifest_written_on_mid_snapshot_abort_request_budget(self):
+        # Simulate Phase 6 RequestBudgetExceeded raising mid-fetch.
+        # Phase 5 catches by class name (forward-compat); Phase 6 tightens.
+        class RequestBudgetExceeded(Exception):
+            pass
+
+        client = _make_client()
+
+        # All list endpoints raise the budget exception — the parallel_map
+        # surfaces it as the first failed item; categorisation enters the
+        # except branch when we touch the singletons.
+        def _get_all(path, **kwargs):
+            raise RequestBudgetExceeded("budget hit")
+
+        def _get(path, **kwargs):
+            # Singleton fetch is the first sequential call after the
+            # parallel batch returns; raising here trips the outer except.
+            raise RequestBudgetExceeded("budget hit on singleton")
+
+        client.get_all.side_effect = _get_all
+        client.get.side_effect = _get
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            with self.assertRaises(RequestBudgetExceeded):
+                snapshot_tools.call_tool(
+                    "site_snapshot",
+                    {"output_dir": str(out)},
+                    client,
+                )
+            # MD4: manifest written despite re-raise
+            meta_path = out / "_meta.json"
+            self.assertTrue(meta_path.exists())
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            self.assertEqual(meta["aborted_reason"], "request_budget_exceeded")
+            self.assertTrue(meta["partial"])
+
+    def test_manifest_written_on_daily_quota_abort(self):
+        class DailyQuotaExceeded(Exception):
+            pass
+
+        client = _make_client()
+        client.get_all.return_value = []
+        client.get.side_effect = DailyQuotaExceeded("quota exhausted")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            with self.assertRaises(DailyQuotaExceeded):
+                snapshot_tools.call_tool(
+                    "site_snapshot",
+                    {"output_dir": str(out)},
+                    client,
+                )
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            self.assertEqual(meta["aborted_reason"], "daily_quota_exceeded")
+            self.assertTrue(meta["partial"])
+
+    def test_non_budget_exception_does_not_abort(self):
+        # Mirror of the abort test: a RuntimeError inside a step's
+        # try/except is categorised as ``failed`` for that endpoint
+        # (5xx-like), NOT propagated as an abort. The unexpected-class
+        # ``aborted_reason`` branch is defense-in-depth for anything
+        # that escapes a per-step try/except — not reachable through the
+        # public API today but kept to document the intent if a future
+        # refactor adds a code path outside the per-step guards.
+        client = _make_client()
+        client.get_all.return_value = []
+        client.get.side_effect = RuntimeError("transient hiccup")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            # Does NOT raise — each singleton call is caught and recorded
+            # as failed.
+            snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            # Both singletons land in failed[] (RuntimeError → "failed")
+            failed_endpoints = [s["endpoint"] for s in meta["failed"]]
+            self.assertIn("/site", failed_endpoints)
+            self.assertIn("/me", failed_endpoints)
+            # No abort — finished normally, just with errors recorded
+            self.assertIsNone(meta["aborted_reason"])
+            self.assertTrue(meta["partial"])
+
+    def test_partial_flag_in_summary_when_skipped(self):
+        client = _make_client()
+
+        def _get_all(path, **kwargs):
+            if path == "/elements":
+                raise _http_status_error(404, "Not Found")
+            return []
+
+        client.get_all.side_effect = _get_all
+        client.get.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            result = snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+        breakdown = json.loads(result[1].text)
+        self.assertTrue(breakdown["partial"])
+        # Summary string contains marker
+        self.assertIn("[PARTIAL]", result[0].text)
+
+    def test_request_count_read_from_client_attribute(self):
+        # Forward-compat: when Phase 6 lands ``_request_count`` on the
+        # client, manifest picks it up. Phase 5 omits the field entirely
+        # when the counter doesn't exist (avoids misleading zero).
+        client = _make_client()
+        client.get_all.return_value = []
+        client.get.return_value = {}
+        # Simulate Phase 6 already-merged scenario:
+        client._request_count = 42
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            self.assertEqual(meta["request_count"], 42)
+
+    def test_request_count_absent_when_counter_not_yet_landed(self):
+        # Phase 5 reality: VoogClient has no ``_request_count`` yet.
+        # The manifest omits the field entirely — operators reading
+        # _meta.json don't see "0" and assume a counting bug.
+        client = _make_client()
+        # MagicMock auto-creates ``_request_count`` as a MagicMock attr,
+        # so we explicitly delete it to simulate the no-counter scenario:
+        del client._request_count
+        client.get_all.return_value = []
+        client.get.return_value = {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = Path(tmpdir) / "snap"
+            snapshot_tools.call_tool(
+                "site_snapshot",
+                {"output_dir": str(out)},
+                client,
+            )
+            meta = json.loads((out / "_meta.json").read_text(encoding="utf-8"))
+            self.assertNotIn("request_count", meta)
+
+
+class TestClassifyApiExc(unittest.TestCase):
+    """Direct unit tests for ``_classify_api_exc`` — 4xx → skipped,
+    5xx + everything else → failed. Mirrors the empirical Stella OLD
+    captures where 403 ``/me`` lands in skipped, not failed."""
+
+    def test_404_httpx_is_skipped(self):
+        from voog.mcp.tools.snapshot import _classify_api_exc
+
+        self.assertEqual(_classify_api_exc(_http_status_error(404)), "skipped")
+
+    def test_403_httpx_is_skipped(self):
+        from voog.mcp.tools.snapshot import _classify_api_exc
+
+        self.assertEqual(_classify_api_exc(_http_status_error(403)), "skipped")
+
+    def test_500_httpx_is_failed(self):
+        from voog.mcp.tools.snapshot import _classify_api_exc
+
+        self.assertEqual(_classify_api_exc(_http_status_error(500)), "failed")
+
+    def test_502_httpx_is_failed(self):
+        from voog.mcp.tools.snapshot import _classify_api_exc
+
+        self.assertEqual(_classify_api_exc(_http_status_error(502)), "failed")
+
+    def test_429_httpx_is_failed_not_skipped(self):
+        # 429 reaching the snapshot classifier means _request's retry
+        # loop already exhausted (429 IS in _RETRYABLE_STATUS). That's a
+        # real failure ("should have worked, server pushed back"), not
+        # "endpoint not available to this caller". Restore tooling
+        # tolerating 429 as ``skipped`` would be wrong.
+        from voog.mcp.tools.snapshot import _classify_api_exc
+
+        self.assertEqual(_classify_api_exc(_http_status_error(429)), "failed")
+
+    def test_408_httpx_is_failed_not_skipped(self):
+        # 408 Request Timeout — server gave up waiting; the request
+        # itself was fine. Same "should have worked" bucket as 429 + 5xx.
+        from voog.mcp.tools.snapshot import _classify_api_exc
+
+        self.assertEqual(_classify_api_exc(_http_status_error(408)), "failed")
+
+    def test_429_urllib_is_failed_not_skipped(self):
+        from voog.mcp.tools.snapshot import _classify_api_exc
+
+        exc = urllib.error.HTTPError("u", 429, "Too Many Requests", {}, None)
+        self.assertEqual(_classify_api_exc(exc), "failed")
+
+    def test_urllib_404_is_skipped(self):
+        from voog.mcp.tools.snapshot import _classify_api_exc
+
+        exc = urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+        self.assertEqual(_classify_api_exc(exc), "skipped")
+
+    def test_generic_exception_is_failed(self):
+        from voog.mcp.tools.snapshot import _classify_api_exc
+
+        self.assertEqual(_classify_api_exc(RuntimeError("oops")), "failed")
+
+
+class TestIsAbortException(unittest.TestCase):
+    """MD4 — name-based detection of Phase 6 budget/quota exceptions."""
+
+    def test_request_budget_exceeded_by_name(self):
+        from voog.mcp.tools.snapshot import _is_abort_exception
+
+        class RequestBudgetExceeded(Exception):
+            pass
+
+        self.assertTrue(_is_abort_exception(RequestBudgetExceeded()))
+
+    def test_daily_quota_exceeded_by_name(self):
+        from voog.mcp.tools.snapshot import _is_abort_exception
+
+        class DailyQuotaExceeded(Exception):
+            pass
+
+        self.assertTrue(_is_abort_exception(DailyQuotaExceeded()))
+
+    def test_random_exception_is_not_abort(self):
+        from voog.mcp.tools.snapshot import _is_abort_exception
+
+        self.assertFalse(_is_abort_exception(RuntimeError("hiccup")))
+        self.assertFalse(_is_abort_exception(_http_status_error(500)))
 
 
 class TestServerToolRegistry(unittest.TestCase):

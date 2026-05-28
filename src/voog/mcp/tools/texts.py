@@ -144,11 +144,24 @@ def get_tools() -> list[Tool]:
     ]
 
 
+_KNOWN_TOOLS = frozenset({"text_get", "text_update", "page_add_content"})
+
+
 def call_tool(
     name: str, arguments: dict | None, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
+    if name not in _KNOWN_TOOLS:
+        return error_response(f"Unknown tool: {name}")
+
+    # S9: tag every HTTP request inside this dispatch with X-MCP-Tool +
+    # shared X-Request-Id. See VoogClient.with_tool docstring.
+    with client.with_tool(name):
+        return _dispatch(name, arguments, client)
+
+
+def _dispatch(name: str, arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     if name == "text_get":
         text_id = arguments.get("text_id")
         err = require_int("text_id", text_id, tool_name="text_get")

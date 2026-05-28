@@ -24,14 +24,18 @@ site produces equivalent output).
 """
 
 import re
+import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
 from mcp.types import CallToolResult, TextContent, Tool
 
-from voog._concurrency import parallel_map
+from voog import __version__ as _voog_version
+from voog._concurrency import parallel_map, propagate_tool_context
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site, validate_output_dir, write_json
@@ -67,6 +71,88 @@ SITE_SNAPSHOT_LIST_ENDPOINTS: list[tuple[str, dict | None]] = [
 
 # Standard /admin/api/ singletons (no list).
 SITE_SNAPSHOT_SINGLETONS = ["/site", "/me"]
+
+
+@dataclass
+class _Manifest:
+    """Snapshot manifest — written to ``<output_dir>/_meta.json``.
+
+    Built progressively during ``_site_snapshot``: every list endpoint,
+    singleton, per-page contents, per-article detail, per-product detail,
+    and rendered HTML sample is appended to ``attempted`` on dispatch and
+    to ``succeeded`` / ``skipped`` / ``failed`` on completion. Mid-snapshot
+    abort (Phase 6 S-6/S-7 budget / quota exceeded) sets ``aborted_reason``
+    in the snapshot's ``finally`` block before re-raising the exception,
+    so the manifest reflects the partial state.
+
+    ``partial`` is computed at write time by ``to_dict``: True iff any of
+    ``skipped`` / ``failed`` is non-empty OR ``aborted_reason`` is not
+    None OR ``attempted`` differs from ``succeeded``. Restore tooling
+    (v1.5+) refuses to load a partial snapshot without ``--allow-partial``.
+    """
+
+    voog_mcp_version: str
+    site: str
+    host: str
+    created_at: str  # ISO-8601 UTC
+    attempted: list[str] = field(default_factory=list)
+    succeeded: list[str] = field(default_factory=list)
+    skipped: list[dict] = field(default_factory=list)  # [{endpoint, reason}]
+    failed: list[dict] = field(default_factory=list)  # [{endpoint, reason}]
+    # ``None`` (not 0) until Phase 6's S-6 request budget lands the
+    # counter on VoogClient. ``to_dict`` omits the field entirely when
+    # None — emitting ``"request_count": 0`` would look like a counting
+    # bug rather than a forward-compat placeholder.
+    request_count: int | None = None
+    duration_seconds: float = 0.0
+    aborted_reason: str | None = None
+
+    def to_dict(self) -> dict:
+        # NOTE: `partial` is a *computed* field, not stored on the dataclass,
+        # so callers can re-compute after every list mutation without state.
+        # The fourth clause (attempted != succeeded) is defense-in-depth —
+        # in well-formed code it's implied by `skipped or failed` being
+        # empty (every attempted endpoint lands in exactly one bucket on
+        # the normal exit path), but the redundancy catches a hypothetical
+        # bookkeeping bug where an attempt fails to be categorised into
+        # any bucket. Cheap to keep, prevents a partial-snapshot from
+        # silently looking complete.
+        partial = bool(
+            self.skipped
+            or self.failed
+            or self.aborted_reason
+            or set(self.attempted) != set(self.succeeded)
+        )
+        payload: dict = {
+            "voog_mcp_version": self.voog_mcp_version,
+            "created_at": self.created_at,
+            "site": self.site,
+            "host": self.host,
+            "attempted": list(self.attempted),
+            "succeeded": list(self.succeeded),
+            "skipped": list(self.skipped),
+            "failed": list(self.failed),
+            "duration_seconds": round(self.duration_seconds, 3),
+            "aborted_reason": self.aborted_reason,
+            "partial": partial,
+        }
+        # Omit ``request_count`` entirely until Phase 6's counter lands —
+        # a literal ``0`` would mislead operators reading _meta.json.
+        if self.request_count is not None:
+            payload["request_count"] = self.request_count
+        return payload
+
+
+def _write_manifest(out: Path, manifest: _Manifest) -> None:
+    """Write ``_meta.json`` to ``out``. Safe to call from ``finally`` — does
+    NOT raise; on a filesystem error it best-effort-logs and returns. The
+    snapshot's primary failure path should not be obscured by a manifest
+    write error.
+    """
+    try:
+        write_json(out / "_meta.json", manifest.to_dict())
+    except Exception:  # pragma: no cover — defensive only
+        pass
 
 
 def get_tools() -> list[Tool]:
@@ -111,7 +197,12 @@ def get_tools() -> list[Tool]:
                 "from a prior snapshot may persist alongside new files if the "
                 "underlying Voog state has shrunk. REQUIRED pre-flight before "
                 "any risky operation: layout rename, mass push, layout swap, "
-                "VoogStyle template push, page_delete."
+                "VoogStyle template push, page_delete. "
+                "Writes _meta.json manifest to output_dir documenting "
+                "voog-mcp version, attempted/succeeded/skipped/failed "
+                "endpoints, request_count, duration_seconds, and (if the "
+                "snapshot aborted mid-run) aborted_reason. Restore tooling "
+                "reads this to refuse partial snapshots."
             ),
             inputSchema={
                 "type": "object",
@@ -144,16 +235,28 @@ def get_tools() -> list[Tool]:
     ]
 
 
+_KNOWN_TOOLS = frozenset({"pages_snapshot", "site_snapshot"})
+
+
 def call_tool(
     name: str, arguments: dict | None, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
 
-    if name == "pages_snapshot":
-        return _pages_snapshot(arguments, client)
+    if name not in _KNOWN_TOOLS:
+        return error_response(f"Unknown tool: {name}")
 
-    if name == "site_snapshot":
-        return _site_snapshot(arguments, client)
+    # S9: tag every HTTP request inside this dispatch with X-MCP-Tool +
+    # shared X-Request-Id. See VoogClient.with_tool docstring. The
+    # parallel_map fan-outs inside _site_snapshot / _pages_snapshot
+    # propagate this tool context into worker threads via
+    # voog._concurrency.propagate_tool_context (worker threads don't
+    # inherit threading.local() across boundaries).
+    with client.with_tool(name):
+        if name == "pages_snapshot":
+            return _pages_snapshot(arguments, client)
+        if name == "site_snapshot":
+            return _site_snapshot(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 
@@ -161,6 +264,61 @@ def call_tool(
 def _snapshot_filename_for(endpoint: str) -> str:
     """`/redirect_rules` → `redirect_rules.json`."""
     return endpoint.lstrip("/").replace("/", "_") + ".json"
+
+
+def _is_abort_exception(exc: BaseException) -> bool:
+    """True if ``exc`` is a Phase 6 budget/quota signal that must bypass
+    the per-endpoint forgiveness and abort the whole snapshot.
+
+    Phase 5 lands before Phase 6, so the exception classes
+    (``RequestBudgetExceeded`` / ``DailyQuotaExceeded``) don't exist yet
+    — we key on class name for forward-compatibility. Phase 6's PR
+    tightens this to ``isinstance(exc, (RequestBudgetExceeded, ...))``.
+
+    Why this matters: both ``parallel_map`` workers AND the per-step
+    ``try/except Exception`` would normally swallow these into
+    ``manifest.failed``, so a budget hit would silently degrade to a
+    partial snapshot instead of aborting. The whole point of the budget
+    is to *stop work* once it's tripped.
+    """
+    return type(exc).__name__ in {"RequestBudgetExceeded", "DailyQuotaExceeded"}
+
+
+# 4xx codes that should land in ``failed[]`` (not ``skipped[]``) because
+# they indicate "the fetch should have worked but the server pushed back"
+# rather than "this endpoint isn't available to this caller":
+#
+#   408 Request Timeout — server gave up waiting; the request itself was
+#       fine, retry would have plausibly succeeded.
+#   429 Too Many Requests — rate-limited; ``_request`` already retries
+#       this status with Retry-After backoff, so a 429 reaching the
+#       classifier means retry exhaustion (a real failure, not absence).
+#
+# All other 4xx remain ``skipped`` (404 = endpoint not on this tenant,
+# 403 = API key lacks scope, 401 = bad token, etc. — caller can't fix
+# by retry).
+_RETRYABLE_4XX_FAILED = frozenset({408, 429})
+
+
+def _classify_api_exc(exc: Exception) -> str:
+    """Return ``"skipped"`` for "endpoint not available to this caller"
+    (most 4xx) and ``"failed"`` for "should have worked" (5xx + network +
+    408 + 429). Restore tooling reads ``failed`` more strictly than
+    ``skipped`` — a 429 silently tolerated as "skipped" would be wrong.
+
+    Voog API errors are httpx.HTTPStatusError post-Phase-1a; the public
+    HTML fetch in step 6 still uses raw urllib so we accept both shapes.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        if code in _RETRYABLE_4XX_FAILED:
+            return "failed"
+        return "skipped" if 400 <= code < 500 else "failed"
+    if isinstance(exc, urllib.error.HTTPError) and exc.code is not None:
+        if exc.code in _RETRYABLE_4XX_FAILED:
+            return "failed"
+        return "skipped" if 400 <= exc.code < 500 else "failed"
+    return "failed"
 
 
 def _format_skip(label: str, exc: Exception) -> str:
@@ -194,8 +352,12 @@ def _pages_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | 
         return error_response(f"pages_snapshot failed: {e}")
 
     page_ids = [p.get("id") for p in pages if p.get("id")]
+    # S9d: propagate the parent's tool-tracking state into worker threads
+    # so each /pages/{id}/contents fetch carries X-MCP-Tool +
+    # X-Request-Id. Without this, parallel_map workers see empty
+    # threading.local() state and emit untagged requests.
     page_content_results = parallel_map(
-        lambda pid: client.get(f"/pages/{pid}/contents"),
+        propagate_tool_context(client, lambda pid: client.get(f"/pages/{pid}/contents")),
         page_ids,
         max_workers=8,
     )
@@ -259,152 +421,263 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
     except Exception as e:
         return error_response(f"site_snapshot: cannot create {output_dir!r}: {e}")
 
+    # Manifest scaffolding — populated as we go. ``arguments`` does not
+    # carry the site name at this layer (strip_site removed it in
+    # call_tool); we use client.host as the stable identifier and accept
+    # that site name lives only in the dispatch-layer log. Future Phase 6
+    # S-8 cross-site session hint will plumb site_name into the client.
+    # ``isinstance(..., str)`` guards against MagicMock auto-attrs leaking
+    # in from tests AND against any non-string client.site_name future.
+    _site_name = getattr(client, "site_name", None)
+    manifest = _Manifest(
+        voog_mcp_version=_voog_version,
+        site=_site_name if isinstance(_site_name, str) else "",
+        host=client.host,
+        created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    started_at = time.monotonic()
+
     files_written = 0
     skipped: list = []
     pages_data: list = []
     articles_data: list = []
     products_data: list = []
-
-    # 1. Standard list endpoints (paginated) — parallelized read-only fetches.
-    # Sequencing: pages_data / articles_data are consumed by loops 3+4 below,
-    # so we still await this loop's completion before fanning out per-resource.
-    # Items are ``(endpoint, params_or_None)`` tuples; the worker unpacks and
-    # forwards params (None → bare list call). Keeps /layouts (which needs
-    # ``include_body=true``) inside the parallel batch — no serial fallout.
-    def _fetch_list(item: tuple[str, dict | None]):
-        endpoint, params = item
-        return client.get_all(endpoint, params=params)
-
-    list_results = parallel_map(
-        _fetch_list,
-        SITE_SNAPSHOT_LIST_ENDPOINTS,
-        max_workers=8,
-    )
-    for (endpoint, _params), data, exc in list_results:
-        filename = _snapshot_filename_for(endpoint)
-        if exc is not None:
-            skipped.append({"file": filename, "reason": _format_skip(filename, exc)})
-            continue
-        write_json(out / filename, data)
-        files_written += 1
-        if endpoint == "/pages":
-            pages_data = data
-        elif endpoint == "/articles":
-            articles_data = data
-
-    # 2. Singletons — kept sequential (only 2 endpoints, parallel speedup is
-    # not worth the extra moving part).
-    for endpoint in SITE_SNAPSHOT_SINGLETONS:
-        filename = _snapshot_filename_for(endpoint)
-        try:
-            data = client.get(endpoint)
-        except Exception as e:
-            skipped.append({"file": filename, "reason": _format_skip(filename, e)})
-            continue
-        write_json(out / filename, data)
-        files_written += 1
-
-    # 3. Per-page contents — parallelized.
     page_contents_count = 0
-    page_ids = [p.get("id") for p in pages_data if p.get("id")]
-    page_content_results = parallel_map(
-        lambda pid: client.get(f"/pages/{pid}/contents"),
-        page_ids,
-        max_workers=8,
-    )
-    for pid, contents, exc in page_content_results:
-        filename = f"page_{pid}_contents.json"
-        if exc is not None:
-            skipped.append({"file": filename, "reason": _format_skip(filename, exc)})
-            continue
-        write_json(out / filename, contents)
-        files_written += 1
-        page_contents_count += 1
-
-    # 4. Per-article details — parallelized.
     article_detail_count = 0
-    article_ids = [a.get("id") for a in articles_data if a.get("id")]
-    article_detail_results = parallel_map(
-        lambda aid: client.get(f"/articles/{aid}"),
-        article_ids,
-        max_workers=8,
-    )
-    for aid, detail, exc in article_detail_results:
-        filename = f"article_{aid}.json"
-        if exc is not None:
-            skipped.append({"file": filename, "reason": _format_skip(filename, exc)})
-            continue
-        write_json(out / filename, detail)
-        files_written += 1
-        article_detail_count += 1
-
-    # 5. Ecommerce: products list with include=variants,variant_types,translations
-    # — list response carries the full detail shape, so the per-product detail
-    # fan-out (one GET per product) is eliminated. S2 in v1.4.
-    #
-    # Asymmetric vs S1 by design: no per-id fallback if Voog silently strips
-    # the include from the list response. PRODUCTS_DETAIL_INCLUDE's docstring
-    # in voog.projections explicitly cites Voog's documented contract that
-    # `?include=` applies equally to list and detail responses, so silent
-    # stripping would be a Voog regression rather than a legacy-deploy
-    # variance (the S1 case). If that contract breaks, the right fix is to
-    # revert S2 — not to add a fuzzy detection heuristic that can't
-    # distinguish "Voog ignored include" from "this product genuinely has
-    # no variants." A 4xx rejection of the include lands in `skipped[]`
-    # below; downstream `voog site-snapshot` continues without products
-    # (same behaviour as any other list endpoint failure).
-    try:
-        products_data = client.get_all(
-            "/products",
-            base=client.ecommerce_url,
-            params={"include": PRODUCTS_DETAIL_INCLUDE},
-        )
-    except Exception as e:
-        skipped.append({"file": "products.json", "reason": _format_skip("products.json", e)})
-        products_data = []
-
-    if products_data:
-        write_json(out / "products.json", products_data)
-        files_written += 1
-        # S2: per-product files come from the list response directly — no
-        # per-id GET fan-out. Each item already carries variants /
-        # variant_types / translations via the list-level ?include.
-        for product in products_data:
-            pid = product.get("id")
-            if not pid:
-                continue
-            write_json(out / f"product_{pid}.json", product)
-            files_written += 1
-
-    # 6. Rendered HTML samples for VoogStyle capture (best-effort).
-    # Public HTML fetch — no API key needed. Gracefully skipped if the host
-    # is unreachable from the MCP server's network.
     rendered_count = 0
-    sample_paths = _pick_sample_page_paths(pages_data)
-    for path in sample_paths:
-        slug = _slugify_path(path)
-        url = f"https://{client.host}{path}"
+
+    try:
+        # 1. Standard list endpoints (paginated) — parallelized read-only fetches.
+        # Items are ``(endpoint, params_or_None)`` tuples; the worker unpacks and
+        # forwards params (None → bare list call). Keeps /layouts (which needs
+        # ``include_body=true``) inside the parallel batch — no serial fallout.
+        def _fetch_list(item: tuple[str, dict | None]):
+            endpoint, params = item
+            return client.get_all(endpoint, params=params)
+
+        for endpoint, _params in SITE_SNAPSHOT_LIST_ENDPOINTS:
+            manifest.attempted.append(endpoint)
+        # S9d: wrap with propagate_tool_context so each worker thread
+        # carries the with_tool scope's X-MCP-Tool + X-Request-Id headers.
+        list_results = parallel_map(
+            propagate_tool_context(client, _fetch_list),
+            SITE_SNAPSHOT_LIST_ENDPOINTS,
+            max_workers=8,
+        )
+        for (endpoint, _params), data, exc in list_results:
+            filename = _snapshot_filename_for(endpoint)
+            if exc is not None:
+                # MD4: Phase 6 budget/quota exceptions bypass per-endpoint
+                # forgiveness — re-raise so the snapshot aborts and the
+                # finally clause writes the partial manifest.
+                if _is_abort_exception(exc):
+                    raise exc
+                reason = _format_skip(filename, exc)
+                # 4xx → skipped (endpoint not available on this tenant);
+                # 5xx / network → failed (the fetch should have worked).
+                bucket = _classify_api_exc(exc)
+                getattr(manifest, bucket).append({"endpoint": endpoint, "reason": reason})
+                skipped.append({"file": filename, "reason": reason})
+                continue
+            write_json(out / filename, data)
+            files_written += 1
+            manifest.succeeded.append(endpoint)
+            if endpoint == "/pages":
+                pages_data = data
+            elif endpoint == "/articles":
+                articles_data = data
+
+        # 2. Singletons — kept sequential (only 2 endpoints, parallel speedup is
+        # not worth the extra moving part).
+        for endpoint in SITE_SNAPSHOT_SINGLETONS:
+            manifest.attempted.append(endpoint)
+            filename = _snapshot_filename_for(endpoint)
+            try:
+                data = client.get(endpoint)
+            except Exception as e:
+                if _is_abort_exception(e):
+                    raise
+                reason = _format_skip(filename, e)
+                bucket = _classify_api_exc(e)
+                getattr(manifest, bucket).append({"endpoint": endpoint, "reason": reason})
+                skipped.append({"file": filename, "reason": reason})
+                continue
+            write_json(out / filename, data)
+            files_written += 1
+            manifest.succeeded.append(endpoint)
+
+        # 3. Per-page contents — parallelized.
+        page_ids = [p.get("id") for p in pages_data if p.get("id")]
+        for pid in page_ids:
+            manifest.attempted.append(f"/pages/{pid}/contents")
+        # S9d: worker threads carry the parent's X-MCP-Tool + X-Request-Id.
+        page_content_results = parallel_map(
+            propagate_tool_context(client, lambda pid: client.get(f"/pages/{pid}/contents")),
+            page_ids,
+            max_workers=8,
+        )
+        for pid, contents, exc in page_content_results:
+            endpoint = f"/pages/{pid}/contents"
+            filename = f"page_{pid}_contents.json"
+            if exc is not None:
+                if _is_abort_exception(exc):
+                    raise exc
+                reason = _format_skip(filename, exc)
+                bucket = _classify_api_exc(exc)
+                getattr(manifest, bucket).append({"endpoint": endpoint, "reason": reason})
+                skipped.append({"file": filename, "reason": reason})
+                continue
+            write_json(out / filename, contents)
+            files_written += 1
+            page_contents_count += 1
+            manifest.succeeded.append(endpoint)
+
+        # 4. Per-article details — parallelized.
+        article_ids = [a.get("id") for a in articles_data if a.get("id")]
+        for aid in article_ids:
+            manifest.attempted.append(f"/articles/{aid}")
+        # S9d: worker threads carry the parent's X-MCP-Tool + X-Request-Id.
+        article_detail_results = parallel_map(
+            propagate_tool_context(client, lambda aid: client.get(f"/articles/{aid}")),
+            article_ids,
+            max_workers=8,
+        )
+        for aid, detail, exc in article_detail_results:
+            endpoint = f"/articles/{aid}"
+            filename = f"article_{aid}.json"
+            if exc is not None:
+                if _is_abort_exception(exc):
+                    raise exc
+                reason = _format_skip(filename, exc)
+                bucket = _classify_api_exc(exc)
+                getattr(manifest, bucket).append({"endpoint": endpoint, "reason": reason})
+                skipped.append({"file": filename, "reason": reason})
+                continue
+            write_json(out / filename, detail)
+            files_written += 1
+            article_detail_count += 1
+            manifest.succeeded.append(endpoint)
+
+        # 5. Ecommerce: products list with include=variants,variant_types,translations
+        # — list response carries the full detail shape, so the per-product detail
+        # fan-out (one GET per product) is eliminated. S2 in v1.4.
+        #
+        # Asymmetric vs S1 by design: no per-id fallback if Voog silently strips
+        # the include from the list response. See PRODUCTS_DETAIL_INCLUDE in
+        # voog.projections for the contract reasoning. A 4xx rejection of the
+        # include lands in ``manifest.skipped[]``; downstream consumers continue
+        # without products (same behaviour as any other list endpoint failure).
+        manifest.attempted.append("/products")
+        products_fetched = False
         try:
-            req = urllib.request.Request(
-                url, headers={"User-Agent": "Mozilla/5.0 voog-mcp-snapshot/1.0"}
+            products_data = client.get_all(
+                "/products",
+                base=client.ecommerce_url,
+                params={"include": PRODUCTS_DETAIL_INCLUDE},
             )
-            # Public HTML fetch is unauthenticated and bypasses VoogClient,
-            # so it needs its own timeout. 30s is shorter than the API
-            # default (60s) — a rendered page that hasn't responded by then
-            # is unlikely to ever, and we'd rather skip than hang.
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                html = resp.read().decode("utf-8", errors="replace")
+            products_fetched = True
         except Exception as e:
-            skipped.append(
-                {
-                    "file": f"voog_style_rendered_{slug}.html",
-                    "reason": f"public fetch failed: {e}",
-                }
-            )
-            continue
-        (out / f"voog_style_rendered_{slug}.html").write_text(html, encoding="utf-8")
-        files_written += 1
-        rendered_count += 1
+            if _is_abort_exception(e):
+                raise
+            reason = _format_skip("products.json", e)
+            bucket = _classify_api_exc(e)
+            getattr(manifest, bucket).append({"endpoint": "/products", "reason": reason})
+            skipped.append({"file": "products.json", "reason": reason})
+            products_data = []
+
+        if products_fetched:
+            # /products itself succeeded — record even if the list is empty
+            # (legitimate "no products on this site"). Without this, an
+            # empty-but-valid products endpoint would make attempted differ
+            # from succeeded and mark the snapshot partial.
+            manifest.succeeded.append("/products")
+        if products_data:
+            write_json(out / "products.json", products_data)
+            files_written += 1
+            # S2: per-product files come from the list response directly — no
+            # per-id GET fan-out. Each item already carries variants /
+            # variant_types / translations via the list-level ?include.
+            # Per-product files are derived from the same /products fetch,
+            # so they are NOT separately tracked in attempted/succeeded —
+            # the manifest models *HTTP requests made*, not *files written*.
+            for product in products_data:
+                pid = product.get("id")
+                if not pid:
+                    continue
+                write_json(out / f"product_{pid}.json", product)
+                files_written += 1
+
+        # 6. Rendered HTML samples for VoogStyle capture (best-effort).
+        # Public HTML fetch — no API key needed. Gracefully skipped if the host
+        # is unreachable from the MCP server's network. All HTML fetch errors
+        # land in ``manifest.skipped[]`` regardless of status: HTML samples are
+        # explicitly best-effort and never block the API-level snapshot.
+        sample_paths = _pick_sample_page_paths(pages_data)
+        for path in sample_paths:
+            endpoint = f"GET {path} (public HTML)"
+            manifest.attempted.append(endpoint)
+            slug = _slugify_path(path)
+            url = f"https://{client.host}{path}"
+            try:
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "Mozilla/5.0 voog-mcp-snapshot/1.0"}
+                )
+                # Public HTML fetch is unauthenticated and bypasses VoogClient,
+                # so it needs its own timeout. 30s is shorter than the API
+                # default (60s) — a rendered page that hasn't responded by then
+                # is unlikely to ever, and we'd rather skip than hang.
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    html = resp.read().decode("utf-8", errors="replace")
+            except Exception as e:
+                reason = f"public fetch failed: {e}"
+                manifest.skipped.append({"endpoint": endpoint, "reason": reason})
+                skipped.append(
+                    {
+                        "file": f"voog_style_rendered_{slug}.html",
+                        "reason": reason,
+                    }
+                )
+                continue
+            (out / f"voog_style_rendered_{slug}.html").write_text(html, encoding="utf-8")
+            files_written += 1
+            rendered_count += 1
+            manifest.succeeded.append(endpoint)
+
+    except Exception as exc:
+        # MD4: forward-compatible catch for Phase 6's budget/quota
+        # exceptions. Phase 6 introduces ``RequestBudgetExceeded`` and
+        # ``DailyQuotaExceeded`` in ``voog.errors``; until that import
+        # exists, key on class name. Phase 6's PR tightens this to
+        # ``except (RequestBudgetExceeded, DailyQuotaExceeded) as exc:``.
+        exc_class = type(exc).__name__
+        if exc_class == "RequestBudgetExceeded":
+            manifest.aborted_reason = "request_budget_exceeded"
+        elif exc_class == "DailyQuotaExceeded":
+            manifest.aborted_reason = "daily_quota_exceeded"
+        else:
+            # Any other unexpected exception still gets a recorded
+            # aborted_reason so the manifest reflects "snapshot didn't
+            # complete normally". The exception itself still re-raises.
+            manifest.aborted_reason = f"unexpected:{exc_class}"
+        # Re-raise — MD4 contract: manifest written in finally, exception
+        # propagates so the caller sees the real failure.
+        raise
+
+    finally:
+        # MD4: ``_meta.json`` MUST be written even on abort.
+        # request_count: only set if the client carries the counter
+        # (Phase 6 S-6 lands it). Until then ``_request_count`` is absent
+        # and manifest.request_count stays None — _to_dict omits the
+        # field rather than emit a misleading 0.
+        if hasattr(client, "_request_count"):
+            try:
+                manifest.request_count = int(client._request_count)
+            except (TypeError, ValueError):
+                # Defensive: a future client could carry a non-int counter
+                # (MagicMock auto-attr in tests, etc.). Drop silently.
+                pass
+        manifest.duration_seconds = time.monotonic() - started_at
+        _write_manifest(out, manifest)
 
     summary = (
         f"📦 site_snapshot: {files_written} files → {output_dir} "
@@ -413,6 +686,10 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
     )
     if skipped:
         summary += f" ({len(skipped)} skipped/errored)"
+
+    is_partial = manifest.to_dict()["partial"]
+    if is_partial:
+        summary += " [PARTIAL]"
 
     return success_response(
         {
@@ -425,6 +702,8 @@ def _site_snapshot(arguments: dict, client: VoogClient) -> list[TextContent] | C
             "article_details_written": article_detail_count,
             "rendered_html_written": rendered_count,
             "skipped": skipped,
+            "partial": is_partial,
+            "manifest_path": str(out / "_meta.json"),
         },
         summary=summary,
     )

@@ -37,12 +37,13 @@ complex than the rest of :mod:`voog.mcp.tools.products` (list/get/update),
 and isolating it keeps that module's read+translate flow easy to follow.
 """
 
+import time
 import urllib.request
 from pathlib import Path
 
 from mcp.types import CallToolResult, TextContent, Tool
 
-from voog._concurrency import parallel_map
+from voog._concurrency import parallel_map, propagate_tool_context
 from voog._upload_validation import _validate_upload_url
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
@@ -118,7 +119,12 @@ def call_tool(
     arguments = strip_site(arguments or {})
 
     if name == "product_set_images":
-        return _product_set_images(arguments, client)
+        # S9: tag every HTTP request inside this handler with X-MCP-Tool +
+        # shared X-Request-Id. The parallel asset uploads inside
+        # _product_set_images use propagate_tool_context for thread
+        # propagation. See VoogClient.with_tool docstring.
+        with client.with_tool(name):
+            return _product_set_images(arguments, client)
 
     return error_response(f"Unknown tool: {name}")
 
@@ -177,8 +183,12 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
     # caps net I/O at ~15 MB for typical 5 MB images (spec § 4.3).
     uploaded: list[dict] = []
     failed: list[dict] = []
+    # S9d: wrap with propagate_tool_context so each upload worker thread
+    # carries the with_tool scope's X-MCP-Tool: product_set_images +
+    # X-Request-Id headers on its 3-step upload requests (asset POST →
+    # presigned PUT → confirm PUT).
     upload_results = parallel_map(
-        lambda p: _upload_asset(p, client),
+        propagate_tool_context(client, lambda p: _upload_asset(p, client)),
         paths,
         max_workers=3,
     )
@@ -307,7 +317,32 @@ def _upload_asset(path: Path, client: VoogClient) -> dict:
             raise RuntimeError(f"S3 upload failed: HTTP {resp.status}")
 
     # 3. Confirm — voog.py uses PUT (NOT POST as the handoff doc suggested)
-    confirmed = client.put(f"/assets/{asset_id}/confirm")
+    #
+    # S10 retry-on-timeout: client._request's general policy is "don't
+    # retry timeouts on writes" — a hung Voog endpoint should surface
+    # fast rather than burn three timeout windows. The confirm step is
+    # the one documented exception, because:
+    #   1. It's idempotent under the same (asset_id) — Voog re-marks
+    #      the same asset usable; no duplicate creation risk.
+    #   2. Empirical observation in v1.3: confirm has a single-digit-%
+    #      transient timeout rate (S3 backend is busy, asset is large),
+    #      and a one-shot timeout has been the dominant cause of
+    #      product_set_images failures requiring orphan asset cleanup.
+    # Retry lives at the call site (NOT inside _request) so the general
+    # policy is preserved — only this one call opts in.
+    _CONFIRM_BACKOFFS = (0.5, 1.0, 2.0)  # before retry 1, 2, 3
+    confirmed = None
+    for attempt in range(4):  # 1 try + up to 3 retries = 4 attempts
+        try:
+            confirmed = client.put(f"/assets/{asset_id}/confirm")
+            break
+        except TimeoutError:
+            if attempt >= 3:
+                # Out of retries — propagate so the outer per-file ``failed``
+                # list captures the timeout for caller recovery.
+                raise
+            time.sleep(_CONFIRM_BACKOFFS[attempt])
+            # Loop continues to attempt+1.
 
     return {
         "id": asset_id,

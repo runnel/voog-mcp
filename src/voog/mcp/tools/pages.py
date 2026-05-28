@@ -125,10 +125,26 @@ def get_tools() -> list[Tool]:
     ]
 
 
+_KNOWN_TOOLS = frozenset({"pages_list", "page_get"})
+
+
 def call_tool(
     name: str, arguments: dict | None, client: VoogClient
 ) -> list[TextContent] | CallToolResult:
     arguments = strip_site(arguments or {})
+
+    if name not in _KNOWN_TOOLS:
+        return error_response(f"Unknown tool: {name}")
+
+    # S9: tag every HTTP request inside this dispatch with X-MCP-Tool +
+    # shared X-Request-Id. See VoogClient.with_tool docstring. The
+    # ``name not in _KNOWN_TOOLS`` early-return above keeps with_tool
+    # from entering with an unknown / typo'd tool name.
+    with client.with_tool(name):
+        return _dispatch(name, arguments, client)
+
+
+def _dispatch(name: str, arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     if name == "pages_list":
         for int_field in ("node_id", "parent_id", "language_id"):
             val = arguments.get(int_field)
