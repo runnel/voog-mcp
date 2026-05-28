@@ -36,6 +36,29 @@ _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 # misbehaving server from pinning the client for a very long time.
 _RETRY_AFTER_CAP = 60
 
+# Headers whose values must never appear in DEBUG logs. Lookup is
+# case-insensitive — HTTP header names are case-insensitive per RFC 7230
+# and Voog accepts mixed-case variants on a few endpoints.
+_SENSITIVE_HEADERS = frozenset({"x-api-token", "authorization", "cookie"})
+
+
+def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
+    """Return a copy of *headers* with sensitive values replaced by ``"***"``.
+
+    Defensive helper — current ``_request`` does not log header dicts,
+    but any future DEBUG addition (e.g. ``--trace`` envelope dump) is
+    protected by routing through this function. Case-insensitive match
+    against ``_SENSITIVE_HEADERS``; other headers pass through verbatim.
+    The input dict is never mutated.
+    """
+    out: dict[str, str] = {}
+    for k, v in headers.items():
+        if k.lower() in _SENSITIVE_HEADERS:
+            out[k] = "***"
+        else:
+            out[k] = v
+    return out
+
 
 def _parse_retry_after(header_value: str, fallback: float) -> float:
     """Parse a Retry-After header value (integer seconds only).
