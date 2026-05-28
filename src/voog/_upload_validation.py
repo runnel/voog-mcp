@@ -39,16 +39,47 @@ def _allowed_upload_host_suffixes() -> tuple[str, ...]:
 
 def _validate_upload_url(upload_url: str) -> None:
     # Trust boundary: upload_url comes from the Voog API response. Refuse
-    # non-HTTPS or unexpected hosts to prevent SSRF if Voog API is
-    # compromised or returns a malicious URL (e.g. http://169.254.169.254/
-    # AWS metadata, or any internal address).
+    # non-HTTPS, userinfo prefixes, unexpected hosts, or IDN homographs of
+    # an expected host. The threat model assumes Voog API may be
+    # compromised or buggy and could return:
+    #   - http:// to downgrade the upload PUT
+    #   - a userinfo prefix (https://attacker@s3.amazonaws.com/...) that
+    #     confuses downstream auditing about the request origin
+    #   - an internal address (169.254.169.254 AWS metadata, RFC1918)
+    #   - a unicode look-alike (https://аmazonaws.com/ with cyrillic а)
     parsed = urllib.parse.urlparse(upload_url)
+
     if parsed.scheme != "https":
         raise ValueError(
             f"upload_url failed validation: scheme must be https, got {parsed.scheme!r} "
             f"({upload_url!r})"
         )
-    host = (parsed.hostname or "").lower()
+
+    # urlparse exposes credentials via .username / .password. Either being
+    # set means the URL carries a userinfo prefix — refuse, the legitimate
+    # presigned-S3 flow never uses one.
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError(
+            f"upload_url failed validation: URL must not contain userinfo "
+            f"(found username={parsed.username!r}) ({upload_url!r})"
+        )
+
+    host_raw = (parsed.hostname or "").lower()
+
+    # IDN homograph defense: normalise the host to its ASCII (Punycode)
+    # form before matching against the allowlist. A cyrillic "а" in
+    # "аmazonaws.com" encodes to "xn--mazonaws-7l4d.com" — different
+    # ASCII string, fails the suffix match, raises here rather than
+    # silently uploading to an attacker-controlled host.
+    try:
+        host = host_raw.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        # Empty host, host too long, or unencodable characters — refuse.
+        raise ValueError(
+            f"upload_url failed validation: host {host_raw!r} could not be "
+            f"normalised to ASCII (IDN/Punycode error: {exc}) ({upload_url!r})"
+        ) from exc
+
     suffixes = _allowed_upload_host_suffixes()
     # Match bare host (host == "amazonaws.com") OR dot-boundary suffix
     # (host endswith ".amazonaws.com") — never a substring endswith, so

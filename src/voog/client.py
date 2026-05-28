@@ -11,6 +11,7 @@ import threading
 import time
 import uuid
 from contextlib import contextmanager
+from urllib.parse import urlencode
 
 import httpx
 
@@ -35,6 +36,72 @@ _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 # Maximum seconds to honor from a Retry-After header. Prevents a
 # misbehaving server from pinning the client for a very long time.
 _RETRY_AFTER_CAP = 60
+
+# Headers whose values must never appear in DEBUG logs. Lookup is
+# case-insensitive — HTTP header names are case-insensitive per RFC 7230
+# and Voog accepts mixed-case variants on a few endpoints.
+_SENSITIVE_HEADERS = frozenset({"x-api-token", "authorization", "cookie"})
+
+
+def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
+    """Return a copy of *headers* with sensitive values replaced by ``"***"``.
+
+    Defensive helper — current ``_request`` does not log header dicts,
+    but any future DEBUG addition (e.g. ``--trace`` envelope dump) is
+    protected by routing through this function. Case-insensitive match
+    against ``_SENSITIVE_HEADERS``; other headers pass through verbatim.
+    The input dict is never mutated.
+    """
+    out: dict[str, str] = {}
+    for k, v in headers.items():
+        if k.lower() in _SENSITIVE_HEADERS:
+            out[k] = "***"
+        else:
+            out[k] = v
+    return out
+
+
+# Query-string values longer than this many characters are replaced with
+# a length-marker placeholder in DEBUG log lines. Captures presigned-URL
+# signatures (X-Amz-Signature is 256 hex chars) and any accidentally-
+# leaked token-bearing query params without dropping short, useful
+# values like ``?include=variants,variant_types,translations`` (38 chars)
+# or ``?per_page=250``.
+#
+# Trade-off: 50 is the value-length heuristic, not a security boundary.
+# A 32-char hex Voog API token in a ``?api_key=`` query param would NOT
+# be redacted at this cap, but Voog tokens travel via ``X-API-Token``
+# header (not query string) so the in-the-wild exposure surface is
+# narrow. The right principled fix is key-name-based redaction
+# (``api_key``, ``token``, ``password``, ``X-Amz-Signature``, …); deferred
+# until a real near-miss motivates the complexity.
+_QUERY_STRING_VALUE_CAP = 50
+
+
+def _redact_query_string(qs: str) -> str:
+    """Redact long values in a URL query string for DEBUG logging.
+
+    Keys are kept verbatim (they are useful debugging context);
+    values longer than ``_QUERY_STRING_VALUE_CAP`` are replaced with
+    ``"***N-chars***"``. Empty / short values pass through unchanged.
+    Repeated keys are handled — each occurrence is redacted
+    independently. The input is the raw ``urllib.parse.urlencode``
+    output (already percent-encoded), so this function operates on the
+    encoded form and does not need to decode/re-encode.
+    """
+    if not qs:
+        return qs
+    parts: list[str] = []
+    for pair in qs.split("&"):
+        if "=" not in pair:
+            parts.append(pair)
+            continue
+        key, _, val = pair.partition("=")
+        if len(val) > _QUERY_STRING_VALUE_CAP:
+            parts.append(f"{key}=***{len(val)}-chars***")
+        else:
+            parts.append(pair)
+    return "&".join(parts)
 
 
 def _parse_retry_after(header_value: str, fallback: float) -> float:
@@ -192,7 +259,6 @@ class VoogClient:
         exponential: ``0.5 * 2^attempt`` seconds between attempts.
         """
         url = f"{base or self.base_url}{path}"
-        logger.debug("%s %s", method, url)
 
         # POST / PATCH are not safe to retry by default — see
         # _RETRYABLE_METHODS comment. PATCH can opt in per-call via
@@ -212,6 +278,26 @@ class VoogClient:
         }
         if params:
             kwargs["params"] = params
+
+        # S-9: log the *merged* URL (path + ?params) with long query-string
+        # values redacted. The outgoing httpx request still uses ``params``
+        # via ``kwargs`` — we synthesise the log string separately so the
+        # wire bytes are untouched. Pre-Phase-6a, the log line emitted just
+        # ``method url`` (path only), which hid the typed-tool params from
+        # operators triaging DEBUG logs and made the redactor a no-op for
+        # the common code path. Now redactor + log are load-bearing for both
+        # typed tools (via ``params=``) and passthrough (``?`` embedded in
+        # ``path`` directly).
+        if params:
+            qs = urlencode(params, doseq=True)
+            log_url = f"{url}?{_redact_query_string(qs)}"
+        elif "?" in url:
+            base_url, _, query = url.partition("?")
+            log_url = f"{base_url}?{_redact_query_string(query)}"
+        else:
+            log_url = url
+        logger.debug("%s %s", method, log_url)
+
         if data is not None:
             # JSON-encode at the boundary. Going through httpx's `json=`
             # parameter sets Content-Type automatically, but our client

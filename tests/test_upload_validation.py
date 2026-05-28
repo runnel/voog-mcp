@@ -129,5 +129,72 @@ class TestEnvOverride(unittest.TestCase):
             _validate_upload_url("https://files.voogcdn.com/u/201")
 
 
+class TestUserinfoRejection(unittest.TestCase):
+    """S-4 hardening: URLs with userinfo prefixes are rejected.
+
+    Legitimate presigned-S3 URLs never carry credentials in the URL
+    (they use ``?X-Amz-Signature=`` query params); a userinfo prefix is
+    a sign that an attacker is steering the audit log.
+    """
+
+    def test_userinfo_rejected_even_when_host_allowed(self):
+        with self.assertRaises(ValueError) as ctx:
+            _validate_upload_url("https://attacker@voog-test.s3.amazonaws.com/up?sig=abc")
+        self.assertIn("userinfo", str(ctx.exception))
+
+    def test_userinfo_with_password_rejected(self):
+        with self.assertRaises(ValueError) as ctx:
+            _validate_upload_url("https://user:pw@voog-test.s3.amazonaws.com/up")
+        self.assertIn("userinfo", str(ctx.exception))
+
+    def test_legitimate_no_userinfo_accepted(self):
+        # Regression: the suffix matcher still accepts a clean URL.
+        _validate_upload_url("https://voog-test.s3.amazonaws.com/up?sig=abc")
+
+
+class TestIDNHomographDefense(unittest.TestCase):
+    """S-4 hardening: cyrillic / look-alike characters in hostnames are
+    rejected after IDN-to-ASCII normalisation. Digit-substitution
+    variants like ``amaz0n.com`` were already rejected by the existing
+    suffix matcher (zero is not in the allowlist); kept as a regression
+    guard alongside the new cyrillic case.
+    """
+
+    def test_cyrillic_homograph_rejected(self):
+        # First character is U+0430 CYRILLIC SMALL LETTER A, not U+0061.
+        # Punycode form is xn--mazonaws-7l4d.com — fails the suffix match.
+        host = "аmazonaws.com"
+        with self.assertRaises(ValueError) as ctx:
+            _validate_upload_url(f"https://{host}/upload")
+        # Error message references the Punycode form (after normalisation)
+        # or the IDN error itself — accept either branch.
+        msg = str(ctx.exception)
+        self.assertTrue(
+            "xn--" in msg or "IDN" in msg or "allowlist" in msg,
+            f"expected IDN/punycode/allowlist marker in {msg!r}",
+        )
+
+    def test_cyrillic_subdomain_homograph_rejected(self):
+        # Subdomain-level homograph: "bucket.аmazonaws.com" (cyrillic in
+        # second label).
+        host = "bucket.аmazonaws.com"
+        with self.assertRaises(ValueError):
+            _validate_upload_url(f"https://{host}/upload")
+
+    def test_digit_substitution_rejected(self):
+        # `amaz0n.com` — zero substitution. Already covered by the
+        # default suffix matcher (zero is not in "amazonaws.com"), but
+        # kept here as a regression guard so the S-4 test class is the
+        # single source of truth for hostname-deception cases.
+        with self.assertRaises(ValueError) as ctx:
+            _validate_upload_url("https://amaz0n.com/upload")
+        self.assertIn("allowlist", str(ctx.exception))
+
+    def test_legitimate_ascii_host_accepted(self):
+        # Regression guard for the happy path after the IDN encoding
+        # branch — pure-ASCII hosts must continue to pass.
+        _validate_upload_url("https://voog-prod.s3.amazonaws.com/u/201?sig=abc")
+
+
 if __name__ == "__main__":
     unittest.main()
