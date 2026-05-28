@@ -1352,5 +1352,47 @@ class TestProductsBulkAction(unittest.TestCase):
         self.assertIs(_ann_get(ann, "idempotentHint", "idempotentHint"), False)
 
 
+class TestPriceEntryModeCrossReference(unittest.TestCase):
+    """E8 (v1.4 phase 7): every product-surface tool description must
+    point the LLM to settings.price_entry_mode before assuming
+    net-vs-gross. Drift between tools means LLMs see different rules
+    per tool."""
+
+    SENTINEL = "settings.price_entry_mode"
+    EFFECTIVE_HINT = "effective_price"
+    GET_TOOL_NAME = "ecommerce_settings_get"
+
+    def _description(self, tool_name: str) -> str:
+        for t in products_tools.get_tools():
+            if t.name == tool_name:
+                return t.description
+        self.fail(f"tool {tool_name} not found in products.get_tools()")
+        return ""  # unreachable
+
+    def test_products_list_mentions_price_entry_mode(self):
+        d = self._description("products_list")
+        self.assertIn(self.SENTINEL, d)
+        self.assertIn(self.EFFECTIVE_HINT, d)
+        self.assertIn(self.GET_TOOL_NAME, d)
+
+    def test_product_get_mentions_price_entry_mode(self):
+        d = self._description("product_get")
+        self.assertIn(self.SENTINEL, d)
+        self.assertIn(self.EFFECTIVE_HINT, d)
+        self.assertIn(self.GET_TOOL_NAME, d)
+
+    def test_product_update_mentions_price_entry_mode(self):
+        d = self._description("product_update")
+        self.assertIn(self.SENTINEL, d)
+        self.assertIn(self.EFFECTIVE_HINT, d)
+        self.assertIn(self.GET_TOOL_NAME, d)
+
+    def test_product_create_mentions_price_entry_mode(self):
+        d = self._description("product_create")
+        self.assertIn(self.SENTINEL, d)
+        self.assertIn(self.EFFECTIVE_HINT, d)
+        self.assertIn(self.GET_TOOL_NAME, d)
+
+
 if __name__ == "__main__":
     unittest.main()
