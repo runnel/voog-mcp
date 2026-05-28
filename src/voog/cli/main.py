@@ -186,7 +186,18 @@ def _build_client(args: argparse.Namespace) -> VoogClient:
             hint += str(env_path or default_global_config_path().parent / ".env")
             raise ConfigError(f"{exc}. {hint}") from exc
         raise
-    return VoogClient(host=site.host, api_token=token)
+    # Mirror voog.mcp.server.ClientFactory.for_site: thread site_name +
+    # daily_request_quota through so the per-site daily quota (Phase 6b
+    # S-7) is honored on the CLI surface AND the snapshot manifest's
+    # ``site`` field is populated. Without this the CLI undercounted
+    # against the quota and CLI snapshots wrote ``site: ""`` in
+    # _meta.json (caught in v1.4 phase 7 smoke test, 2026-05-28).
+    return VoogClient(
+        host=site.host,
+        api_token=token,
+        site_name=site.name,
+        daily_request_quota=site.daily_request_quota,
+    )
 
 
 def main() -> None:

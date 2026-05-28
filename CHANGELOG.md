@@ -6,7 +6,9 @@ versioning: [PEP 440](https://peps.python.org/pep-0440/).
 
 ## [Unreleased]
 
-(no changes yet)
+### Fixed
+- **CLI `site-snapshot` `_meta.json` parity** — the CLI `voog site-snapshot` subcommand now writes a `_meta.json` manifest with the same fields, partial-detection, and abort-handling as the MCP `site_snapshot` tool (Phase 5 S7 + MD4). Previously the CLI surface had no manifest output, so a partial snapshot (transient skips, network failures) looked identical to a complete one to downstream tooling. The manifest carries `voog_mcp_version`, `site`, `host`, `created_at`, `attempted`/`succeeded`/`skipped`/`failed` endpoint lists, `request_count`, `duration_seconds`, `aborted_reason`, and the computed `partial` flag. Implementation imports `_Manifest` / `_write_manifest` / `_classify_api_exc` / `_format_skip` / `_is_abort_exception` from `voog.mcp.tools.snapshot` rather than duplicating the logic, so future schema changes propagate to both surfaces without drift. Empirically verified against `stellasoomlais.com` (2026-05-28): same shape as MCP path, `partial: True` with `/me` 404 documented in `skipped`. The CLI also re-raises `RequestBudgetExceeded` / `DailyQuotaExceeded` as a non-zero exit code with the manifest finalised in `try/finally` so cron / CI callers detect aborts.
+- **CLI `_resolve_client` now plumbs `site_name` + `daily_request_quota` into `VoogClient`** — previously only `host` + `api_token` were passed, which (a) made `_meta.json`'s `site` field empty on CLI snapshots and (b) silently bypassed the per-site daily request quota (Phase 6b S-7) on every CLI subcommand. Brings CLI client construction into parity with `voog.mcp.server.ClientFactory.for_site`.
 
 ## [1.4] — 2026-05-28
 
