@@ -65,6 +65,22 @@ proof of human consent:
 If your MCP host does not surface destructive-hint approvals to a
 human, voog-mcp's force-gate provides NO meaningful protection.
 
+### Special case: `include_pii` on `orders_list` / `order_get`
+
+The `include_pii` gate uses `destructiveHint=True` alongside
+`readOnlyHint=True`. Per the MCP spec, `destructiveHint` is "only
+meaningful when `readOnlyHint=false`" — so spec-strict hosts will
+treat these tools as read-only and skip the destructive-action
+prompt. The handler-side `force=true` gate is the load-bearing
+defense in this case: it forces the LLM to articulate PII access in
+the tool-call args (`include_pii=true, force=true`), which the
+operator sees verbatim in the host's tool-call approval UI
+regardless of how the host renders destructive-hint UX. The dual-
+annotation choice is documented inline in
+[`src/voog/mcp/tools/orders.py`](src/voog/mcp/tools/orders.py) so future
+contributors don't "fix" the apparent contradiction by dropping
+`destructiveHint`.
+
 ## Token rotation
 
 Rotate the Voog API token at least every 6 months, and immediately on
@@ -129,6 +145,25 @@ where an LLM is steered to call
 `*.voog.com` allowlist — tenants legitimately host the admin API on
 their own primary domain (e.g. `stellasoomlais.com`), so a domain
 allowlist would reject real-world setups.
+
+**Known limitation: apex-prefix attacker pattern.** Because the
+validator deliberately accepts arbitrary primary domains, hostnames
+shaped like `voog.com.attacker.com` slip through — the `.attacker.com`
+suffix doesn't match any private-TLD denylist and the `voog.com.` apex
+is just a label of a third-party domain, not the Voog apex. This is
+the same trade-off that makes Stella's `stellasoomlais.com` work: any
+suffix-based "looks like Voog" allowlist would either false-positive
+on `voog.com.attacker.com` AND `notvoog.com` and `voog.commerce.example.com`,
+or false-negative on legitimate primary-domain tenants. We chose the
+permissive direction.
+
+Operator-facing mitigation: prefer `token_env=` over `token=` so the
+prompt-injection variant can't smuggle a fresh token; the
+`token_env=VOOG_API_KEY` form only re-uses the operator's existing
+shell environment, which is bounded by the configured site set. The
+SSRF validator covers the more dangerous shapes (loopback, IPv4,
+metadata IP, private TLDs); the apex-prefix gap is the residual
+cost of avoiding a domain allowlist.
 
 ## Logging
 

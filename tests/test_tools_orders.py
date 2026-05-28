@@ -77,12 +77,54 @@ class TestOrdersList(unittest.TestCase):
         client = _make_client()
         raw = _load_fixture("orders_list")
         client.get_all.return_value = raw
-        result = ot.call_tool("orders_list", {"include_pii": True}, client)
+        # H2 (v1.4 review): include_pii=True now requires force=True.
+        result = ot.call_tool(
+            "orders_list",
+            {"include_pii": True, "force": True},
+            client,
+        )
         items = json.loads(result[1].text)
         # When include_pii=True we return the raw fixture (no key dropping).
         # Items should now contain the PII keys that were stripped above.
         if raw and "customer" in raw[0]:
             self.assertIn("customer", items[0])
+
+    def test_include_pii_without_force_rejected(self):
+        # H2 (v1.4 review): include_pii=True without force=True is an
+        # error — LLM-side PII-exfiltration gate.
+        client = _make_client()
+        client.get_all.return_value = _load_fixture("orders_list")
+        result = ot.call_tool("orders_list", {"include_pii": True}, client)
+        self.assertTrue(result.isError)
+        # Make sure the API call didn't actually go out (fail-closed).
+        client.get_all.assert_not_called()
+        # Error message should name the gate so the operator/LLM
+        # understands the required next step.
+        err = result.content[0].text
+        self.assertIn("force=true", err.lower())
+        self.assertIn("pii", err.lower())
+
+    def test_include_pii_with_force_false_rejected(self):
+        # Explicit force=False is the same as omitted force.
+        client = _make_client()
+        client.get_all.return_value = _load_fixture("orders_list")
+        result = ot.call_tool(
+            "orders_list",
+            {"include_pii": True, "force": False},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.get_all.assert_not_called()
+
+    def test_force_ignored_when_include_pii_false(self):
+        # force=True alone (no include_pii) is harmless — the gate only
+        # fires when include_pii is requested. PII still stripped.
+        client = _make_client()
+        client.get_all.return_value = _load_fixture("orders_list")
+        result = ot.call_tool("orders_list", {"force": True}, client)
+        items = json.loads(result[1].text)
+        for o in items:
+            self.assertNotIn("customer", o)
 
 
 class TestOrderGet(unittest.TestCase):
@@ -118,12 +160,45 @@ class TestOrderGet(unittest.TestCase):
     def test_summary_omits_pii_marker_when_include_pii(self):
         client = _make_client()
         client.get.return_value = _load_fixture("order_get")
-        result = ot.call_tool("order_get", {"order_id": 42, "include_pii": True}, client)
+        # H2 (v1.4 review): include_pii=True now requires force=True.
+        result = ot.call_tool(
+            "order_get",
+            {"order_id": 42, "include_pii": True, "force": True},
+            client,
+        )
         self.assertNotIn("PII stripped", result[0].text)
+
+    def test_include_pii_without_force_rejected(self):
+        # H2 (v1.4 review): same gate as orders_list.
+        client = _make_client()
+        client.get.return_value = _load_fixture("order_get")
+        result = ot.call_tool(
+            "order_get",
+            {"order_id": 42, "include_pii": True},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.get.assert_not_called()
+        err = result.content[0].text
+        self.assertIn("force=true", err.lower())
 
     def test_annotations(self):
         ann = {t.name: t for t in ot.get_tools()}["order_get"].annotations
         self.assertIs(ann.readOnlyHint, True)
+        # H2 (v1.4 review): destructiveHint=True surfaces the PII gate
+        # in MCP host approval UI when include_pii=true is requested.
+        # Spec-strict hosts may treat readOnlyHint=True as authoritative
+        # and skip the prompt; handler-side force-gate is the load-
+        # bearing defense regardless.
+        self.assertIs(ann.destructiveHint, True)
+
+    def test_orders_list_annotations(self):
+        # H2 mirror — orders_list has the same include_pii surface, so
+        # it carries the same annotation pair. Drift between the two
+        # would be a surprise.
+        ann = {t.name: t for t in ot.get_tools()}["orders_list"].annotations
+        self.assertIs(ann.readOnlyHint, True)
+        self.assertIs(ann.destructiveHint, True)
 
 
 class TestServerToolRegistry(unittest.TestCase):

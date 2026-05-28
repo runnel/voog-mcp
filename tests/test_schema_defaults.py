@@ -255,6 +255,38 @@ class TestForceFlagSchemaDefaults(unittest.TestCase):
         client.delete.assert_not_called()
         self.assertTrue(result.isError)
 
+    def test_orders_list_include_pii_default_false_force_default_false(self):
+        # H2 + I7 (v1.4 review): include_pii defaults to False; force
+        # defaults to False; handler refuses include_pii=true without
+        # force=true (LLM-side PII gate, see SECURITY.md).
+        from voog.mcp.tools import orders as orders_tools
+
+        tools = {t.name: t for t in orders_tools.get_tools()}
+        self.assertIs(_schema_default(tools["orders_list"], "include_pii"), False)
+        self.assertIs(_schema_default(tools["orders_list"], "force"), False)
+        client = MagicMock()
+        client.get_all.return_value = []
+        # include_pii=true without force=true must error AND skip the API call.
+        result = orders_tools.call_tool("orders_list", {"include_pii": True}, client)
+        client.get_all.assert_not_called()
+        self.assertTrue(result.isError)
+
+    def test_order_get_include_pii_default_false_force_default_false(self):
+        from voog.mcp.tools import orders as orders_tools
+
+        tools = {t.name: t for t in orders_tools.get_tools()}
+        self.assertIs(_schema_default(tools["order_get"], "include_pii"), False)
+        self.assertIs(_schema_default(tools["order_get"], "force"), False)
+        client = MagicMock()
+        client.get.return_value = {}
+        result = orders_tools.call_tool(
+            "order_get",
+            {"order_id": 1, "include_pii": True},
+            client,
+        )
+        client.get.assert_not_called()
+        self.assertTrue(result.isError)
+
 
 if __name__ == "__main__":
     unittest.main()
