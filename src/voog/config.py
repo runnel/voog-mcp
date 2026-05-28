@@ -67,6 +67,7 @@ class SiteConfig:
     host: str
     api_key_env: str | None = None
     api_key: str | None = None
+    daily_request_quota: int | None = None
 
 
 @dataclass(frozen=True)
@@ -151,7 +152,27 @@ def load_global_config(
                 f"site '{name}' must have either 'api_key' (inline token) "
                 "or 'api_key_env' (env var name)"
             )
-        sites[name] = SiteConfig(name=name, host=host, api_key_env=api_key_env, api_key=api_key)
+        daily_request_quota = entry.get("daily_request_quota")
+        if daily_request_quota is not None:
+            # ``bool`` is a subclass of ``int`` in Python; an explicit
+            # ``isinstance(x, bool)`` check rejects ``true`` / ``false``
+            # JSON values that would otherwise pass the int check.
+            if not isinstance(daily_request_quota, int) or isinstance(daily_request_quota, bool):
+                raise ConfigError(
+                    f"site '{name}' daily_request_quota must be an integer "
+                    f"(got {type(daily_request_quota).__name__})"
+                )
+            if daily_request_quota <= 0:
+                raise ConfigError(
+                    f"site '{name}' daily_request_quota must be > 0 (got {daily_request_quota})"
+                )
+        sites[name] = SiteConfig(
+            name=name,
+            host=host,
+            api_key_env=api_key_env,
+            api_key=api_key,
+            daily_request_quota=daily_request_quota,
+        )
 
     default_site = raw.get("default_site")
     if default_site is not None and not isinstance(default_site, str):

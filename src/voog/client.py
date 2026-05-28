@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 import uuid
@@ -16,6 +17,7 @@ from urllib.parse import urlencode
 import httpx
 
 import voog
+from voog.errors import RequestBudgetExceeded
 
 logger = logging.getLogger("voog.client")
 
@@ -104,6 +106,47 @@ def _redact_query_string(qs: str) -> str:
     return "&".join(parts)
 
 
+# Per-VoogClient lifetime cap on successful requests. Defaults to 5000;
+# override via the VOOG_REQUEST_CAP environment variable. Set to 0 to
+# disable the cap entirely (NOT recommended for long-running MCP server
+# processes — the cap is the last-line safety against a runaway tool
+# loop). Warning threshold is hardcoded at 1000 so operators see the
+# log line before they get anywhere near the hard fail.
+_REQUEST_BUDGET_WARN_AT = 1000
+_DEFAULT_REQUEST_CAP = 5000
+
+
+def _resolve_request_cap() -> int | None:
+    """Resolve ``VOOG_REQUEST_CAP`` to an effective cap value.
+
+    Returns ``None`` when the env var is ``"0"`` (cap disabled). Any
+    non-integer or negative value falls back to ``_DEFAULT_REQUEST_CAP``
+    with a WARNING log so the operator notices the typo.
+    """
+    raw = os.environ.get("VOOG_REQUEST_CAP")
+    if raw is None:
+        return _DEFAULT_REQUEST_CAP
+    try:
+        val = int(raw)
+    except ValueError:
+        logger.warning(
+            "VOOG_REQUEST_CAP=%r is not an integer — falling back to default %d",
+            raw,
+            _DEFAULT_REQUEST_CAP,
+        )
+        return _DEFAULT_REQUEST_CAP
+    if val == 0:
+        return None
+    if val < 0:
+        logger.warning(
+            "VOOG_REQUEST_CAP=%d is negative — falling back to default %d",
+            val,
+            _DEFAULT_REQUEST_CAP,
+        )
+        return _DEFAULT_REQUEST_CAP
+    return val
+
+
 def _parse_retry_after(header_value: str, fallback: float) -> float:
     """Parse a Retry-After header value (integer seconds only).
 
@@ -130,9 +173,24 @@ class VoogClient:
     high-fanout snapshots).
     """
 
-    def __init__(self, host: str, api_token: str, *, timeout: int = 60, max_retries: int = 2):
+    def __init__(
+        self,
+        host: str,
+        api_token: str,
+        *,
+        timeout: int = 60,
+        max_retries: int = 2,
+        site_name: str | None = None,
+        daily_request_quota: int | None = None,
+    ):
         self.host = host
         self.api_token = api_token
+        # S-7 / S-8 wiring. ``site_name`` and ``daily_request_quota`` are
+        # populated by ``ClientFactory.for_site`` from ``SiteConfig``.
+        # Ad-hoc callers (CLI without a registered site, tests) leave both
+        # as ``None`` and skip the quota path entirely.
+        self.site_name = site_name
+        self.daily_request_quota = daily_request_quota
         # Bound on every API call. MCP server is long-running — without a
         # timeout, a hung connection wedges the entire Claude session.
         self.timeout = timeout
@@ -170,8 +228,47 @@ class VoogClient:
         # ``request_id`` on enter, clears them on exit. ``parallel_map``
         # worker threads need explicit propagation via
         # ``voog._concurrency.propagate_tool_context`` — threading.local()
-        # does NOT inherit across thread boundaries.
+        # does NOT inherit across thread boundaries. Phase 6 S-8 reuses
+        # this carrier for ``last_site`` (set/get via
+        # ``set_target_site`` / ``get_target_site``).
         self._local = threading.local()
+        # S-6 per-instance request counter (incremented on success only;
+        # retries inside _request count as one request per R8). Cap
+        # resolved once at construction time so the warning + fail
+        # branch read a consistent value across the client's lifetime.
+        self._request_count = 0
+        self._request_cap = _resolve_request_cap()
+        self._warned_at_threshold = False
+        # S-8 cross-thread fallback for the target-site carrier. The
+        # thread-local slot (``_local.last_site``) wins when set; the
+        # instance attribute is the fallback for worker threads (e.g.
+        # ``parallel_map``) that haven't set their own slot.
+        self._last_site: str | None = None
+
+    def set_target_site(self, site_name: str | None) -> None:
+        """Record *site_name* as the most-recent target for this client.
+
+        Both a per-thread (``_local.last_site``) and a per-instance
+        (``_last_site``) slot are updated. The per-thread slot is the
+        authoritative source for the calling thread; ``_last_site`` is
+        the cross-thread fallback (e.g. snapshot's ``parallel_map``
+        workers reading what the dispatch thread set).
+        """
+        self._local.last_site = site_name
+        self._last_site = site_name
+
+    def get_target_site(self) -> str | None:
+        """Return the most-recent target site for this client.
+
+        Order: thread-local (``_local.last_site``) → instance fallback
+        (``_last_site``) → ``None``. Cross-thread reads return the
+        instance fallback which may be stale relative to another
+        thread's true target — acceptable per spec § Phase 6 S-8.
+        """
+        tls_site = getattr(self._local, "last_site", None)
+        if tls_site is not None:
+            return tls_site
+        return self._last_site
 
     @contextmanager
     def with_tool(self, tool_name: str):
@@ -336,6 +433,38 @@ class VoogClient:
                 # raise_for_status raises HTTPStatusError on 4xx/5xx.
                 resp.raise_for_status()
                 body = resp.content
+                # S-6: count successful requests only (per R8, retries
+                # within one logical call count once). Bump AFTER the
+                # response is read so a mid-read exception doesn't inflate
+                # the counter.
+                self._request_count += 1
+                if self._request_count == _REQUEST_BUDGET_WARN_AT and not self._warned_at_threshold:
+                    logger.warning(
+                        "VoogClient request count reached %d (cap=%s) — "
+                        "consider whether the calling tool is in a runaway loop",
+                        self._request_count,
+                        self._request_cap if self._request_cap is not None else "off",
+                    )
+                    self._warned_at_threshold = True
+                if self._request_cap is not None and self._request_count > self._request_cap:
+                    raise RequestBudgetExceeded(
+                        f"VoogClient exceeded request budget: count={self._request_count}, "
+                        f"cap={self._request_cap} (set VOOG_REQUEST_CAP to raise/disable). "
+                        f"Site={self.site_name!r}, host={self.host!r}."
+                    )
+                # S-7: per-site daily quota. Skipped when either
+                # ``site_name`` or ``daily_request_quota`` is unset
+                # (CLI ad-hoc callers, tests, sites that opted out).
+                # ``quota.increment`` raises DailyQuotaExceeded; it
+                # propagates to the caller for snapshot's MD4 catch.
+                if self.site_name is not None and self.daily_request_quota is not None:
+                    # Local import to keep client.py importable in any
+                    # environment where ``platformdirs`` isn't installed
+                    # (the typical test fixture path uses ``_TmpQuotaPath``
+                    # which always sets the env override).
+                    from voog import quota as _quota
+
+                    _quota.increment(self.site_name, self.daily_request_quota)
                 return json.loads(body) if body else None
             except httpx.HTTPStatusError as e:
                 code = e.response.status_code
