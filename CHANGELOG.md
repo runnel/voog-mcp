@@ -6,7 +6,8 @@ versioning: [PEP 440](https://peps.python.org/pep-0440/).
 
 ## [Unreleased]
 
-(no changes yet)
+### Added
+- **Transport-logger silencing (S-1 follow-up).** New ``voog.logging.silence_transport_loggers()`` clamps ``httpcore``, ``httpcore.connection``, ``httpcore.http11``, ``httpcore.http2``, ``httpx``, ``hpack``, ``hpack.hpack``, and ``hpack.table`` to ``WARNING``. Called from ``voog.mcp.server.main()`` and ``voog.cli.main.main()`` at startup. Phase 6a S-1 redacted voog-mcp's own DEBUG output via ``_redact_headers`` / ``_QUERY_STRING_VALUE_CAP``, but the transport stack below ``voog.client`` still dumped HPACK-encoded ``x-api-token`` frames when an operator enabled root DEBUG. A v1.4 smoke test (2026-05-28) empirically reproduced the leak before the affected token was rotated. The ``voog`` logger itself is intentionally NOT clamped — voog-mcp's own DEBUG output is PII-redacted and operators may want it on. New regression test ``tests/test_logging.py``. SECURITY.md gains a "Logging" section documenting operator responsibility if transport DEBUG is re-enabled post-startup.
 
 ## [1.4] — 2026-05-28
 

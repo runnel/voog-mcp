@@ -29,6 +29,7 @@ from voog.config import (
     resolve_site_token,
 )
 from voog.errors import error_response
+from voog.logging import silence_transport_loggers
 from voog.mcp.resources import articles as articles_resources
 from voog.mcp.resources import layouts as layouts_resources
 from voog.mcp.resources import pages as pages_resources
@@ -320,6 +321,11 @@ def _extract_site_from_uri(uri: str) -> str:
 
 def main():
     logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+    # Even though we configure INFO here, an operator who flips the root
+    # logger to DEBUG (parent process, `-c "logging.basicConfig(...)"`,
+    # PYTHONLOG, etc.) would otherwise see httpcore + hpack dump raw
+    # HTTP/2 frames including the bearer token. See SECURITY.md → Logging.
+    silence_transport_loggers()
     parser = argparse.ArgumentParser(prog="voog-mcp", description="Voog MCP server")
     parser.add_argument(
         "--config",
