@@ -32,6 +32,22 @@ from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import require_int, strip_site
 
 
+def _include_pii_force_required(tool_name: str) -> str:
+    """H2 (v1.4 review): consistent error message when ``include_pii=true``
+    is passed without ``force=true``. PII access requires acknowledgement
+    so an LLM that gets prompt-injected into setting ``include_pii=true``
+    is still gated by the operator-facing MCP-host approval. SECURITY.md
+    documents the threat model.
+    """
+    return (
+        f"{tool_name}: include_pii=true requires force=true (PII-access "
+        "acknowledgement gate; see SECURITY.md). MCP hosts surface force "
+        "as a destructive-action approval, ensuring the operator sees the "
+        "PII-exposure request before it goes through. CLI callers should "
+        "pass --force alongside --include-pii."
+    )
+
+
 def get_tools() -> list[Tool]:
     return [
         Tool(
@@ -42,8 +58,13 @@ def get_tools() -> list[Tool]:
                 "'cancelled'), payment_status (e.g. 'paid', 'unpaid'), "
                 "created_after (ISO8601), created_before (ISO8601). "
                 "include_pii=false (default) strips customer email / name / "
-                "address / phone / IP via whitelist; set include_pii=true "
-                "for operator workflows that need the full payload."
+                "address / phone / IP via whitelist. "
+                "include_pii=true REQUIRES force=true alongside — passing "
+                "include_pii=true without force=true is rejected (LLM-side "
+                "PII-exfiltration gate; see SECURITY.md). MCP hosts surface "
+                "force as a destructive-hint approval, which keeps "
+                "prompt-injected `include_pii=true` calls behind operator "
+                "consent."
             ),
             inputSchema={
                 "type": "object",
@@ -76,7 +97,16 @@ def get_tools() -> list[Tool]:
                         "description": (
                             "Default false (strips PII via whitelist). Set "
                             "true to keep customer email / name / address / "
-                            "phone in the response."
+                            "phone in the response. Requires force=true."
+                        ),
+                        "default": False,
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": (
+                            "Required when include_pii=true (PII-access "
+                            "acknowledgement gate; see SECURITY.md). "
+                            "Ignored otherwise. Default false."
                         ),
                         "default": False,
                     },
@@ -85,7 +115,10 @@ def get_tools() -> list[Tool]:
             },
             annotations={
                 "readOnlyHint": True,
-                "destructiveHint": False,
+                # destructiveHint=True when include_pii is requested:
+                # MCP hosts surface a confirmation, gating prompt-injected
+                # PII-exfiltration via include_pii=true.
+                "destructiveHint": True,
                 "idempotentHint": True,
             },
         ),
@@ -94,7 +127,9 @@ def get_tools() -> list[Tool]:
             description=(
                 "Get a single order by id (GET /admin/api/ecommerce/v1/"
                 "orders/{id}). Read-only. include_pii=false (default) "
-                "strips PII via whitelist."
+                "strips PII via whitelist. include_pii=true REQUIRES "
+                "force=true alongside (LLM-side PII-exfiltration gate; "
+                "see SECURITY.md)."
             ),
             inputSchema={
                 "type": "object",
@@ -103,7 +138,12 @@ def get_tools() -> list[Tool]:
                     "order_id": {"type": "integer"},
                     "include_pii": {
                         "type": "boolean",
-                        "description": "Default false (strips PII).",
+                        "description": ("Default false (strips PII). Requires force=true."),
+                        "default": False,
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": ("Required when include_pii=true. Default false."),
                         "default": False,
                     },
                 },
@@ -111,7 +151,7 @@ def get_tools() -> list[Tool]:
             },
             annotations={
                 "readOnlyHint": True,
-                "destructiveHint": False,
+                "destructiveHint": True,
                 "idempotentHint": True,
             },
         ),
@@ -119,6 +159,10 @@ def get_tools() -> list[Tool]:
 
 
 def _orders_list(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    include_pii = bool(arguments.get("include_pii"))
+    if include_pii and not arguments.get("force"):
+        return error_response(_include_pii_force_required("orders_list"))
+
     params: dict = {}
     if arguments.get("status") is not None:
         params["q.order.status.$eq"] = arguments["status"]
@@ -129,7 +173,6 @@ def _orders_list(arguments: dict, client: VoogClient) -> list[TextContent] | Cal
     if arguments.get("created_before") is not None:
         params["q.order.created_at.$lteq"] = arguments["created_before"]
 
-    include_pii = bool(arguments.get("include_pii"))
     try:
         orders = client.get_all("/orders", base=client.ecommerce_url, params=params or None)
         redacted = redact_pii(orders, include_pii=include_pii)
@@ -145,6 +188,8 @@ def _order_get(arguments: dict, client: VoogClient) -> list[TextContent] | CallT
     if err:
         return error_response(err)
     include_pii = bool(arguments.get("include_pii"))
+    if include_pii and not arguments.get("force"):
+        return error_response(_include_pii_force_required("order_get"))
     try:
         order = client.get(f"/orders/{order_id}", base=client.ecommerce_url)
         redacted = redact_pii(order, include_pii=include_pii)
