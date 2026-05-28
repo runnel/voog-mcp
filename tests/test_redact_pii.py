@@ -6,6 +6,7 @@ from pathlib import Path
 
 from voog._payloads import (
     ORDER_CART_RULE_APPLIED_PUBLIC_FIELDS,
+    ORDER_CUSTOM_FIELD_METADATA_PUBLIC_FIELDS,
     ORDER_ITEM_AMOUNT_PUBLIC_FIELDS,
     ORDER_ITEM_PUBLIC_FIELDS,
     ORDER_PUBLIC_FIELDS,
@@ -268,6 +269,87 @@ class TestRedactPii(unittest.TestCase):
         self.assertIsInstance(ORDER_CART_RULE_APPLIED_PUBLIC_FIELDS, frozenset)
         self.assertIsInstance(ORDER_ITEM_AMOUNT_PUBLIC_FIELDS, frozenset)
         self.assertIsInstance(ORDER_TAX_AMOUNT_PUBLIC_FIELDS, frozenset)
+        self.assertIsInstance(ORDER_CUSTOM_FIELD_METADATA_PUBLIC_FIELDS, frozenset)
+
+
+class TestCustomFieldMetadataInnerWhitelist(unittest.TestCase):
+    """H4 (v1.4 review): ``custom_field_metadata`` was previously passed
+    through the redactor's ``else`` branch verbatim — depth-1 defense-in
+    -depth promise was violated specifically there. The inner whitelist
+    now walks per-custom-field, so a future Voog field (e.g.
+    ``default_value``, ``last_used_by_email``) is dropped by default.
+    """
+
+    def test_unknown_inner_field_dropped(self):
+        order = {
+            "id": 1,
+            "custom_field_metadata": {
+                "engraving": {
+                    "label": "Engraving text",
+                    "kind": "text",
+                    # Hypothetical future-Voog PII field — must NOT leak.
+                    "last_used_by_email": "customer@example.com",
+                    "default_value": "Mom's initials",
+                }
+            },
+        }
+        out = redact_pii(order)
+        cf = out["custom_field_metadata"]["engraving"]
+        self.assertEqual(set(cf.keys()), set(ORDER_CUSTOM_FIELD_METADATA_PUBLIC_FIELDS))
+        self.assertNotIn("last_used_by_email", cf)
+        self.assertNotIn("default_value", cf)
+
+    def test_label_kind_preserved(self):
+        order = {
+            "id": 1,
+            "custom_field_metadata": {
+                "engraving": {"label": "Engraving", "kind": "text"},
+                "gift_message": {"label": "Gift message", "kind": "textarea"},
+            },
+        }
+        out = redact_pii(order)
+        self.assertEqual(out["custom_field_metadata"]["engraving"]["label"], "Engraving")
+        self.assertEqual(out["custom_field_metadata"]["engraving"]["kind"], "text")
+        self.assertEqual(out["custom_field_metadata"]["gift_message"]["kind"], "textarea")
+
+    def test_non_dict_custom_field_value_passes_through(self):
+        # Defensive — if a custom_field_metadata key maps to something
+        # other than a dict (shouldn't happen per Voog API, but the
+        # redactor shouldn't crash on a weird shape), it passes through.
+        order = {
+            "id": 1,
+            "custom_field_metadata": {
+                "weird_string_value": "this should not normally happen",
+            },
+        }
+        out = redact_pii(order)
+        self.assertEqual(
+            out["custom_field_metadata"]["weird_string_value"],
+            "this should not normally happen",
+        )
+
+    def test_empty_custom_field_metadata_handled(self):
+        order = {"id": 1, "custom_field_metadata": {}}
+        out = redact_pii(order)
+        self.assertEqual(out["custom_field_metadata"], {})
+
+    def test_fixture_order_custom_field_metadata_redacted_through_whitelist(self):
+        # Live Stella fixture order_get.json carries custom_field_metadata.
+        # After redaction, every entry's keys must be a subset of the
+        # inner whitelist — defense-in-depth covers the live shape.
+        try:
+            order = _load_fixture("order_get")
+        except FileNotFoundError:
+            self.skipTest("order_get fixture not present")
+        cfm = order.get("custom_field_metadata") or {}
+        if not cfm:
+            self.skipTest("fixture has no custom_field_metadata")
+        out = redact_pii(order)
+        for cf_key, cf_val in out["custom_field_metadata"].items():
+            self.assertTrue(
+                set(cf_val.keys()).issubset(ORDER_CUSTOM_FIELD_METADATA_PUBLIC_FIELDS),
+                f"custom_field_metadata[{cf_key!r}] leaked unknown keys: {cf_val.keys()}",
+            )
 
 
 if __name__ == "__main__":

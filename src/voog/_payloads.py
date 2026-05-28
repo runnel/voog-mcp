@@ -229,6 +229,16 @@ ORDER_CART_RULE_APPLIED_PUBLIC_FIELDS: frozenset[str] = frozenset(
 )
 
 
+# H4 (v1.4 review): defensive inner whitelist for each entry of
+# ``custom_field_metadata``. Live Stella fixture only ever carries
+# ``label`` + ``kind`` per key, but a future Voog version that adds
+# ``default_value`` / ``last_used_by_email`` / ``helper_text`` (any of
+# which could be operator-PII) would otherwise leak through the
+# else-branch verbatim. Same fail-safe doctrine as the other inner
+# whitelists: Voog adds a new field, redactor drops it by default.
+ORDER_CUSTOM_FIELD_METADATA_PUBLIC_FIELDS: frozenset[str] = frozenset({"label", "kind"})
+
+
 def redact_pii(value, *, include_pii: bool = False):
     """Strip PII from a Voog order payload using a whitelist.
 
@@ -288,6 +298,23 @@ def redact_pii(value, *, include_pii: bool = False):
                 else row
                 for row in val
             ]
+        elif key == "custom_field_metadata" and isinstance(val, dict):
+            # H4: walk per-custom-field with the inner whitelist so a
+            # future Voog field (e.g. ``default_value``,
+            # ``last_used_by_email``) inside one of these entries gets
+            # dropped by default rather than leaking through.
+            redacted[key] = {
+                cf_key: (
+                    {
+                        k: v
+                        for k, v in cf_val.items()
+                        if k in ORDER_CUSTOM_FIELD_METADATA_PUBLIC_FIELDS
+                    }
+                    if isinstance(cf_val, dict)
+                    else cf_val
+                )
+                for cf_key, cf_val in val.items()
+            }
         else:
             redacted[key] = val
     return redacted
