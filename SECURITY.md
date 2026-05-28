@@ -130,6 +130,25 @@ where an LLM is steered to call
 their own primary domain (e.g. `stellasoomlais.com`), so a domain
 allowlist would reject real-world setups.
 
+**Known limitation: apex-prefix attacker pattern.** Because the
+validator deliberately accepts arbitrary primary domains, hostnames
+shaped like `voog.com.attacker.com` slip through — the `.attacker.com`
+suffix doesn't match any private-TLD denylist and the `voog.com.` apex
+is just a label of a third-party domain, not the Voog apex. This is
+the same trade-off that makes Stella's `stellasoomlais.com` work: any
+suffix-based "looks like Voog" allowlist would either false-positive
+on `voog.com.attacker.com` AND `notvoog.com` and `voog.commerce.example.com`,
+or false-negative on legitimate primary-domain tenants. We chose the
+permissive direction.
+
+Operator-facing mitigation: prefer `token_env=` over `token=` so the
+prompt-injection variant can't smuggle a fresh token; the
+`token_env=VOOG_API_KEY` form only re-uses the operator's existing
+shell environment, which is bounded by the configured site set. The
+SSRF validator covers the more dangerous shapes (loopback, IPv4,
+metadata IP, private TLDs); the apex-prefix gap is the residual
+cost of avoiding a domain allowlist.
+
 ## Logging
 
 voog-mcp's own DEBUG output is PII-redacted: `voog.client._request`

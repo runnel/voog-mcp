@@ -157,33 +157,41 @@ Full endpoint coverage reference: [docs/voog-mcp-endpoint-coverage.md](docs/voog
 
 | Group | Tools |
 |---|---|
-| Sites | `voog_list_sites` |
+| Sites | `voog_list_sites`, `voog_list_my_sites` |
+| Search | `voog_search` |
 | Pages | `pages_list`, `page_get`, `page_create`, `page_update`, `page_set_hidden`, `page_set_layout`, `page_set_data`, `page_delete_data`, `page_duplicate`, `page_delete` |
 | Articles | `articles_list`, `article_get`, `article_create`, `article_update`, `article_publish`, `article_set_data`, `article_delete_data`, `article_delete` |
+| Comments | `comments_list`, `comment_delete`, `comment_toggle_spam` |
+| Tags | `tags_list`, `tag_get`, `tag_delete` |
 | Layouts | `layouts_pull`, `layouts_push`, `layout_create`, `layout_update`, `layout_rename`, `layout_delete`, `layout_asset_create`, `layout_asset_update`, `layout_asset_delete`, `asset_replace` |
 | Texts / contents | `text_get`, `text_update`, `page_add_content`, `content_partial_update` |
-| Elements | `elements_list`, `element_get`, `element_definitions_list`, `element_create`, `element_update`, `element_delete` |
-| Products | `products_list`, `product_get`, `product_create`, `product_update`, `product_set_images` |
-| Ecommerce | `ecommerce_settings_get`, `ecommerce_settings_update` |
+| Elements | `elements_list`, `element_get`, `element_definitions_list`, `element_create`, `element_update`, `element_move`, `element_delete` |
+| Products | `products_list`, `product_get`, `product_create`, `product_update`, `product_set_images`, `product_delete`, `product_duplicate`, `products_bulk_action` |
+| Categories | `categories_list`, `category_get`, `category_create`, `category_update`, `category_delete` |
+| Orders | `orders_list`, `order_get` (read-only; PII-stripped by default, `include_pii=true` requires `force=true`) |
+| Discounts | `discounts_list`, `discount_get`, `discount_create`, `discount_update`, `discount_delete` |
+| Cart rules | `cart_rules_list`, `cart_rule_get`, `cart_rule_create`, `cart_rule_update`, `cart_rule_delete` |
+| Shipping / payments | `shipping_methods_list`, `gateways_list` |
+| Ecommerce settings | `ecommerce_settings_get`, `ecommerce_settings_update` |
 | Multilingual | `languages_list`, `language_create`, `language_delete`, `nodes_list`, `node_get`, `node_update`, `node_move`, `node_relocate` |
 | Redirects | `redirects_list`, `redirect_add`, `redirect_update`, `redirect_delete` |
 | Site | `site_get`, `site_update`, `site_set_data`, `site_delete_data` |
 | Webhooks | `webhooks_list`, `webhook_create`, `webhook_update`, `webhook_delete` |
 | Snapshot | `pages_snapshot`, `site_snapshot` |
-| **Generic passthrough** | `voog_admin_api_call`, `voog_ecommerce_api_call` |
+| **Read-only passthrough** | `voog_admin_api_read`, `voog_ecommerce_api_read` |
+| **Generic passthrough** | `voog_admin_api_call`, `voog_ecommerce_api_call` (GET deprecated — use the `_read` tools above) |
 
 ## What's NOT supported
 
-voog-mcp covers the surface area needed to manage content and a small ecommerce catalog. The following Voog API areas are intentionally out of scope for now — drop down to the generic `voog_admin_api_call` / `voog_ecommerce_api_call` passthrough tools when you need them:
+voog-mcp covers content + ecommerce catalog management end-to-end as of v1.4. The following Voog API areas remain out of scope — drop down to the `voog_admin_api_call` / `voog_ecommerce_api_call` passthrough tools when you need them:
 
-- Order management, cart, and discount data
-- Form definitions and form responses
-- People / site_user admin
-- Comments and visitor data
-- Site favicons and bulk file imports — product image galleries are first-class via `product_set_images`, but other multipart uploads still go via passthrough
-- Bulk product update / delete — bulk page show/hide is first-class via `page_set_hidden(ids=[...])`; product batch ops aren't covered yet
-- Single-product deletion — `product_delete` is not yet wrapped (a v1.4 candidate); use passthrough in the meantime
-- Site creation (voog-mcp targets existing sites)
+- **Order mutation** — `orders_list` / `order_get` are read-only typed tools (with PII stripping); creating / updating / cancelling orders goes via passthrough. Order writes carry finance / operations risk that a future release will design separately.
+- **Cart reads** — `cart_rules_*` tools cover cart-rule CRUD, but reading individual cart sessions (`/carts`) is passthrough-only.
+- **`element_definitions` CRUD** — `element_definitions_list` is wrapped; create / update / delete remain passthrough.
+- **People / site_user admin** — full passthrough.
+- **Form definitions and form responses** — passthrough.
+- **Site favicons and bulk file imports** — product image galleries are first-class via `product_set_images`; other multipart uploads go via passthrough.
+- **Site creation** — voog-mcp targets existing sites.
 
 If you need any of these, open an [issue](https://github.com/runnel/voog-mcp/issues) — or a PR.
 
