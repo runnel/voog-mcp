@@ -60,6 +60,40 @@ def _redact_headers(headers: dict[str, str]) -> dict[str, str]:
     return out
 
 
+# Query-string values longer than this many characters are replaced with
+# a length-marker placeholder in DEBUG log lines. Captures presigned-URL
+# signatures (X-Amz-Signature is 256 hex chars) and any accidentally-
+# leaked token-bearing query params without dropping short, useful
+# values like ``?include=variants`` or ``?per_page=250``.
+_QUERY_STRING_VALUE_CAP = 50
+
+
+def _redact_query_string(qs: str) -> str:
+    """Redact long values in a URL query string for DEBUG logging.
+
+    Keys are kept verbatim (they are useful debugging context);
+    values longer than ``_QUERY_STRING_VALUE_CAP`` are replaced with
+    ``"***N-chars***"``. Empty / short values pass through unchanged.
+    Repeated keys are handled — each occurrence is redacted
+    independently. The input is the raw ``urllib.parse.urlencode``
+    output (already percent-encoded), so this function operates on the
+    encoded form and does not need to decode/re-encode.
+    """
+    if not qs:
+        return qs
+    parts: list[str] = []
+    for pair in qs.split("&"):
+        if "=" not in pair:
+            parts.append(pair)
+            continue
+        key, _, val = pair.partition("=")
+        if len(val) > _QUERY_STRING_VALUE_CAP:
+            parts.append(f"{key}=***{len(val)}-chars***")
+        else:
+            parts.append(pair)
+    return "&".join(parts)
+
+
 def _parse_retry_after(header_value: str, fallback: float) -> float:
     """Parse a Retry-After header value (integer seconds only).
 
@@ -215,7 +249,14 @@ class VoogClient:
         exponential: ``0.5 * 2^attempt`` seconds between attempts.
         """
         url = f"{base or self.base_url}{path}"
-        logger.debug("%s %s", method, url)
+        # S-9: redact long query-string values from the DEBUG log line.
+        # Outgoing ``url`` is unchanged — only the emitted string.
+        if "?" in url:
+            base_url, _, query = url.partition("?")
+            log_url = f"{base_url}?{_redact_query_string(query)}"
+        else:
+            log_url = url
+        logger.debug("%s %s", method, log_url)
 
         # POST / PATCH are not safe to retry by default — see
         # _RETRYABLE_METHODS comment. PATCH can opt in per-call via

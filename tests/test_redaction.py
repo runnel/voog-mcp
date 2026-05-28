@@ -2,7 +2,12 @@
 
 import unittest
 
-from voog.client import _SENSITIVE_HEADERS, _redact_headers
+from voog.client import (
+    _QUERY_STRING_VALUE_CAP,
+    _SENSITIVE_HEADERS,
+    _redact_headers,
+    _redact_query_string,
+)
 
 
 class TestSensitiveHeaderSet(unittest.TestCase):
@@ -69,6 +74,48 @@ class TestRedactHeaders(unittest.TestCase):
 
     def test_empty_dict(self):
         self.assertEqual(_redact_headers({}), {})
+
+
+class TestRedactQueryString(unittest.TestCase):
+    def test_empty_string(self):
+        self.assertEqual(_redact_query_string(""), "")
+
+    def test_short_value_pass_through(self):
+        # `per_page=250` is well under the cap; useful debugging context.
+        self.assertEqual(_redact_query_string("per_page=250"), "per_page=250")
+
+    def test_short_value_at_cap_boundary_pass_through(self):
+        # Exactly ``_QUERY_STRING_VALUE_CAP`` characters — NOT redacted
+        # (the rule is "longer than", not "at least").
+        v = "a" * _QUERY_STRING_VALUE_CAP
+        self.assertEqual(_redact_query_string(f"k={v}"), f"k={v}")
+
+    def test_long_value_redacted(self):
+        long_sig = "a" * 256  # mirrors X-Amz-Signature
+        out = _redact_query_string(f"X-Amz-Signature={long_sig}")
+        self.assertEqual(out, "X-Amz-Signature=***256-chars***")
+
+    def test_key_retained(self):
+        # The key is the load-bearing debugging context — must not be
+        # redacted along with the value.
+        out = _redact_query_string(f"api_key={'x' * 100}")
+        self.assertTrue(out.startswith("api_key=***"))
+        self.assertIn("100-chars", out)
+
+    def test_mixed_short_and_long(self):
+        long_val = "b" * 80
+        out = _redact_query_string(f"per_page=250&signature={long_val}&page=1")
+        self.assertEqual(out, "per_page=250&signature=***80-chars***&page=1")
+
+    def test_pair_without_equals_pass_through(self):
+        # Defensive: malformed query string segments preserved verbatim.
+        self.assertEqual(_redact_query_string("flag&k=v"), "flag&k=v")
+
+    def test_repeated_key_each_redacted_independently(self):
+        long_a = "a" * 60
+        long_b = "b" * 60
+        out = _redact_query_string(f"tag={long_a}&tag={long_b}")
+        self.assertEqual(out, "tag=***60-chars***&tag=***60-chars***")
 
 
 if __name__ == "__main__":
