@@ -545,3 +545,40 @@ class TestEcommerceApiCallGetDeprecation(unittest.TestCase):
             )
         self.assertEqual(len(caught), 1)
         self.assertIn("voog_ecommerce_api_read", str(caught[0].message))
+
+
+class TestEcommercePassthroughGotchas(unittest.TestCase):
+    """E10 (v1.4 phase 7): voog_ecommerce_api_call (write variant) must
+    surface the three Voog ecommerce v1 PUT quirks in its description so
+    the LLM doesn't fall into them via passthrough. Sentinels target the
+    distinguishing words in each bullet — not the full sentence — so
+    cosmetic edits (line wrapping, punctuation) don't break the test."""
+
+    def _description(self) -> str:
+        for t in raw_tools.get_tools():
+            if t.name == "voog_ecommerce_api_call":
+                return t.description
+        self.fail("voog_ecommerce_api_call not in raw.get_tools()")
+        return ""  # unreachable
+
+    def test_assets_vs_asset_ids_gotcha(self):
+        d = self._description()
+        self.assertIn("asset_ids", d)
+        self.assertIn("assets", d)
+        self.assertIn("hero", d)
+        self.assertIn("product_set_images", d)
+
+    def test_variants_destructive_gotcha(self):
+        d = self._description()
+        self.assertIn("variants", d)
+        self.assertIn("variant_attributes", d)
+        self.assertIn("destructive", d)
+        self.assertIn("product_update", d)
+
+    def test_data_clobber_gotcha(self):
+        d = self._description()
+        self.assertIn("data", d)
+        self.assertIn("PATCH", d)
+        self.assertIn("merge semantics", d)
+        # Per-key tool name appears at least once
+        self.assertTrue("page_set_data" in d or "article_set_data" in d or "site_set_data" in d)

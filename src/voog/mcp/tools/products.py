@@ -157,7 +157,12 @@ def get_tools() -> list[Tool]:
                 "consistent across the tools and resources surfaces. For "
                 "per-variant stock on a variant-bearing product, follow up "
                 "with product_get. Pass `category_id` to filter to products "
-                "in that category (maps to q.product.category_ids.$in)."
+                "in that category (maps to q.product.category_ids.$in). "
+                "Price fields (`price`, `sale_price`, `effective_price`) are "
+                "net or gross depending on `settings.price_entry_mode`. Call "
+                "`ecommerce_settings_get` to determine the mode. For "
+                "customer-facing pricing always use `effective_price` and "
+                "verify the mode first."
             ),
             inputSchema={
                 "type": "object",
@@ -190,7 +195,12 @@ def get_tools() -> list[Tool]:
                 "`variants` array (with stock, reserved_quantity, "
                 "variant_attributes_text), `variant_types` definitions, and "
                 "`translations` (?include=variants,variant_types,translations). "
-                "Read-only."
+                "Read-only. "
+                "Price fields (`price`, `sale_price`, `effective_price`) are "
+                "net or gross depending on `settings.price_entry_mode`. Call "
+                "`ecommerce_settings_get` to determine the mode. For "
+                "customer-facing pricing always use `effective_price` and "
+                "verify the mode first."
             ),
             inputSchema={
                 "type": "object",
@@ -231,7 +241,12 @@ def get_tools() -> list[Tool]:
                 "non-empty. Validates status enum {'draft', 'live'} and "
                 "rejects unknown attribute keys (catches typos before they "
                 "round-trip to a 422). Reversible by calling with previous "
-                "values; idempotent (same input twice = same end state)."
+                "values; idempotent (same input twice = same end state). "
+                "Price fields (`price`, `sale_price`, `effective_price`) are "
+                "net or gross depending on `settings.price_entry_mode`. Call "
+                "`ecommerce_settings_get` to determine the mode. For "
+                "customer-facing pricing always use `effective_price` and "
+                "verify the mode first."
             ),
             inputSchema={
                 "type": "object",
@@ -301,7 +316,12 @@ def get_tools() -> list[Tool]:
                 "'slug-en' keys — auto-routed to translations.\n"
                 "Validates status enum {'draft', 'live'} and rejects "
                 "unknown attribute keys. The POST result includes the "
-                "newly assigned product id."
+                "newly assigned product id. "
+                "Price fields (`price`, `sale_price`, `effective_price`) are "
+                "net or gross depending on `settings.price_entry_mode`. Call "
+                "`ecommerce_settings_get` to determine the mode. For "
+                "customer-facing pricing always use `effective_price` and "
+                "verify the mode first."
             ),
             inputSchema={
                 "type": "object",
