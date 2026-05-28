@@ -394,7 +394,14 @@ def validate_filters(
         # error.
         return f"{tool_name}: internal — unknown resource {resource!r}"
     for key in filters:
-        if not isinstance(key, str) or not pattern.match(key):
+        # ``fullmatch`` (not ``match``) — Python's ``re.match`` anchors
+        # only at the start of the string AND ``$`` matches before a
+        # trailing newline in default mode, so ``pattern.match("q.page.
+        # title.$eq\n")`` would (wrongly) succeed. httpx percent-encodes
+        # the newline before transmission so this isn't an HTTP-header
+        # injection vector, but a smuggling vector toward Voog's
+        # server-side query-decoder remains. ``fullmatch`` closes both.
+        if not isinstance(key, str) or not pattern.fullmatch(key):
             return (
                 f"{tool_name}: filter key {key!r} does not match "
                 f"q.{resource}.<attr>.(\\$eq|\\$cont|\\$gteq|\\$lteq|"

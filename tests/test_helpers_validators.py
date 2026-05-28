@@ -320,6 +320,35 @@ class TestValidateFilters(unittest.TestCase):
         err = validate_filters({}, resource="page", tool_name="pages_list")
         self.assertIsNone(err)
 
+    def test_trailing_newline_rejected(self):
+        # H1 (v1.4 review): pattern.match accepts a trailing newline
+        # because Python's `$` matches before `\n` in default mode AND
+        # `re.match` doesn't require the full string. The validator
+        # uses `fullmatch` to close both. httpx percent-encodes `\n`
+        # before transmission so it isn't an HTTP-header-injection
+        # vector, but the smuggling-vector toward Voog's server-side
+        # query-decoder remains.
+        from voog.mcp.tools._helpers import validate_filters
+
+        err = validate_filters(
+            {"q.page.title.$eq\n": "x"},
+            resource="page",
+            tool_name="pages_list",
+        )
+        self.assertIsNotNone(err)
+
+    def test_trailing_carriage_return_rejected(self):
+        # Same class of bug as the newline case; pin the other
+        # universal line-ender too.
+        from voog.mcp.tools._helpers import validate_filters
+
+        err = validate_filters(
+            {"q.page.title.$eq\r\n": "x"},
+            resource="page",
+            tool_name="pages_list",
+        )
+        self.assertIsNotNone(err)
+
 
 if __name__ == "__main__":
     unittest.main()
