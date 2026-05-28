@@ -56,3 +56,31 @@ def success_response(data: Any, *, summary: str = "") -> list[TextContent]:
             TextContent(type="text", text=json.dumps(data, indent=2, ensure_ascii=False)),
         ]
     return [TextContent(type="text", text=json.dumps(data, indent=2, ensure_ascii=False))]
+
+
+class RequestBudgetExceeded(RuntimeError):
+    """Raised when a single VoogClient exceeds its per-instance request cap.
+
+    The cap is set via the ``VOOG_REQUEST_CAP`` environment variable
+    (default 5000) and counts successful HTTP requests over the lifetime
+    of a single :class:`VoogClient` instance. Retries within one logical
+    call count as a single request (per R8): the counter is incremented
+    once on the response, not once per attempt.
+
+    Snapshot tool (Phase 5 MD4) catches this exception, finalises the
+    ``_meta.json`` manifest with ``aborted_reason="request_budget_exceeded"``,
+    then re-raises so the operator sees the failure.
+    """
+
+
+class DailyQuotaExceeded(RuntimeError):
+    """Raised when a site's daily request quota (configured via
+    ``daily_request_quota`` in ``voog.json``) is exhausted for the
+    current UTC day.
+
+    The counter is persisted to
+    ``platformdirs.user_cache_dir("voog-mcp")/quota.json`` and reset at
+    UTC midnight. Snapshot tool (Phase 5 MD4) catches this exception,
+    finalises ``_meta.json`` with
+    ``aborted_reason="daily_quota_exceeded"``, then re-raises.
+    """
