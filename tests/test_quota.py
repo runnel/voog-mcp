@@ -171,6 +171,34 @@ class TestAtomicWriteUnderConcurrency(unittest.TestCase):
             self.assertLessEqual(raw["sites"]["stella"], n_threads * iters_per_thread)
 
 
+class TestAtomicWriteFailureCleanup(unittest.TestCase):
+    """If ``os.replace`` fails mid-write, the per-write tmp file must NOT
+    persist in the cache directory — a long-running MCP server with
+    transient disk errors would otherwise accumulate orphan tmp files.
+    """
+
+    def test_tmp_file_unlinked_on_replace_failure(self):
+        with _TmpQuotaPath() as path:
+            # Force ``os.replace`` to raise. The tmp file has already been
+            # written to disk at this point.
+            def _failing_replace(*_args, **_kwargs):
+                raise OSError("simulated read-only filesystem")
+
+            with patch("voog.quota.os.replace", side_effect=_failing_replace):
+                with self.assertRaises(OSError):
+                    quota.increment("stella", None)
+
+            # No tmp leftovers: every sibling of the target path matching
+            # the tmp suffix pattern should have been unlinked.
+            siblings = list(path.parent.iterdir())
+            tmp_leftovers = [s for s in siblings if s.suffix == ".tmp" or ".tmp" in s.name]
+            self.assertEqual(
+                tmp_leftovers,
+                [],
+                f"expected no .tmp leftovers, got {tmp_leftovers}",
+            )
+
+
 class TestCurrentDayUtc(unittest.TestCase):
     def test_format_is_iso_date(self):
         d = quota.current_day_utc()

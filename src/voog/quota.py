@@ -120,14 +120,30 @@ def _atomic_write(state: dict) -> None:
     T1's replace happens AFTER T2's open() and BEFORE T2's replace(),
     T2's replace() raises FileNotFoundError because T1 just moved the
     shared tmp file out from under it.
+
+    If ``open`` succeeds but ``os.replace`` fails (read-only filesystem,
+    permission change between write and rename, etc.), the tmp file is
+    best-effort unlinked so it doesn't accumulate in the cache directory
+    on a long-running MCP server.
     """
     path = quota_file_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     suffix = f".{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
     tmp = path.with_suffix(path.suffix + suffix)
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(state, fh)
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+        os.replace(tmp, path)
+    except Exception:
+        # Best-effort cleanup. Ignore unlink failures (tmp may already
+        # be gone via a successful replace from another path, or the
+        # underlying error condition prevents unlink too — in either
+        # case, propagating the unlink error obscures the real failure).
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
 
 
 def read_count(site_name: str) -> int:

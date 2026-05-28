@@ -436,9 +436,22 @@ class VoogClient:
                 # S-6: count successful requests only (per R8, retries
                 # within one logical call count once). Bump AFTER the
                 # response is read so a mid-read exception doesn't inflate
-                # the counter.
+                # the counter. Local-counter drift note: this increment
+                # is unconditional, but the per-site persisted quota write
+                # below may raise (DailyQuotaExceeded) or fail to land
+                # (transient disk error). The local counter therefore can
+                # be one ahead of the on-disk quota state — this is the
+                # "coarse safety rail" trade-off documented in
+                # voog/quota.py's module docstring.
                 self._request_count += 1
-                if self._request_count == _REQUEST_BUDGET_WARN_AT and not self._warned_at_threshold:
+                # ``>=`` (not ``==``) so the warning still fires if two
+                # concurrent ``parallel_map`` workers race the boundary
+                # and the lost-update window skips over exactly 1000.
+                # The duplicate-warn race (two workers both seeing
+                # ``not self._warned_at_threshold``) is bounded by the
+                # fan-out width (≤8 lines under snapshot's max_workers);
+                # the once-only flag is best-effort.
+                if self._request_count >= _REQUEST_BUDGET_WARN_AT and not self._warned_at_threshold:
                     logger.warning(
                         "VoogClient request count reached %d (cap=%s) — "
                         "consider whether the calling tool is in a runaway loop",

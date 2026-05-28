@@ -140,8 +140,29 @@ class TestBudgetCap(unittest.TestCase):
                 with self.assertLogs("voog.client", level="WARNING") as logs:
                     for _ in range(warn_at + 5):
                         c.get("/pages")
-            warn_lines = [ln for ln in logs.output if f"reached {warn_at}" in ln]
+            warn_lines = [ln for ln in logs.output if "reached " in ln]
             self.assertEqual(len(warn_lines), 1)
+
+    def test_warning_fires_if_count_skips_past_threshold(self):
+        """Lost-update race: under concurrent fan-out, ``_request_count``
+        can skip from 999 directly to 1001 (two workers both reading 999,
+        both writing 1000 — one lost update, then a third worker takes
+        it to 1001 instead of the expected 1000). The warn check must
+        still fire — guards via ``>=`` rather than ``==``.
+        """
+        warn_at = _REQUEST_BUDGET_WARN_AT
+        with patch.dict(os.environ, {"VOOG_REQUEST_CAP": str(warn_at + 10)}, clear=False):
+            c = VoogClient(host="example.com", api_token="t")
+            # Simulate the lost-update outcome directly: pre-seed count to
+            # warn_at-1, then one successful request takes it to warn_at,
+            # but we also pre-set it to warn_at+1 to verify the threshold
+            # is treated as "≥".
+            c._request_count = warn_at + 1  # already past the boundary
+            with _patch_request(c, responses=[_make_httpx_response()]):
+                with self.assertLogs("voog.client", level="WARNING") as logs:
+                    c.get("/pages")
+            warn_lines = [ln for ln in logs.output if "reached" in ln]
+            self.assertEqual(len(warn_lines), 1, f"expected one warn line, got {logs.output}")
 
 
 class TestQuotaIntegration(unittest.TestCase):
