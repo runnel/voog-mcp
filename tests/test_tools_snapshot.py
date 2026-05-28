@@ -1129,10 +1129,8 @@ class TestManifestEmission(unittest.TestCase):
         self.assertTrue(breakdown["partial"])
 
     def test_manifest_written_on_mid_snapshot_abort_request_budget(self):
-        # Simulate Phase 6 RequestBudgetExceeded raising mid-fetch.
-        # Phase 5 catches by class name (forward-compat); Phase 6 tightens.
-        class RequestBudgetExceeded(Exception):
-            pass
+        # Phase 6: real RequestBudgetExceeded raising mid-fetch.
+        from voog.errors import RequestBudgetExceeded
 
         client = _make_client()
 
@@ -1166,8 +1164,7 @@ class TestManifestEmission(unittest.TestCase):
             self.assertTrue(meta["partial"])
 
     def test_manifest_written_on_daily_quota_abort(self):
-        class DailyQuotaExceeded(Exception):
-            pass
+        from voog.errors import DailyQuotaExceeded
 
         client = _make_client()
         client.get_all.return_value = []
@@ -1341,23 +1338,48 @@ class TestClassifyApiExc(unittest.TestCase):
 
 
 class TestIsAbortException(unittest.TestCase):
-    """MD4 — name-based detection of Phase 6 budget/quota exceptions."""
+    """MD4 — Phase 6 budget/quota exceptions are detected by isinstance.
 
-    def test_request_budget_exceeded_by_name(self):
+    Phase 5 originally keyed on class name for forward-compatibility
+    (the exception classes did not exist yet); Phase 6 lands the real
+    classes in ``voog.errors`` and tightens this to isinstance.
+    """
+
+    def test_request_budget_exceeded(self):
+        from voog.errors import RequestBudgetExceeded
         from voog.mcp.tools.snapshot import _is_abort_exception
 
-        class RequestBudgetExceeded(Exception):
-            pass
+        self.assertTrue(_is_abort_exception(RequestBudgetExceeded("over cap")))
 
-        self.assertTrue(_is_abort_exception(RequestBudgetExceeded()))
-
-    def test_daily_quota_exceeded_by_name(self):
+    def test_daily_quota_exceeded(self):
+        from voog.errors import DailyQuotaExceeded
         from voog.mcp.tools.snapshot import _is_abort_exception
 
-        class DailyQuotaExceeded(Exception):
+        self.assertTrue(_is_abort_exception(DailyQuotaExceeded("quota hit")))
+
+    def test_subclass_is_also_abort(self):
+        # Subclasses of either signal class also trip the abort path —
+        # important for future extension (e.g. an org-wide quota class
+        # subclassing DailyQuotaExceeded).
+        from voog.errors import DailyQuotaExceeded
+        from voog.mcp.tools.snapshot import _is_abort_exception
+
+        class SubQuota(DailyQuotaExceeded):
             pass
 
-        self.assertTrue(_is_abort_exception(DailyQuotaExceeded()))
+        self.assertTrue(_is_abort_exception(SubQuota("sub")))
+
+    def test_lookalike_class_name_is_not_abort(self):
+        # An unrelated class that happens to share the *name* of an
+        # abort exception is NOT an abort — only true subclasses count.
+        # Guards against the Phase 5 name-match behaviour returning by
+        # accident (e.g. a refactor that recreates the helper).
+        from voog.mcp.tools.snapshot import _is_abort_exception
+
+        class RequestBudgetExceeded(Exception):  # not voog.errors.*
+            pass
+
+        self.assertFalse(_is_abort_exception(RequestBudgetExceeded("lookalike")))
 
     def test_random_exception_is_not_abort(self):
         from voog.mcp.tools.snapshot import _is_abort_exception
