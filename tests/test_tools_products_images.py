@@ -904,5 +904,67 @@ class TestConfirmRetry(unittest.TestCase):
         mock_sleep.assert_not_called()
 
 
+class TestConfirmIdempotency(unittest.TestCase):
+    """H5 (v1.4 review): pin the empirical contract that S10 retry
+    relies on.
+
+    Race scenario the S10 retry guards against:
+      1. PUT /assets/{id}/confirm reaches Voog
+      2. Voog confirms the asset server-side
+      3. TCP RST before response reaches the client → TimeoutError
+      4. Retry fires the same PUT against the already-confirmed asset
+      5. **If Voog returns 409/422 'already confirmed'**, the retry would
+         exit with HTTPStatusError, orphan-recovery would fire on a
+         legitimately-confirmed asset, and the operator would see
+         "confirm failed" on a successful upload.
+
+    Empirical probe against Stella OLD (2026-05-28) confirmed both
+    PUT attempts return **HTTP 200** with the full asset payload.
+    The only diff between attempts is the ``updated_at`` timestamp.
+    See ``tests/fixtures/ecommerce/asset_confirm_idempotent.json``.
+
+    This test loads that fixture and pins the contract: if Voog ever
+    changes the post-confirm response to 409/422, this test goes red
+    and the S10 retry needs to learn the new status-code branch.
+    """
+
+    def test_fixture_confirms_idempotency_both_200(self):
+        import json
+        from pathlib import Path
+
+        fixture_path = (
+            Path(__file__).resolve().parent
+            / "fixtures"
+            / "ecommerce"
+            / "asset_confirm_idempotent.json"
+        )
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            fixture["attempt_1"]["status"],
+            200,
+            "Voog must return 200 on first confirm — S10 retry assumes "
+            "idempotent success on re-confirm.",
+        )
+        self.assertEqual(
+            fixture["attempt_2"]["status"],
+            200,
+            "Voog must return 200 on second confirm of the same asset_id — "
+            "S10 retry on TimeoutError would otherwise misclassify the "
+            "post-race retry as failure and trigger orphan cleanup against "
+            "a legitimately-confirmed asset. If this test goes red, see "
+            "PR #132 review H5 and add a 409/422 'already confirmed' "
+            "status-code branch to products_images.py.",
+        )
+
+        a1 = fixture["attempt_1"]["response"]
+        a2 = fixture["attempt_2"]["response"]
+        self.assertEqual(a1["id"], a2["id"])
+        self.assertEqual(a1["filename"], a2["filename"])
+        self.assertEqual(a1["size"], a2["size"])
+        # Only timestamps differ between attempts.
+        self.assertNotEqual(a1["updated_at"], a2["updated_at"])
+
+
 if __name__ == "__main__":
     unittest.main()

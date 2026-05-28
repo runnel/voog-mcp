@@ -1,0 +1,56 @@
+{
+  "_meta": {
+    "captured_at": "2026-05-28T10:25:12+00:00",
+    "source_site": "stella-old",
+    "voog_host": "stellasoomlais.voog.com",
+    "endpoint": "/assets/{id}/confirm",
+    "method": "PUT",
+    "sanitisation_version": 1,
+    "gotchas": [
+      "H5 (v1.4 review): captured to verify confirm-after-confirm is idempotent.",
+      "Two consecutive PUTs against the same asset_id both return HTTP 200.",
+      "Only difference between attempt 1 and attempt 2 is the updated_at timestamp.",
+      "No 409 / 422 'already confirmed' status. S10 retry on TimeoutError is safe.",
+      "asset_id sanitised to 9001 (was 20919816). filename / sizes are real."
+    ],
+    "probe_command": "curl -X PUT -H 'X-API-Token: ...' 'https://stellasoomlais.voog.com/admin/api/assets/{id}/confirm'"
+  },
+  "attempt_1": {
+    "status": 200,
+    "response": {
+      "id": 9001,
+      "filename": "IMG_0848.jpg",
+      "content_type": "image/jpeg",
+      "size": 1412581,
+      "created_at": "2024-03-27T08:37:47.000Z",
+      "updated_at": "2026-05-28T10:25:12.523Z",
+      "status": "uploaded",
+      "extension": "jpg",
+      "alt_description": null,
+      "type": "image",
+      "url": "https://stellasoomlais.voog.com/admin/api/assets/9001",
+      "public_url": "https://media.voog.com/0000/0048/1986/photos/IMG_0848.jpg",
+      "width": 3833,
+      "height": 5749
+    }
+  },
+  "attempt_2": {
+    "status": 200,
+    "response": {
+      "id": 9001,
+      "filename": "IMG_0848.jpg",
+      "content_type": "image/jpeg",
+      "size": 1412581,
+      "created_at": "2024-03-27T08:37:47.000Z",
+      "updated_at": "2026-05-28T10:25:12.718Z",
+      "status": "uploaded",
+      "extension": "jpg",
+      "alt_description": null,
+      "type": "image",
+      "url": "https://stellasoomlais.voog.com/admin/api/assets/9001",
+      "public_url": "https://media.voog.com/0000/0048/1986/photos/IMG_0848.jpg",
+      "width": 3833,
+      "height": 5749
+    }
+  }
+}
