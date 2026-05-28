@@ -130,6 +130,35 @@ where an LLM is steered to call
 their own primary domain (e.g. `stellasoomlais.com`), so a domain
 allowlist would reject real-world setups.
 
+## Logging
+
+voog-mcp's own DEBUG output is PII-redacted: `voog.client._request`
+runs header dicts through `_redact_headers` and caps query-string
+values at 50 characters before any `logger.debug(...)` call
+(Phase 6a S-1).
+
+That redaction layer does NOT cover the transport stack below
+voog-mcp. `httpx[http2]` pulls in `httpcore` and `hpack`, both of which
+emit raw HTTP/2 frames at DEBUG — including the HPACK-encoded
+`x-api-token` header. A v1.4 smoke test confirmed that calling
+`logging.basicConfig(level=DEBUG)` from a user script was enough to
+land the bearer token in plaintext in the conversation transcript.
+
+To prevent this, both entry points (`voog-mcp` MCP server and the
+`voog` CLI) call `voog.logging.silence_transport_loggers()` during
+startup. The helper clamps `httpcore`, `httpcore.connection`,
+`httpcore.http11`, `httpcore.http2`, `httpx`, `hpack`, `hpack.hpack`,
+and `hpack.table` to `WARNING`, which is below their token-emitting
+DEBUG level.
+
+**Operator responsibility.** If you re-enable transport DEBUG after
+voog-mcp starts (e.g. by calling
+`logging.getLogger("httpcore").setLevel(logging.DEBUG)` from a debug
+shim, or by importing third-party tooling that does so), you MUST
+accept that authentication tokens will appear in plaintext in any log
+sink that captures stderr. The `voog` logger itself is NOT clamped —
+voog-mcp's own DEBUG output is safe to leave on.
+
 ## Reporting a vulnerability
 
 Email security reports to: **runnel@gmail.com**

@@ -89,6 +89,7 @@ from voog.config import (
     resolve_site,
     resolve_site_token,
 )
+from voog.logging import silence_transport_loggers
 
 COMMANDS = [
     articles_cmd,
@@ -201,6 +202,11 @@ def _build_client(args: argparse.Namespace) -> VoogClient:
 
 
 def main() -> None:
+    # Clamp httpcore / hpack to WARNING before any client work — if the
+    # operator's environment has root logging at DEBUG, those loggers
+    # would otherwise dump the bearer token in HPACK frames. See
+    # SECURITY.md → Logging.
+    silence_transport_loggers()
     parser = build_parser()
     args = parser.parse_args()
 
