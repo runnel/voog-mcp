@@ -65,6 +65,22 @@ proof of human consent:
 If your MCP host does not surface destructive-hint approvals to a
 human, voog-mcp's force-gate provides NO meaningful protection.
 
+### Special case: `include_pii` on `orders_list` / `order_get`
+
+The `include_pii` gate uses `destructiveHint=True` alongside
+`readOnlyHint=True`. Per the MCP spec, `destructiveHint` is "only
+meaningful when `readOnlyHint=false`" — so spec-strict hosts will
+treat these tools as read-only and skip the destructive-action
+prompt. The handler-side `force=true` gate is the load-bearing
+defense in this case: it forces the LLM to articulate PII access in
+the tool-call args (`include_pii=true, force=true`), which the
+operator sees verbatim in the host's tool-call approval UI
+regardless of how the host renders destructive-hint UX. The dual-
+annotation choice is documented inline in
+[`src/voog/mcp/tools/orders.py`](src/voog/mcp/tools/orders.py) so future
+contributors don't "fix" the apparent contradiction by dropping
+`destructiveHint`.
+
 ## Token rotation
 
 Rotate the Voog API token at least every 6 months, and immediately on

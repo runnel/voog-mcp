@@ -953,8 +953,8 @@ class TestConfirmIdempotency(unittest.TestCase):
             "S10 retry on TimeoutError would otherwise misclassify the "
             "post-race retry as failure and trigger orphan cleanup against "
             "a legitimately-confirmed asset. If this test goes red, see "
-            "PR #132 review H5 and add a 409/422 'already confirmed' "
-            "status-code branch to products_images.py.",
+            "`docs/v1.4-code-review.md` finding H5 and add a 409/422 "
+            "'already confirmed' status-code branch to products_images.py.",
         )
 
         a1 = fixture["attempt_1"]["response"]
