@@ -8,6 +8,12 @@ versioning: [PEP 440](https://peps.python.org/pep-0440/).
 
 (no changes yet)
 
+## [1.4.1] — 2026-06-10
+
+### Fixed
+- **`voog pull` dropped every layout_asset from `manifest.json`.** Voog's `/layout_assets` LIST endpoint no longer includes `data` or `kind` — it now carries `asset_type` + `editable`, with `data` only on the `/layout_assets/{id}` detail endpoint (observed live 2026-06; the Stella checkout lost its asset entries on the 2026-05-03 pull). Pre-fix pull treated every asset as binary, skipped all of them, and wrote a layouts-only manifest, which then broke `voog push javascripts/*.js` / `stylesheets/*.css` with "not in manifest. Skipping." Pull now detail-fetches each `editable` asset (mirroring the per-layout GET) and accepts both `asset_type` and legacy `kind` for the folder mapping. Regression test in `tests/test_cli_pull.py`.
+- **`voog serve` startup banner could be invisible + `localhost` URL could reach the wrong server.** (a) Banner prints now pass `flush=True`, so backgrounding serve with redirected output no longer looks like it printed nothing (block-buffered pipe held the banner back). (b) serve binds IPv4 127.0.0.1 only, but `localhost` resolves to ::1 first on macOS — a forgotten IPv6-wildcard listener on the same port (e.g. `python -m http.server`) silently answered every `http://localhost:<port>` request with 404s while serve sat idle. The banner now advertises `http://127.0.0.1:<port>`, and startup probes `[::1]:<port>` and prints a loud warning naming the squatter-diagnosis command when something else is listening there. Tests in `tests/test_cli_serve.py`.
+
 ## [1.4] — 2026-05-28
 
 > voog-mcp's minor versions may include breaking changes when the
