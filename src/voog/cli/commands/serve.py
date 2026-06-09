@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import socket
 import ssl
 import urllib.error
 import urllib.request
@@ -24,21 +25,52 @@ def add_arguments(subparsers):
 def run(args, client: VoogClient) -> int:
     local_dir = Path.cwd()
     local_assets = discover_local_assets(local_dir)
-    print(f"Proxying https://{client.host} on http://localhost:{args.port}")
-    print(f"Discovered {len(local_assets)} local assets:")
+    # flush=True throughout: when stdout is a pipe (backgrounded with
+    # output redirected), block buffering would otherwise hold the whole
+    # banner back and the server looks like it printed nothing.
+    print(
+        f"Proxying https://{client.host} on http://127.0.0.1:{args.port}",
+        flush=True,
+    )
+    print(f"Discovered {len(local_assets)} local assets:", flush=True)
     for name in sorted(local_assets):
-        print(f"  /_local/{local_assets[name]}")
+        print(f"  /_local/{local_assets[name]}", flush=True)
     if not local_assets:
-        print("  (none — create files under javascripts/ or stylesheets/)")
+        print("  (none — create files under javascripts/ or stylesheets/)", flush=True)
 
     handler_cls = _build_handler(client.host, local_dir, local_assets)
-    httpd = HTTPServer(("localhost", args.port), handler_cls)
-    print("\nReady. Ctrl+C to stop.")
+    httpd = HTTPServer(("127.0.0.1", args.port), handler_cls)
+    warning = _loopback_shadow_warning(args.port)
+    if warning:
+        print(warning, flush=True)
+    print("\nReady. Ctrl+C to stop.", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nStopped.")
     return 0
+
+
+def _loopback_shadow_warning(port: int) -> str | None:
+    """Return a warning when another process answers on [::1]:port.
+
+    Our server binds IPv4 127.0.0.1 only, but `localhost` resolves to
+    ::1 first on macOS — so if anything else listens on the IPv6
+    loopback (e.g. a forgotten `python -m http.server`), every request
+    to http://localhost:<port> silently lands on THAT process instead
+    of ours, typically 404ing while our log stays empty.
+    """
+    try:
+        with socket.create_connection(("::1", port), timeout=0.25):
+            pass
+    except OSError:
+        return None
+    return (
+        f"\n⚠️  Another process is already listening on [::1]:{port} (IPv6).\n"
+        f"   http://localhost:{port} may reach THAT process, not this proxy.\n"
+        f"   Use http://127.0.0.1:{port} — or find the squatter with:\n"
+        f"   lsof -nP -iTCP:{port} -sTCP:LISTEN"
+    )
 
 
 def _build_handler(host: str, local_dir: Path, local_assets: dict[str, str]):

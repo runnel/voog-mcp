@@ -9,6 +9,7 @@ the handler's `do_GET` method via fake request/response objects.
 from __future__ import annotations
 
 import io
+import socket
 import tempfile
 import unittest
 from pathlib import Path
@@ -104,12 +105,48 @@ class TestServeStartup(unittest.TestCase):
         fake_httpd.serve_forever.side_effect = KeyboardInterrupt
         with patch("voog.cli.commands.serve.HTTPServer", return_value=fake_httpd):
             with patch("voog.cli.commands.serve.discover_local_assets", return_value={}):
-                with patch("sys.stdout", new_callable=io.StringIO) as stdout:
-                    rc = serve_cmd.run(args, client)
+                with patch("voog.cli.commands.serve._loopback_shadow_warning", return_value=None):
+                    with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                        rc = serve_cmd.run(args, client)
         self.assertEqual(rc, 0)
         out = stdout.getvalue()
         self.assertIn("https://example.com", out)
-        self.assertIn(":9999", out)
+        # The banner advertises the IPv4 loopback explicitly — `localhost`
+        # may resolve to ::1 and reach a different process entirely.
+        self.assertIn("http://127.0.0.1:9999", out)
+
+
+class TestLoopbackShadowWarning(unittest.TestCase):
+    """The IPv6-loopback squatter check behind the serve startup warning.
+
+    Regression (2026-06): a forgotten `python -m http.server <port>`
+    bound to the IPv6 wildcard coexists with our IPv4 bind on the same
+    port — `localhost` then resolves to ::1 and every request 404s
+    against the wrong server while voog serve sits idle.
+    """
+
+    def test_no_listener_returns_none(self):
+        # Grab a port that is free on both families: bind IPv4 ephemeral,
+        # close it, probe. (A tiny race window is acceptable in tests.)
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        self.assertIsNone(serve_cmd._loopback_shadow_warning(port))
+
+    @unittest.skipUnless(socket.has_ipv6, "IPv6 unavailable on this host")
+    def test_ipv6_listener_produces_warning(self):
+        try:
+            squatter = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            squatter.bind(("::1", 0))
+        except OSError:  # pragma: no cover — IPv6 loopback disabled
+            self.skipTest("cannot bind ::1 on this host")
+        with squatter:
+            squatter.listen(1)
+            port = squatter.getsockname()[1]
+            warning = serve_cmd._loopback_shadow_warning(port)
+        self.assertIsNotNone(warning)
+        self.assertIn(f"[::1]:{port}", warning)
+        self.assertIn(f"http://127.0.0.1:{port}", warning)
 
 
 if __name__ == "__main__":

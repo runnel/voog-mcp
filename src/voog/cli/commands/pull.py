@@ -53,18 +53,26 @@ def run(args, client: VoogClient) -> int:
     print("\nFetching layout_assets...")
     assets = client.get_all("/layout_assets")
     for asset in assets:
-        kind = asset.get("kind", "unknown")
+        # The list endpoint describes the asset type as `asset_type`
+        # (older API responses used `kind` — accept both).
+        kind = asset.get("asset_type") or asset.get("kind") or "unknown"
         folder_name = asset_type_to_folder.get(kind, "assets")
         folder_path = local_dir / folder_name
         folder_path.mkdir(exist_ok=True)
         filename = asset["filename"]
         filepath = folder_path / filename
-        # Text assets have `data` field; binary assets have a public_url
-        if asset.get("data") is not None:
-            filepath.write_text(asset["data"], encoding="utf-8")
-        else:
+        # Text assets carry a `data` field; binary assets only a public_url.
+        # The list endpoint stopped including `data` (observed 2026-06) —
+        # only /layout_assets/{id} returns it now, so editable (= text)
+        # assets need a per-asset detail GET, mirroring the layouts loop.
+        data = asset.get("data")
+        if data is None and asset.get("editable"):
+            detail = client.get(f"/layout_assets/{asset['id']}")
+            data = detail.get("data")
+        if data is None:
             # Skip binaries during pull (they don't round-trip well via API)
             continue
+        filepath.write_text(data, encoding="utf-8")
         manifest[str(filepath.relative_to(local_dir))] = {
             "id": asset["id"],
             "type": "asset",
