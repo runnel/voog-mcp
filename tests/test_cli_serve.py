@@ -105,9 +105,7 @@ class TestServeStartup(unittest.TestCase):
         fake_httpd.serve_forever.side_effect = KeyboardInterrupt
         with patch("voog.cli.commands.serve.HTTPServer", return_value=fake_httpd):
             with patch("voog.cli.commands.serve.discover_local_assets", return_value={}):
-                with patch(
-                    "voog.cli.commands.serve._loopback_shadow_warning", return_value=None
-                ):
+                with patch("voog.cli.commands.serve._loopback_shadow_warning", return_value=None):
                     with patch("sys.stdout", new_callable=io.StringIO) as stdout:
                         rc = serve_cmd.run(args, client)
         self.assertEqual(rc, 0)
