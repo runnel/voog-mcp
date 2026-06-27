@@ -32,6 +32,7 @@ from voog.mcp.tools import (
     layouts,
     layouts_sync,
     me,
+    media_sets,
     multilingual,
     orders,
     pages,
@@ -274,6 +275,10 @@ class TestSweepBatch4(unittest.TestCase):
         tools = tags.get_tools()
         _assert_with_tool_invoked(self, tags, tools[0].name, {})
 
+    def test_media_sets_first_tool_enters_with_tool(self):
+        tools = media_sets.get_tools()
+        _assert_with_tool_invoked(self, media_sets, tools[0].name, {})
+
 
 class TestEveryToolModuleHasWithToolSweep(unittest.TestCase):
     """Drift guard — every module registered in server.TOOL_GROUPS must be
@@ -302,6 +307,7 @@ class TestEveryToolModuleHasWithToolSweep(unittest.TestCase):
             layouts,
             layouts_sync,
             me,
+            media_sets,
             multilingual,
             orders,
             pages,

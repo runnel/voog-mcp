@@ -157,7 +157,7 @@ def get_tools() -> list[Tool]:
                 "consistent across the tools and resources surfaces. For "
                 "per-variant stock on a variant-bearing product, follow up "
                 "with product_get. Pass `category_id` to filter to products "
-                "in that category (maps to q.product.category_ids.$in). "
+                "in that category (maps to q.category.id.$eq). "
                 "Price fields (`price`, `sale_price`, `effective_price`) are "
                 "net or gross depending on `settings.price_entry_mode`. Call "
                 "`ecommerce_settings_get` to determine the mode. For "
@@ -175,7 +175,7 @@ def get_tools() -> list[Tool]:
                         "type": "integer",
                         "description": (
                             "Filter to products in this category. Maps to "
-                            "the Voog filter q.product.category_ids.$in. "
+                            "the Voog filter q.category.id.$eq. "
                             "Omit for all products."
                         ),
                     },
@@ -515,7 +515,12 @@ def _products_list(arguments: dict, client: VoogClient) -> list[TextContent] | C
             return error_response(err)
     params: dict = {"include": PRODUCTS_LIST_INCLUDE}
     if category_id is not None:
-        params["q.product.category_ids.$in"] = category_id
+        # Voog filters products by category via the `category` object, not
+        # the `product` object: q.category.id.$eq works; the intuitive-looking
+        # q.product.category_ids.* is a silent no-op (returns the full
+        # catalogue — `category_ids` is not a filterable product attribute).
+        # Confirmed against the live API + Voog dev docs (issue #135, tanelj).
+        params["q.category.id.$eq"] = category_id
     try:
         products = client.get_all(
             "/products",

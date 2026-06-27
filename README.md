@@ -168,6 +168,7 @@ Full endpoint coverage reference: [docs/voog-mcp-endpoint-coverage.md](docs/voog
 | Elements | `elements_list`, `element_get`, `element_definitions_list`, `element_create`, `element_update`, `element_move`, `element_delete` |
 | Products | `products_list`, `product_get`, `product_create`, `product_update`, `product_set_images`, `product_delete`, `product_duplicate`, `products_bulk_action` |
 | Categories | `categories_list`, `category_get`, `category_create`, `category_update`, `category_delete` |
+| Media sets (galleries) | `media_set_get`, `media_set_update_asset_titles` (safe GET-then-PUT — `PUT /media_sets/{id}` is replace-not-merge) |
 | Orders | `orders_list`, `order_get` (read-only; PII-stripped by default, `include_pii=true` requires `force=true`) |
 | Discounts | `discounts_list`, `discount_get`, `discount_create`, `discount_update`, `discount_delete` |
 | Cart rules | `cart_rules_list`, `cart_rule_get`, `cart_rule_create`, `cart_rule_update`, `cart_rule_delete` |

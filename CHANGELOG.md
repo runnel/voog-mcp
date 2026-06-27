@@ -8,6 +8,14 @@ versioning: [PEP 440](https://peps.python.org/pep-0440/).
 
 (no changes yet)
 
+## [1.4.2] — 2026-06-27
+
+### Fixed
+- **`products_list(category_id=…)` was a silent no-op** (issue #135). The tool mapped the filter to `q.product.category_ids.$in`, which Voog's ecommerce API ignores — `category_ids` is not a filterable attribute on the `/products` object, so every value returned the full catalogue (157 products for Stella). The correct single-query form filters on the `category` object: `q.category.id.$eq`. Verified live (Kotid category 100943 → 18 products with the new filter, 157 with the old). Thanks to **@tanelj** (Voog's lead developer) for pointing to the right query in the issue thread. Regression test updated in `tests/test_tools_products.py`.
+
+### Added
+- **`media_set_get` + `media_set_update_asset_titles`** — typed tools for media_sets (galleries) (issue #120). `PUT /media_sets/{id}` is replace-not-merge: the `assets` array you send REPLACES the gallery, so a naive "edit one image's title" PUT silently unlinks every other image (hit Stella live 2026-05-20 — one alt-text edit dropped 3 of 4 gallery images). `media_set_update_asset_titles` encapsulates the safe GET-then-PUT-full-array pattern — change titles by asset id while every other asset's id, order, title, and link settings are preserved — mirroring how `product_update` shields callers from the `variants` foot-gun. An unknown asset id is rejected (no silent no-op) and an internal guard refuses to PUT a shorter array than it read. `media_set_get` returns a curated view (id, title, kind, ordered assets) for discovering ids. The generic `voog_admin_api_call` description gains an explicit replace-not-merge caveat for `/media_sets/*` PUTs. Verified live with a round-trip on media_set 1542046. Tests in `tests/test_tools_media_sets.py`.
+
 ## [1.4.1] — 2026-06-10
 
 ### Fixed

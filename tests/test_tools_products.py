@@ -1057,7 +1057,11 @@ class TestProductsListCategoryId(unittest.TestCase):
         client.get_all.return_value = []
         products_tools.call_tool("products_list", {"category_id": 99}, client)
         called_params = client.get_all.call_args[1]["params"]
-        self.assertEqual(called_params["q.product.category_ids.$in"], 99)
+        # Voog filters by the `category` object, not `product.category_ids`
+        # (the latter is a silent no-op — issue #135). q.category.id.$eq is
+        # the working single-query form per tanelj / Voog dev docs.
+        self.assertEqual(called_params["q.category.id.$eq"], 99)
+        self.assertNotIn("q.product.category_ids.$in", called_params)
         self.assertEqual(called_params["include"], "translations")
 
     def test_omitted_category_id_no_filter(self):
@@ -1066,7 +1070,7 @@ class TestProductsListCategoryId(unittest.TestCase):
         client.get_all.return_value = []
         products_tools.call_tool("products_list", {}, client)
         called_params = client.get_all.call_args[1]["params"]
-        self.assertNotIn("q.product.category_ids.$in", called_params)
+        self.assertNotIn("q.category.id.$eq", called_params)
 
     def test_category_id_bool_rejected(self):
         client = MagicMock()

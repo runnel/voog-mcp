@@ -152,6 +152,13 @@ def get_tools() -> list[Tool]:
                 "tags, media_sets, webhooks, etc.). Conservative annotations "
                 "(destructiveHint=true) — Claude will confirm before calling.\n"
                 "\n"
+                "⚠️ `PUT /media_sets/{id}` is replace-not-merge: the `assets` "
+                "array you send REPLACES the gallery — any asset omitted is "
+                "unlinked. To edit asset titles safely use the typed "
+                "media_set_update_asset_titles tool (GET-then-PUT-full-array); "
+                "only hand-roll a media_sets PUT when you have the COMPLETE "
+                "asset list. Same foot-gun as product `variants`.\n"
+                "\n"
                 "method='GET' is DEPRECATED in v1.4 — use voog_admin_api_read "
                 "instead; GET support is removed in v1.5."
             ),
