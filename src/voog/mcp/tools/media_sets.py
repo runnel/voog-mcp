@@ -95,7 +95,7 @@ def get_tools() -> list[Tool]:
             description=(
                 "Safely edit one or more asset titles in a media_set "
                 "(gallery). Pass `titles` as an object mapping asset id -> new "
-                "title, e.g. {\"24898880\": \"New alt text\"}.\n"
+                'title, e.g. {"24898880": "New alt text"}.\n'
                 "\n"
                 "WHY THIS TOOL: `PUT /media_sets/{id}` is replace-not-merge — "
                 "any asset omitted from the request body is unlinked from the "
@@ -257,9 +257,7 @@ def _media_set_update_asset_titles(
     try:
         result = client.put(f"/media_sets/{media_set_id}", {"assets": new_assets})
     except Exception as e:
-        return error_response(
-            f"media_set_update_asset_titles PUT id={media_set_id} failed: {e}"
-        )
+        return error_response(f"media_set_update_asset_titles PUT id={media_set_id} failed: {e}")
 
     simplified = _simplify_media_set(result) if isinstance(result, dict) else None
     return success_response(

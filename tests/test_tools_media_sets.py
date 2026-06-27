@@ -21,10 +21,34 @@ def _make_media_set():
         "title": "Gallery",
         "kind": "wall",
         "assets": [
-            {"id": 24898880, "position": 1, "title": "Alt one", "filename": "a.jpg", "type": "image"},
-            {"id": 24898881, "position": 2, "title": "Alt two", "filename": "b.jpg", "type": "image"},
-            {"id": 24898882, "position": 3, "title": "Alt three", "filename": "c.jpg", "type": "image"},
-            {"id": 24898883, "position": 4, "title": "Alt four", "filename": "d.jpg", "type": "image"},
+            {
+                "id": 24898880,
+                "position": 1,
+                "title": "Alt one",
+                "filename": "a.jpg",
+                "type": "image",
+            },
+            {
+                "id": 24898881,
+                "position": 2,
+                "title": "Alt two",
+                "filename": "b.jpg",
+                "type": "image",
+            },
+            {
+                "id": 24898882,
+                "position": 3,
+                "title": "Alt three",
+                "filename": "c.jpg",
+                "type": "image",
+            },
+            {
+                "id": 24898883,
+                "position": 4,
+                "title": "Alt four",
+                "filename": "d.jpg",
+                "type": "image",
+            },
         ],
     }
 
@@ -61,12 +85,12 @@ class TestMediaSetGet(unittest.TestCase):
     def test_curates_shape(self):
         client = MagicMock()
         client.get.return_value = _make_media_set()
-        result = media_sets_tools.call_tool(
-            "media_set_get", {"media_set_id": 1542046}, client
-        )
+        result = media_sets_tools.call_tool("media_set_get", {"media_set_id": 1542046}, client)
         payload = _success_payload(result)
         self.assertEqual(payload["assets_count"], 4)
-        self.assertEqual([a["id"] for a in payload["assets"]], [24898880, 24898881, 24898882, 24898883])
+        self.assertEqual(
+            [a["id"] for a in payload["assets"]], [24898880, 24898881, 24898882, 24898883]
+        )
         # No bulky `sizes`/`public_url` in the curated asset shape.
         self.assertNotIn("sizes", payload["assets"][0])
 
@@ -93,7 +117,9 @@ class TestUpdateAssetTitles(unittest.TestCase):
         # Bare body, no envelope.
         self.assertEqual(set(body.keys()), {"assets"})
         # All 4 assets present, in position order.
-        self.assertEqual([a["id"] for a in body["assets"]], [24898880, 24898881, 24898882, 24898883])
+        self.assertEqual(
+            [a["id"] for a in body["assets"]], [24898880, 24898881, 24898882, 24898883]
+        )
         # Only the targeted title changed; the rest preserved verbatim.
         by_id = {a["id"]: a["title"] for a in body["assets"]}
         self.assertEqual(by_id[24898881], "Edited two")
