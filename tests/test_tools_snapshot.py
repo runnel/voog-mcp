@@ -1445,6 +1445,9 @@ class TestServerToolRegistry(unittest.TestCase):
             me as me_t,
         )
         from voog.mcp.tools import (
+            media_sets as media_sets_t,
+        )
+        from voog.mcp.tools import (
             multilingual as multilingual_t,
         )
         from voog.mcp.tools import (
@@ -1502,6 +1505,7 @@ class TestServerToolRegistry(unittest.TestCase):
             layouts_t,
             layouts_sync_t,
             me_t,
+            media_sets_t,
             multilingual_t,
             orders_t,
             pages_t,
