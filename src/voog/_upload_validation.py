@@ -17,14 +17,21 @@ import os
 import urllib.parse
 
 # Allowlist of host suffixes for the presigned upload_url returned by Voog's
-# POST /assets. Voog uploads land on S3 today, so the default is just
-# *.amazonaws.com — narrow on purpose, since `.voog.com` would let a
-# misbehaving API steer the file at a Voog admin endpoint instead of an S3
-# bucket. Override at deploy time via VOOG_UPLOAD_HOST_SUFFIXES (comma-
-# separated, e.g. "amazonaws.com,voogcdn.com") if Voog migrates the upload
-# host. Leading dot is optional in env input — entries are matched as bare
-# host or dot-boundary suffix (so "evil.com" never matches "notevil.com").
-_DEFAULT_UPLOAD_HOST_SUFFIXES = ("amazonaws.com",)
+# POST /assets:
+#   - media.voog.com — what Voog actually hands out (issue #137). The S3
+#     presigned query string (AWSAccessKeyId / Expires / Signature) is
+#     intact; only the host is CNAME'd. Probed live 2026-08-12.
+#   - amazonaws.com — bare S3, kept for tenants/regions served without the
+#     CNAME and for the pre-#137 contract.
+# Deliberately NOT a blanket `.voog.com`: that would let a misbehaving API
+# steer the file at a Voog admin endpoint instead of the media store. Admin
+# traffic lives on the tenant host (where confirm_url points) and on
+# www.voog.com — neither matches a `media.voog.com` dot-boundary suffix.
+# Override at deploy time via VOOG_UPLOAD_HOST_SUFFIXES (comma-separated,
+# e.g. "amazonaws.com,voogcdn.com") if Voog migrates the upload host again.
+# Leading dot is optional in env input — entries are matched as bare host or
+# dot-boundary suffix (so "evil.com" never matches "notevil.com").
+_DEFAULT_UPLOAD_HOST_SUFFIXES = ("amazonaws.com", "media.voog.com")
 
 
 def _allowed_upload_host_suffixes() -> tuple[str, ...]:

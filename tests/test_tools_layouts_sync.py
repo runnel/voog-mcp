@@ -713,14 +713,19 @@ class TestLayoutsPush(unittest.TestCase):
         self.assertEqual(breakdown["succeeded"], 1)
         self.assertEqual(breakdown["failed"], 1)
 
-    def test_layout_asset_entry_captured_as_failure_not_mis_put(self):
-        # voog.py-pulled trees mix type=layout and type=layout_asset entries.
-        # Sending an asset id to PUT /layouts/{id} would either 404 or — in
-        # the worst case where id-spaces collide — overwrite a real layout's
-        # body with a CSS/JS payload. layouts_push must catch this BEFORE
-        # the PUT.
+    def test_asset_entry_routes_to_layout_assets_endpoint(self):
+        # Issue #138: pulled trees mix layouts with assets, and pushing an
+        # asset from disk is the only byte-exact deploy path an MCP host has.
+        # Each type must reach its OWN endpoint and payload field — an asset
+        # id sent to PUT /layouts/{id} would either 404 or, where the
+        # id-spaces collide, overwrite a real layout's body with CSS/JS.
         client = _make_client()
-        client.put.return_value = {}
+        css = "body { color: red; }"
+        client.put.side_effect = lambda path, payload: (
+            {"id": 50, "size": len(css)}
+            if path.startswith("/layout_assets/")
+            else {"id": 100, "updated_at": "2026-08-12T10:00:00.000Z"}
+        )
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "tree"
             _make_pulled_tree(
@@ -736,7 +741,7 @@ class TestLayoutsPush(unittest.TestCase):
                 },
                 contents={
                     "layouts/page.tpl": "page-body",
-                    "stylesheets/main.css": "body { color: red; }",
+                    "stylesheets/main.css": css,
                 },
             )
             result = layouts_sync_tools.call_tool(
@@ -744,16 +749,97 @@ class TestLayoutsPush(unittest.TestCase):
                 {"target_dir": str(target)},
                 client,
             )
-        # Only the layout entry was PUT — asset entry must NOT have been dispatched
-        self.assertEqual(client.put.call_count, 1)
-        self.assertEqual(client.put.call_args.args[0], "/layouts/100")
+        calls = {c.args[0]: c.args[1] for c in client.put.call_args_list}
+        self.assertEqual(client.put.call_count, 2)
+        # Layout keeps {body}; asset gets {data} at /layout_assets/{id}.
+        self.assertEqual(calls["/layouts/100"], {"body": "page-body"})
+        self.assertEqual(calls["/layout_assets/50"], {"data": css})
         breakdown = json.loads(result[1].text)
         self.assertEqual(breakdown["total"], 2)
+        self.assertEqual(breakdown["succeeded"], 2)
+        self.assertEqual(breakdown["failed"], 0)
+
+    def test_asset_entry_current_type_spelling_also_routes(self):
+        # `voog pull` writes type="asset"; legacy voog.py wrote
+        # "layout_asset". Both must reach /layout_assets/{id}.
+        client = _make_client()
+        js = "console.log('hi');"
+        client.put.return_value = {"id": 51, "size": len(js)}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            _make_pulled_tree(
+                target,
+                manifest={
+                    "javascripts/app.js": {
+                        "id": 51,
+                        "type": "asset",
+                        "asset_type": "javascript",
+                        "updated_at": "",
+                    },
+                },
+                contents={"javascripts/app.js": js},
+            )
+            result = layouts_sync_tools.call_tool(
+                "layouts_push",
+                {"target_dir": str(target)},
+                client,
+            )
+        self.assertEqual(client.put.call_args.args[0], "/layout_assets/51")
+        self.assertEqual(client.put.call_args.args[1], {"data": js})
+        breakdown = json.loads(result[1].text)
         self.assertEqual(breakdown["succeeded"], 1)
+
+    def test_asset_size_mismatch_reported_as_failure(self):
+        # Issue #96: Voog answers some no-op asset PUTs with a clean 200.
+        # The size signal (characters, not bytes) is what catches it — a ✓
+        # on an unwritten file is the failure mode this whole path exists
+        # to avoid.
+        client = _make_client()
+        client.put.return_value = {"id": 52, "size": 0}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            _make_pulled_tree(
+                target,
+                manifest={
+                    "javascripts/app.js": {"id": 52, "type": "asset", "updated_at": ""},
+                },
+                contents={"javascripts/app.js": "console.log('hi');"},
+            )
+            result = layouts_sync_tools.call_tool(
+                "layouts_push",
+                {"target_dir": str(target)},
+                client,
+            )
+        breakdown = json.loads(result[1].text)
         self.assertEqual(breakdown["failed"], 1)
         failed = [r for r in breakdown["results"] if not r["ok"]][0]
-        self.assertEqual(failed["file"], "stylesheets/main.css")
-        self.assertIn("layout_asset", failed["error"])
+        self.assertEqual(failed["file"], "javascripts/app.js")
+        self.assertIn("NOT updated", failed["error"])
+
+    def test_unknown_manifest_type_still_captured_as_failure(self):
+        # Anything outside the shared dispatch table stays a per-file
+        # failure rather than being guessed at.
+        client = _make_client()
+        client.put.return_value = {}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            _make_pulled_tree(
+                target,
+                manifest={
+                    "images/logo.png": {"id": 70, "type": "binary_asset", "updated_at": ""},
+                },
+                contents={"images/logo.png": "not-really-binary"},
+            )
+            result = layouts_sync_tools.call_tool(
+                "layouts_push",
+                {"target_dir": str(target)},
+                client,
+            )
+        self.assertEqual(client.put.call_count, 0)
+        breakdown = json.loads(result[1].text)
+        self.assertEqual(breakdown["failed"], 1)
+        failed = [r for r in breakdown["results"] if not r["ok"]][0]
+        self.assertIn("binary_asset", failed["error"])
 
     def test_missing_file_in_explicit_files_arg_still_captured(self):
         # User passes `files=["typo.tpl"]` that's not in manifest — captured

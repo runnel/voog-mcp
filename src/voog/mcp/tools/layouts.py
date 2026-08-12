@@ -212,7 +212,14 @@ def get_tools() -> list[Tool]:
             description=(
                 "Update a layout_asset's content (PUT /layout_assets/{id} "
                 "{data}). filename is read-only — Voog returns 500 if "
-                "filename is sent on PUT. Use asset_replace to rename."
+                "filename is sent on PUT. Use asset_replace to rename. "
+                "NOT byte-exact for a file on disk: `data` crosses a JSON "
+                "boundary, so literal \\uXXXX escapes in the source arrive "
+                "decoded and Voog stores the decoded form under a clean ✓ "
+                "(issue #138). To deploy a tracked .js/.css file, use "
+                "layouts_push(files=[...]) — it reads from disk. This tool "
+                "refuses content carrying raw U+2028/U+2029 or C0 controls, "
+                "the decode fingerprints that change what a file means."
             ),
             inputSchema={
                 "type": "object",
@@ -301,6 +308,59 @@ def _detect_silent_no_op(result, sent: dict, field: str) -> str | None:
         return (
             f"response echoed back with `{field}` cleared — content "
             "NOT updated on Voog (silent no-op symptom)"
+        )
+    return None
+
+
+# Characters that cannot plausibly be typed into a template or source file
+# but ARE what a JSON transport produces when it decodes a literal \uXXXX
+# escape from one (issue #138):
+#   - U+2028 / U+2029 are exactly what JS minifiers escape *out of* source,
+#     because raw they terminate a line for the parser and break JSONP and
+#     inline-script embedding.
+#   - raw C0 controls (other than tab / LF / CR) and U+007F never appear in
+#     hand-written Liquid, CSS or JS.
+# Tab, LF and CR are ordinary whitespace and always allowed.
+_ALLOWED_CONTROL_CHARS = frozenset("\t\n\r")
+_ESCAPE_DECODE_MARKERS = {
+    "\u2028": "LINE SEPARATOR",
+    "\u2029": "PARAGRAPH SEPARATOR",
+}
+
+
+def _detect_decoded_escape(content, *, field: str, tool_name: str) -> str | None:
+    """Refuse content that shows the fingerprint of transport-decoded escapes.
+
+    MCP tool arguments cross a JSON boundary: a literal ``\\uXXXX`` sequence
+    in the caller's source file only survives if it was doubled on the way
+    in, and nothing downstream can tell a decoded escape from a character
+    the caller meant to send. ``_detect_silent_no_op`` cannot help — Voog
+    stores exactly what it was sent, so a corrupted body reads back as ✓.
+
+    Returns an error message when the content carries a character that is
+    (a) semantically load-bearing and (b) never authored raw, else ``None``.
+    Push from disk (``layouts_push`` / ``voog push``) is the byte-exact path
+    and is what the message points at.
+    """
+    if not isinstance(content, str):
+        return None
+    for index, char in enumerate(content):
+        code_point = ord(char)
+        name = _ESCAPE_DECODE_MARKERS.get(char)
+        if name is None:
+            is_control = code_point < 0x20 or code_point == 0x7F
+            if not is_control or char in _ALLOWED_CONTROL_CHARS:
+                continue
+            name = "C0 control character"
+        return (
+            f"{tool_name}: {field} contains a raw {name} (U+{code_point:04X}) at "
+            f"offset {index}. MCP arguments cross a JSON boundary, so a literal "
+            f"\\u{code_point:04X} escape in your source file arrives already "
+            f"decoded — what Voog would store is not the file on disk (issue "
+            f"#138). Push from disk instead: layouts_push(site=…, target_dir=…, "
+            f"files=[…]) reads the file itself, or use the `voog push` CLI. If "
+            f"the character really is intended, it must be written as an escape "
+            f"by the source file, not sent raw."
         )
     return None
 
@@ -451,6 +511,9 @@ def _layout_update(arguments: dict, client: VoogClient) -> list[TextContent] | C
             return error_response(f"layout_update: {err}")
         body["title"] = title
     if arguments.get("body") is not None:
+        err = _detect_decoded_escape(arguments["body"], field="body", tool_name="layout_update")
+        if err:
+            return error_response(err)
         body["body"] = arguments["body"]
     if not body:
         return error_response("layout_update: at least one of title/body required")
@@ -550,6 +613,9 @@ def _layout_asset_create(arguments: dict, client: VoogClient) -> list[TextConten
         return error_response("layout_asset_create: asset_type is required")
     if data is None:
         return error_response("layout_asset_create: data is required")
+    err = _detect_decoded_escape(data, field="data", tool_name="layout_asset_create")
+    if err:
+        return error_response(err)
     try:
         result = client.post(
             "/layout_assets",
@@ -575,6 +641,9 @@ def _layout_asset_update(arguments: dict, client: VoogClient) -> list[TextConten
         )
     if arguments.get("data") is None:
         return error_response("layout_asset_update: data is required")
+    err = _detect_decoded_escape(arguments["data"], field="data", tool_name="layout_asset_update")
+    if err:
+        return error_response(err)
     payload = {"data": arguments["data"]}
     try:
         result = client.put(f"/layout_assets/{asset_id}", payload)

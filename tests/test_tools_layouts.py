@@ -881,5 +881,108 @@ class TestAllToolsRequireSite(unittest.TestCase):
             )
 
 
+class TestDecodedEscapeGuard(unittest.TestCase):
+    """Issue #138 — refuse content that shows transport-decoded escapes.
+
+    A literal ``\\uXXXX`` in a source file only survives the JSON boundary if
+    it was doubled; otherwise the tool receives the decoded character and
+    Voog stores that under a clean ✓. U+2028 / U+2029 and raw C0 controls are
+    the fingerprints worth refusing: minifiers escape them out of JS source
+    precisely because raw they change what the file means.
+
+    Every marker is written here as a Python escape, never as a raw literal —
+    an invisible character in a test file is its own foot-gun.
+    """
+
+    def _call(self, name, args):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.put.return_value = {"id": 99}
+        client.post.return_value = {"id": 99}
+        result = layouts_tools.call_tool(name, args, client)
+        return result, client
+
+    def test_asset_update_rejects_line_separator(self):
+        result, client = self._call(
+            "layout_asset_update",
+            {"asset_id": 99, "data": "var dash = '\u2028';"},
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("U+2028", payload["error"])
+        self.assertIn("layouts_push", payload["error"])
+        # Nothing may reach Voog — refusing after the PUT would be pointless.
+        self.assertEqual(client.put.call_count, 0)
+
+    def test_asset_update_rejects_paragraph_separator(self):
+        result, client = self._call(
+            "layout_asset_update",
+            {"asset_id": 99, "data": "a\u2029b"},
+        )
+        self.assertTrue(result.isError)
+        self.assertIn("U+2029", json.loads(result.content[0].text)["error"])
+        self.assertEqual(client.put.call_count, 0)
+
+    def test_asset_update_rejects_c0_control(self):
+        result, client = self._call(
+            "layout_asset_update",
+            {"asset_id": 99, "data": "console.log('\u0007');"},
+        )
+        self.assertTrue(result.isError)
+        self.assertIn("U+0007", json.loads(result.content[0].text)["error"])
+        self.assertEqual(client.put.call_count, 0)
+
+    def test_asset_update_allows_ordinary_text(self):
+        # The guard must not fire on the content people actually push:
+        # Estonian letters, typographic dashes, emoji, tabs and newlines.
+        # An en-dash IS what a decoded – looks like — but it is also a
+        # character authors type directly, so refusing it would break real
+        # pushes to catch a cosmetic diff.
+        payload_text = "/* õäöü – — ✓ 🇪🇪 */\n\tvar x = 1;\r\n"
+        result, client = self._call(
+            "layout_asset_update",
+            {"asset_id": 99, "data": payload_text},
+        )
+        self.assertFalse(getattr(result, "isError", False))
+        self.assertEqual(client.put.call_args.args[1], {"data": payload_text})
+
+    def test_asset_create_rejects_line_separator(self):
+        result, client = self._call(
+            "layout_asset_create",
+            {"filename": "app.js", "asset_type": "javascript", "data": "x\u2028y"},
+        )
+        self.assertTrue(result.isError)
+        self.assertIn("U+2028", json.loads(result.content[0].text)["error"])
+        self.assertEqual(client.post.call_count, 0)
+
+    def test_layout_update_body_rejects_line_separator(self):
+        result, client = self._call(
+            "layout_update",
+            {"layout_id": 42, "body": "{% if x %}\u2028{% endif %}"},
+        )
+        self.assertTrue(result.isError)
+        self.assertIn("U+2028", json.loads(result.content[0].text)["error"])
+        self.assertEqual(client.put.call_count, 0)
+
+    def test_layout_update_title_only_unaffected(self):
+        # The guard is scoped to content fields; a title-only update must
+        # still work exactly as before.
+        result, client = self._call("layout_update", {"layout_id": 42, "title": "Uus nimi"})
+        self.assertFalse(getattr(result, "isError", False))
+        self.assertEqual(client.put.call_args.args[1], {"title": "Uus nimi"})
+
+    def test_source_file_carries_no_raw_separators(self):
+        # The module warns about invisible characters — it must not contain
+        # any itself. Guards against a future edit pasting one in.
+        from pathlib import Path
+
+        from voog.mcp.tools import layouts as layouts_tools
+
+        source = Path(layouts_tools.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("\u2028", source)
+        self.assertNotIn("\u2029", source)
+
+
 if __name__ == "__main__":
     unittest.main()
