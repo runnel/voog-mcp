@@ -25,6 +25,7 @@ from voog.mcp.tools import (
     assets,
     cart_rules,
     categories,
+    clone,
     comments,
     content_partials,
     discounts,
@@ -285,6 +286,11 @@ class TestSweepBatch4(unittest.TestCase):
         tools = media_sets.get_tools()
         _assert_with_tool_invoked(self, media_sets, tools[0].name, {})
 
+    def test_clone_enters_with_tool(self):
+        # site_clone short-circuits on the missing target_site, but the
+        # with_tool wrap fires first — same contract as products_images.
+        _assert_with_tool_invoked(self, clone, "site_clone", {})
+
 
 class TestEveryToolModuleHasWithToolSweep(unittest.TestCase):
     """Drift guard — every module registered in server.TOOL_GROUPS must be
@@ -305,6 +311,7 @@ class TestEveryToolModuleHasWithToolSweep(unittest.TestCase):
             articles,
             cart_rules,
             categories,
+            clone,
             comments,
             content_partials,
             discounts,

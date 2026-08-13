@@ -180,6 +180,7 @@ Full endpoint coverage reference: [docs/voog-mcp-endpoint-coverage.md](docs/voog
 | Site | `site_get`, `site_update`, `site_set_data`, `site_delete_data` |
 | Webhooks | `webhooks_list`, `webhook_create`, `webhook_update`, `webhook_delete` |
 | Snapshot | `pages_snapshot`, `site_snapshot` |
+| Cross-site clone | `site_clone` (copy layouts, layout assets, media, site settings, pages, content areas and articles from one configured site onto another — phased, resumable, dry-run by default; ecommerce and elements are NOT copied) |
 | **Read-only passthrough** | `voog_admin_api_read`, `voog_ecommerce_api_read` |
 | **Generic passthrough (writes)** | `voog_admin_api_call`, `voog_ecommerce_api_call` — POST/PUT/PATCH/DELETE only. `method='GET'` was removed in v1.5; use the `_read` tools above. |
 

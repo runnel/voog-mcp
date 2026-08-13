@@ -8,6 +8,36 @@ versioning: [PEP 440](https://peps.python.org/pep-0440/).
 
 ## [1.5.0] — 2026-08-13
 
+### Added
+
+#### Cross-site clone — `site_clone` (issue #140 item 2)
+
+The last open item from the site-duplication audit. `site_snapshot` has read a whole site since v1.2; nothing applied one to another, so a real job (kolmkoma.ee → kolm-koma-2026, 2026-08-04: 55 layouts, 38 layout assets, 617 media files, 7 pages, 60 articles with per-article galleries) ran on a one-off script because MCP could not express it. That script is generalised here.
+
+**One tool + one CLI subcommand, nine phases.** `site_clone(site, target_site, state_dir, phases?, force?)` and `voog --site X site-clone --target Y --state-dir Z`. `site` is the SOURCE and is only read; `target_site` is overwritten. Phases: `layouts`, `layout_assets`, `assets`, `site`, `pages`, `contents`, `articles`, `cleanup`, `verify`, plus a read-only `plan` preflight. They are one pipeline with hard ordering, not nine independent operations — nine tools would offer nine ways to run them out of order, each producing a plausible report over a broken site, so a `phases` argument keeps composition (resume at `articles`, re-run `assets` after a quota raise) while the tool keeps the ordering. A caller's `["contents", "pages"]` is re-sorted rather than honoured literally.
+
+**Dry run by default.** Nothing is written without `force=true` / `--force`. The tool overwrites a site; the default has to be the harmless one.
+
+**Resumable and idempotent.** `state_dir` holds `source-id → target-id` maps, flushed on every single mapping rather than per phase — a crash after 400 of 617 uploads must not re-upload those 400 into a quota that no longer has room. Each phase skips what is already mapped, so re-running converges instead of duplicating. The directory is bound to one (source, target) pair and refuses a resume against a different one: the maps name real target ids, and pointing them at another site would overwrite its pages.
+
+**Reads the source live, not from a snapshot.** A `site_snapshot` directory carries no per-article contents, no language-level contents, and no layout_asset `data` (the list endpoint dropped it in 2026-06 — see v1.4.1), so a snapshot-driven clone would silently omit every article body and gallery. Both sites are already in `voog.json`.
+
+**Quota preflight.** `GET /site` reports `data_usage`, and a trial/developer site carries its cap in `data.internal_trial_assets_quota` (measured live: 1.23 GB of 5 GB on kolm-koma-2026). `plan` reports remaining headroom against the source's media total. A site with no advertised cap reports `remaining: null`, which is read as **unknown**, never as unlimited — the free-plan run that motivated this hit a hard 422 `quota_exceeded` at ~98 MB with no cap advertised at all. Uploads reserve budget through a single lock before downloading, so a parallel fan-out cannot collectively overshoot a limit none of its workers would have exceeded alone; smallest files go first, so a run that runs out has copied the most images rather than the biggest.
+
+**What it does NOT copy**, stated plainly because a clone that quietly omits things is worse than one that says so: ecommerce (products, variants, categories, discounts, cart rules, orders), elements, redirects, webhooks, forms, comments. Languages are matched by `code` and never created — adding one changes every URL on a site. `created_at` / `published_at` are not settable (PUT returns 200 and resets them to now), and duplicate article paths cannot be reproduced (Voog auto-suffixes the twin). These four travel in every result's `known_limits`.
+
+Three behaviours found by running it against the real test site, not by unit tests:
+
+- **`POST /pages` is rejected without a valid `layout_id`** — `{"errors":{"layout_id":["not in available layouts list"]}}`. Voog picks no default, and an id from the source site is not valid on the target. The phase now falls back to a target layout of the matching `content_type` and reports the substitution, or skips the page with a clear reason when the target has no usable layout at all.
+- **A dry run could not resolve the language map**, because the `site` phase returned before building it. Every dry run therefore reported "no language mapping — run the site phase first" regardless of the truth, which made the tool's headline safety feature useless. Language resolution is now a shared read-only derivation that both `site` and `pages` perform, in both modes.
+- **`CloneState` deadlocked on its first write.** `put` held a `threading.Lock` and then called `load`, which took the same lock. A deadlock does not fail a test, it hangs one, so `tests/test_clone_state.py` now runs every write through a watchdog that turns the next such mistake into a named failure.
+
+URL rewriting is derived from live data on both sides rather than configured: the media CDN prefix (`media.voog.com/NNNN/NNNN/NNNN`) comes from each site's own assets, and the source hostnames from its site record — including the `www.`/apex, `http`/`https` and protocol-relative spellings that accumulate in content authored over years. Left un-rewritten a clone renders perfectly while serving every image from the site it was copied from, which looks like success and keeps working until the source goes away.
+
+`voog.mcp.server` gained one opt-in hook for this: a tool group that sets `NEEDS_CLIENT_FACTORY = True` receives the `ClientFactory` as a fourth argument. `site_clone` is the first tool in this package that spans two sites, and building the second client from raw config would bypass the per-site request budget and daily quota — the runaway-loop rails, on the tool that issues by far the most requests.
+
+Verified live against kolm-koma-2026 on 2026-08-13: one page created from a synthetic source, `page.data` and text-body URLs rewritten (`https://<source>/tood` → `/tood`, source media prefix → target prefix), a 4-image gallery built in the exact requested order, the identical run repeated (skipped 1 page + 2 content areas, created nothing, page count unchanged), then deleted. Only one Voog site is sanctioned for testing, so the source was an in-process fake; every write was real.
+
 ### Breaking changes
 
 - **`voog_admin_api_call(method='GET')` / `voog_ecommerce_api_call(method='GET')` are removed**, honouring the deprecation the v1.4 changelog committed to ("GET support removed in v1.5"). Migration: `voog_admin_api_read` / `voog_ecommerce_api_read`, shipped in v1.4 with identical `site` / `path` / `params` arguments. Both deprecation channels (Python `DeprecationWarning`, `DEPRECATED:` response prefix) are gone with the branch. `GET` is out of the schema enum, and a host that doesn't enforce the enum gets an error naming the replacement rather than a 405 from Voog. Keeping GET meant every read through the generic surface carried `destructiveHint=True` and asked the operator to approve a request that changes nothing — the alarm fatigue the read/write split existed to end. Checked before removing: of the five call sites across the user's own skills and client repos, four are POST/PUT (unaffected); the one GET (`~/.claude/skills/arved/SKILL.md`, an `/orders` lookup) is updated in the same release.
