@@ -16,7 +16,8 @@ from voog.mcp import server
 # Server-level tool that is registered separately from TOOL_GROUPS
 # (see voog.mcp.server.handle_list_tools). Document it manually here so
 # the cross-check still catches drift on the typed surface.
-_SERVER_LEVEL_TOOLS = frozenset({"voog_list_sites"})
+# Built-ins defined in server.py itself rather than in a TOOL_GROUPS module.
+_SERVER_LEVEL_TOOLS = frozenset({"voog_list_sites", "voog_reload_config"})
 
 
 def _all_server_tools() -> set[str]:

@@ -10,7 +10,7 @@ from voog.mcp.tools import layouts as layouts_tools
 
 
 class TestGetTools(unittest.TestCase):
-    def test_get_tools_returns_three(self):
+    def test_get_tools_returns_every_layout_tool(self):
         tools = layouts_tools.get_tools()
         names = [t.name for t in tools]
         self.assertEqual(
@@ -23,6 +23,7 @@ class TestGetTools(unittest.TestCase):
                 "layout_delete",
                 "layout_asset_create",
                 "layout_asset_update",
+                "layout_asset_upload",
                 "layout_asset_delete",
             ],
         )
@@ -986,3 +987,80 @@ class TestDecodedEscapeGuard(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLayoutAssetUpload(unittest.TestCase):
+    """Issue #140 item 4 — binary layout assets (favicons, fonts, icons).
+
+    layout_asset_create carries text `data` only, so binaries previously
+    needed a raw curl call. Verified live: multipart POST returns
+    asset_type=image, editable=false.
+    """
+
+    def _png(self, tmpdir, name="favicon.png"):
+        from pathlib import Path as _P
+
+        path = _P(tmpdir) / name
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+        return str(path)
+
+    def test_posts_multipart_with_derived_content_type(self):
+        import tempfile
+
+        client = MagicMock()
+        client.post_file.return_value = {"id": 2642542, "filename": "favicon.png"}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._png(tmp)
+            result = layouts_tools.call_tool("layout_asset_upload", {"file_path": path}, client)
+        kwargs = client.post_file.call_args.kwargs
+        self.assertEqual(client.post_file.call_args.args[0], "/layout_assets")
+        self.assertEqual(kwargs["filename"], "favicon.png")
+        self.assertEqual(kwargs["content_type"], "image/png")
+        self.assertTrue(kwargs["content"].startswith(b"\x89PNG"))
+        self.assertIn("2642542", result[0].text)
+
+    def test_filename_override(self):
+        import tempfile
+
+        client = MagicMock()
+        client.post_file.return_value = {"id": 1}
+        with tempfile.TemporaryDirectory() as tmp:
+            layouts_tools.call_tool(
+                "layout_asset_upload",
+                {"file_path": self._png(tmp), "filename": "site-icon.png"},
+                client,
+            )
+        self.assertEqual(client.post_file.call_args.kwargs["filename"], "site-icon.png")
+
+    def test_text_asset_extension_points_at_the_right_tool(self):
+        import tempfile
+
+        client = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._png(tmp, "styles.css")
+            result = layouts_tools.call_tool("layout_asset_upload", {"file_path": path}, client)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("layout_asset_create", payload["error"])
+        self.assertIn("layouts_push", payload["error"])
+        client.post_file.assert_not_called()
+
+    def test_relative_path_and_missing_file_rejected(self):
+        client = MagicMock()
+        for args in ({"file_path": "icons/favicon.png"}, {"file_path": "/nope/favicon.png"}):
+            result = layouts_tools.call_tool("layout_asset_upload", args, client)
+            self.assertTrue(result.isError)
+        client.post_file.assert_not_called()
+
+    def test_filename_with_slash_rejected(self):
+        import tempfile
+
+        client = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = layouts_tools.call_tool(
+                "layout_asset_upload",
+                {"file_path": self._png(tmp), "filename": "icons/favicon.png"},
+                client,
+            )
+        self.assertTrue(result.isError)
+        client.post_file.assert_not_called()

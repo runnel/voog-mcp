@@ -36,6 +36,7 @@ from voog.mcp.resources import pages as pages_resources
 from voog.mcp.resources import products as products_resources
 from voog.mcp.resources import redirects as redirects_resources
 from voog.mcp.tools import articles as articles_tools
+from voog.mcp.tools import assets as assets_tools
 from voog.mcp.tools import cart_rules as cart_rules_tools
 from voog.mcp.tools import categories as categories_tools
 from voog.mcp.tools import comments as comments_tools
@@ -131,6 +132,7 @@ def _redact_arguments(arguments: object) -> dict:
 
 TOOL_GROUPS = [
     articles_tools,
+    assets_tools,
     cart_rules_tools,
     categories_tools,
     comments_tools,
@@ -171,10 +173,45 @@ RESOURCE_GROUPS = [
 class ClientFactory:
     """Constructs and caches VoogClient instances per site."""
 
-    def __init__(self, global_cfg: GlobalConfig, env: dict[str, str]):
+    def __init__(
+        self,
+        global_cfg: GlobalConfig,
+        env: dict[str, str],
+        *,
+        config_path: Path | None = None,
+    ):
         self._global_cfg = global_cfg
         self._env = env
+        self._config_path = config_path
         self._cache: dict[str, VoogClient] = {}
+
+    def reload(self) -> dict:
+        """Re-read voog.json + .env and drop cached clients (issue #140 item 1).
+
+        The server used to close over the config it read at startup, so a site
+        registered mid-session stayed invisible until the MCP host restarted —
+        which is why a whole site-duplication job ran on the CLI instead.
+
+        In-flight tool calls are unaffected: they already hold their client
+        object and finish against it. Only subsequent lookups see the new
+        config. Returns the site-name delta so the caller can report it.
+
+        A malformed config raises ConfigError and leaves the current one in
+        place — a reload must never be able to break a working session.
+        """
+        before = set(self._global_cfg.sites)
+        new_cfg = load_global_config(self._config_path)
+        env_path = find_env_file(new_cfg, Path.cwd())
+        new_env = load_env_file(env_path) if env_path else {}
+        self._global_cfg = new_cfg
+        self._env = new_env
+        self._cache.clear()
+        after = set(new_cfg.sites)
+        return {
+            "sites": sorted(after),
+            "added": sorted(after - before),
+            "removed": sorted(before - after),
+        }
 
     def for_site(self, site_name: str) -> VoogClient:
         if site_name in self._cache:
@@ -221,8 +258,13 @@ def _validate_resource_uri_patterns(groups) -> None:
             claims.append((pattern, group_name))
 
 
-async def run_server(global_cfg: GlobalConfig, env: dict[str, str]):
-    factory = ClientFactory(global_cfg, env)
+async def run_server(
+    global_cfg: GlobalConfig,
+    env: dict[str, str],
+    *,
+    config_path: Path | None = None,
+):
+    factory = ClientFactory(global_cfg, env, config_path=config_path)
     server = Server(name="voog-mcp", version="1.3")
 
     tool_dispatch: dict = {}
@@ -241,15 +283,36 @@ async def run_server(global_cfg: GlobalConfig, env: dict[str, str]):
         name="voog_list_sites",
         description="List all sites configured in the global voog.json. Returns "
         "[{name, host}, ...]. Call this first to see what sites are "
-        "available before invoking any other voog_* tool.",
+        "available before invoking any other voog_* tool. If a site you "
+        "just registered is missing, call voog_reload_config.",
         inputSchema={"type": "object", "properties": {}, "required": []},
+    )
+
+    reload_config_tool = Tool(
+        name="voog_reload_config",
+        description=(
+            "Re-read the global voog.json (and its .env) and drop cached "
+            "clients, so sites registered AFTER this server started become "
+            "usable without restarting the MCP host. Returns the current "
+            "site list plus what was added/removed.\n\n"
+            "Use when 'unknown site' comes back for a site you just added, "
+            "or after rotating a token in .env. Running tool calls are "
+            "unaffected — they finish against the client they already hold. "
+            "A malformed config leaves the current one in place."
+        ),
+        inputSchema={"type": "object", "properties": {}, "required": []},
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
     )
 
     _validate_resource_uri_patterns(RESOURCE_GROUPS)
 
     @server.list_tools()
     async def handle_list_tools():
-        tools = [list_sites_tool]
+        tools = [list_sites_tool, reload_config_tool]
         for group in TOOL_GROUPS:
             tools.extend(group.get_tools())
         return tools
@@ -261,6 +324,14 @@ async def run_server(global_cfg: GlobalConfig, env: dict[str, str]):
         if name == "voog_list_sites":
             sites = factory.list_sites()
             return [{"type": "text", "text": str(sites)}]
+        if name == "voog_reload_config":
+            try:
+                delta = await asyncio.to_thread(factory.reload)
+            except ConfigError as exc:
+                # Keep serving the config we have — a typo in voog.json must
+                # not take the running session down with it.
+                return error_response(f"voog_reload_config: config unchanged, reload failed: {exc}")
+            return [{"type": "text", "text": str(delta)}]
         group = tool_dispatch.get(name)
         if group is None:
             return error_response(f"Unknown tool: {name}")
@@ -349,7 +420,7 @@ def main():
     env_path = find_env_file(global_cfg, Path.cwd())
     env = load_env_file(env_path) if env_path else {}
 
-    asyncio.run(run_server(global_cfg, env))
+    asyncio.run(run_server(global_cfg, env, config_path=config_path))
 
 
 if __name__ == "__main__":

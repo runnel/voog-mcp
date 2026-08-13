@@ -956,3 +956,93 @@ class TestWithTool(unittest.TestCase):
             t2.join()
         self.assertEqual(observed["page_update"], "page_update")
         self.assertEqual(observed["article_update"], "article_update")
+
+
+class TestPostFileMultipart(unittest.TestCase):
+    """VoogClient.post_file — multipart upload path (issue #140 item 4).
+
+    The reason this bypasses the shared pool: httpx resolves client-level
+    headers OVER the multipart Content-Type it generates, so the session's
+    `application/json` would strip the boundary and Voog would reject the
+    body unread. Verified empirically before the method was written.
+    """
+
+    def test_client_level_json_header_would_win(self):
+        # Pins the httpx behaviour the implementation works around — if a
+        # future httpx flips this, post_file can go back on the pool.
+        import httpx as _httpx
+
+        pooled = _httpx.Client(headers={"Content-Type": "application/json"})
+        request = pooled.build_request(
+            "POST", "https://x.example/y", files={"file": ("a.png", b"x", "image/png")}
+        )
+        self.assertEqual(request.headers.get("content-type"), "application/json")
+
+    def test_sends_multipart_without_the_json_content_type(self):
+        from unittest.mock import MagicMock, patch
+
+        client = VoogClient(host="t.example.com", api_token="tok")
+        captured = {}
+
+        class _FakeClient:
+            def __init__(self, **kwargs):
+                captured["headers"] = kwargs.get("headers", {})
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, files=None, data=None, timeout=None):
+                captured["url"] = url
+                captured["files"] = files
+                resp = MagicMock()
+                resp.content = b'{"id": 7}'
+                resp.raise_for_status = MagicMock()
+                return resp
+
+        with patch("voog.client.httpx.Client", _FakeClient):
+            result = client.post_file(
+                "/layout_assets",
+                filename="favicon.ico",
+                content=b"\x00\x00\x01\x00",
+                content_type="image/x-icon",
+            )
+
+        self.assertEqual(result, {"id": 7})
+        self.assertTrue(captured["url"].endswith("/layout_assets"))
+        self.assertEqual(captured["files"]["file"][0], "favicon.ico")
+        self.assertEqual(captured["files"]["file"][2], "image/x-icon")
+        # The JSON content-type must NOT be carried over; the token must be.
+        header_names = {k.lower() for k in captured["headers"]}
+        self.assertNotIn("content-type", header_names)
+        self.assertIn("x-api-token", header_names)
+
+    def test_counts_against_the_request_budget(self):
+        from unittest.mock import MagicMock, patch
+
+        client = VoogClient(host="t.example.com", api_token="tok")
+        before = client._request_count
+
+        class _FakeClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, files=None, data=None, timeout=None):
+                resp = MagicMock()
+                resp.content = b"{}"
+                resp.raise_for_status = MagicMock()
+                return resp
+
+        with patch("voog.client.httpx.Client", _FakeClient):
+            client.post_file(
+                "/layout_assets", filename="a.png", content=b"x", content_type="image/png"
+            )
+        self.assertEqual(client._request_count, before + 1)

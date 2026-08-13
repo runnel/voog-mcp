@@ -54,9 +54,16 @@ def _make_media_set():
 
 
 class TestGetTools(unittest.TestCase):
-    def test_returns_two_tools(self):
+    def test_returns_three_tools(self):
         names = [t.name for t in media_sets_tools.get_tools()]
-        self.assertEqual(names, ["media_set_get", "media_set_update_asset_titles"])
+        self.assertEqual(
+            names,
+            [
+                "media_set_get",
+                "media_set_update_asset_titles",
+                "media_set_set_assets",
+            ],
+        )
 
     def test_get_is_read_only(self):
         tools = {t.name: t for t in media_sets_tools.get_tools()}
@@ -239,3 +246,122 @@ class TestUpdateAssetTitles(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMediaSetSetAssets(unittest.TestCase):
+    """Issue #140 item 5 — build/reorder a gallery in one call.
+
+    PUT /media_sets/{id} replaces the whole array, which is what silently
+    unlinked three of four images on a live site (issue #120). This tool
+    makes the replacement explicit and gates the destructive half.
+    """
+
+    def _client(self, assets):
+        client = MagicMock()
+        client.get.return_value = {"id": 5, "title": "Gallery", "assets": assets}
+        client.put.return_value = {"id": 5, "title": "Gallery", "assets": assets}
+        return client
+
+    def test_sets_full_array_in_given_order(self):
+        client = self._client(
+            [
+                {"id": 11, "title": "one", "position": 0},
+                {"id": 22, "title": "two", "position": 1},
+            ]
+        )
+        media_sets_tools.call_tool(
+            "media_set_set_assets",
+            {"media_set_id": 5, "asset_ids": [22, 11]},
+            client,
+        )
+        path, payload = client.put.call_args.args
+        self.assertEqual(path, "/media_sets/5")
+        self.assertEqual([a["id"] for a in payload["assets"]], [22, 11])
+
+    def test_existing_titles_and_settings_are_carried_over(self):
+        client = self._client(
+            [{"id": 11, "title": "kept", "settings": {"linkurl": "/x"}, "position": 0}]
+        )
+        media_sets_tools.call_tool(
+            "media_set_set_assets",
+            {"media_set_id": 5, "asset_ids": [11]},
+            client,
+        )
+        entry = client.put.call_args.args[1]["assets"][0]
+        self.assertEqual(entry["title"], "kept")
+        self.assertEqual(entry["settings"], {"linkurl": "/x"})
+
+    def test_titles_argument_applies_to_new_assets(self):
+        client = self._client([{"id": 11, "title": "old", "position": 0}])
+        media_sets_tools.call_tool(
+            "media_set_set_assets",
+            {"media_set_id": 5, "asset_ids": [11, 99], "titles": {"99": "new photo"}},
+            client,
+        )
+        by_id = {a["id"]: a for a in client.put.call_args.args[1]["assets"]}
+        self.assertEqual(by_id[99]["title"], "new photo")
+        self.assertEqual(by_id[11]["title"], "old")
+
+    def test_dropping_an_asset_requires_force(self):
+        client = self._client(
+            [
+                {"id": 11, "title": "one", "position": 0},
+                {"id": 22, "title": "two", "position": 1},
+            ]
+        )
+        result = media_sets_tools.call_tool(
+            "media_set_set_assets",
+            {"media_set_id": 5, "asset_ids": [11]},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("unlink", payload["error"])
+        self.assertIn("force=true", payload["error"])
+        client.put.assert_not_called()
+
+    def test_force_allows_the_removal(self):
+        client = self._client(
+            [
+                {"id": 11, "title": "one", "position": 0},
+                {"id": 22, "title": "two", "position": 1},
+            ]
+        )
+        media_sets_tools.call_tool(
+            "media_set_set_assets",
+            {"media_set_id": 5, "asset_ids": [11], "force": True},
+            client,
+        )
+        self.assertEqual([a["id"] for a in client.put.call_args.args[1]["assets"]], [11])
+
+    def test_pure_reorder_needs_no_force(self):
+        client = self._client(
+            [
+                {"id": 11, "title": "one", "position": 0},
+                {"id": 22, "title": "two", "position": 1},
+            ]
+        )
+        result = media_sets_tools.call_tool(
+            "media_set_set_assets",
+            {"media_set_id": 5, "asset_ids": [22, 11]},
+            client,
+        )
+        self.assertFalse(getattr(result, "isError", False))
+
+    def test_rejects_empty_duplicate_and_non_integer_ids(self):
+        client = self._client([{"id": 11, "position": 0}])
+        for bad in ([], [11, 11], ["11"], [True]):
+            result = media_sets_tools.call_tool(
+                "media_set_set_assets",
+                {"media_set_id": 5, "asset_ids": bad},
+                client,
+            )
+            self.assertTrue(result.isError, f"{bad!r} should be rejected")
+        client.put.assert_not_called()
+
+    def test_annotations_flag_destructive(self):
+        # Can unlink images — the host should be able to prompt even though
+        # the tool force-gates it itself.
+        tools = {t.name: t for t in media_sets_tools.get_tools()}
+        ann = tools["media_set_set_assets"].annotations
+        self.assertIs(_ann_get(ann, "destructiveHint", "destructive_hint"), True)

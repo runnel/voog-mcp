@@ -210,9 +210,12 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    # `config` and `list-my-sites` subcommands don't need a client
-    # (config init creates it; list-my-sites takes token+host args).
-    if args.command in ("config", "list-my-sites"):
+    # `config` never needs a client (init is what creates one). Nor does
+    # `list-my-sites` on its token+host path — that's the pre-`config init`
+    # probe. With --site it resolves like every other command (#140 item 7).
+    if args.command == "config" or (
+        args.command == "list-my-sites" and not getattr(args, "site", None)
+    ):
         sys.exit(args.func(args))
 
     try:

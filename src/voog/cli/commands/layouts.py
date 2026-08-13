@@ -18,6 +18,18 @@ def add_arguments(subparsers):
     rename_p.add_argument("new_title")
     rename_p.set_defaults(func=cmd_layout_rename)
 
+    upload_p = subparsers.add_parser(
+        "layout-asset-upload",
+        help="Upload a BINARY layout asset (favicon, font, icon) via multipart POST",
+    )
+    upload_p.add_argument("file_path", help="Path to the local file")
+    upload_p.add_argument(
+        "--filename",
+        default=None,
+        help="Filename to store it under (default: the local file's name)",
+    )
+    upload_p.set_defaults(func=cmd_layout_asset_upload)
+
     replace_p = subparsers.add_parser(
         "asset-replace",
         help="Replace a layout_asset filename (DELETE+POST workaround)",
@@ -300,4 +312,42 @@ def cmd_layout_create(args, client: VoogClient) -> int:
     )
     print(f"  Created {kind}: {rel_path} (id:{new_id})")
     print("  manifest.json updated.")
+    return 0
+
+
+def cmd_layout_asset_upload(args, client: VoogClient) -> int:
+    """Upload a binary layout asset (issue #140 item 8).
+
+    `voog push` reads tracked files as UTF-8 text, so binaries were
+    unreachable from the CLI even when they sat in the pulled tree.
+    """
+    from voog.mcp.tools.layouts import BINARY_ASSET_CONTENT_TYPES
+
+    path = Path(args.file_path).expanduser()
+    if not path.is_file():
+        sys.stderr.write(f"error: {args.file_path!r} does not exist (or is not a file)\n")
+        return 1
+    content_type = BINARY_ASSET_CONTENT_TYPES.get(path.suffix.lower())
+    if content_type is None:
+        sys.stderr.write(
+            f"error: unsupported type {path.suffix!r}. Binary types: "
+            f"{', '.join(sorted(BINARY_ASSET_CONTENT_TYPES))}. "
+            "Text assets (.css/.js/.tpl) go through `voog push`.\n"
+        )
+        return 1
+    filename = args.filename or path.name
+    try:
+        result = client.post_file(
+            "/layout_assets",
+            filename=filename,
+            content=path.read_bytes(),
+            content_type=content_type,
+        )
+    except Exception as e:
+        sys.stderr.write(f"error: layout-asset-upload failed: {e}\n")
+        return 1
+    asset_id = result.get("id") if isinstance(result, dict) else None
+    print(f"  ✓ {filename} → layout_asset {asset_id} ({path.stat().st_size} bytes)")
+    if isinstance(result, dict) and result.get("public_url"):
+        print(f"    {result['public_url']}")
     return 0

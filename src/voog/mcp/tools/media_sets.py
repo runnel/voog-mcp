@@ -1,6 +1,6 @@
 """MCP tools for Voog media_sets (galleries).
 
-Two tools — both use the Admin API (``client.base_url``):
+Three tools — all use the Admin API (``client.base_url``):
 
   - ``media_set_get``                  — read-only, returns a curated view of
                                           a media_set (id, title, kind, and the
@@ -10,6 +10,11 @@ Two tools — both use the Admin API (``client.base_url``):
                                           asset titles in place by GET-then-PUT,
                                           preserving every other asset's id,
                                           position, and existing title/settings.
+  - ``media_set_set_assets``           — mutating and deliberately explicit:
+                                          replaces the whole asset list, for
+                                          building or reordering a gallery.
+                                          Refuses to shorten the list without
+                                          ``force`` (issue #140 item 5).
 
 Why a typed tool exists at all
 ------------------------------
@@ -142,6 +147,69 @@ def get_tools() -> list[Tool]:
                 "idempotentHint": True,
             },
         ),
+        Tool(
+            name="media_set_set_assets",
+            description=(
+                "Set a media_set's FULL asset list in one call — for building "
+                "a gallery from scratch or reordering/removing images "
+                "(issue #140 item 5; media_set_update_asset_titles only edits "
+                "titles of what is already there).\n"
+                "\n"
+                "`asset_ids` is the gallery's new content IN ORDER: position "
+                "is array position. Any asset currently in the set but absent "
+                "from the list is UNLINKED (the asset itself survives in the "
+                "library; only its membership ends). Because that is easy to "
+                "do by accident, a list SHORTER than the current one requires "
+                "force=true.\n"
+                "\n"
+                "Titles and per-asset link settings are carried over for "
+                "assets that stay; pass `titles` to set them for new ones. "
+                "Upload files first with asset_upload to get ids."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "media_set_id": {
+                        "type": "integer",
+                        "description": "Voog media_set (gallery) id",
+                    },
+                    "asset_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": (
+                            "The gallery's complete new asset list, in display "
+                            "order. Omitted assets are unlinked."
+                        ),
+                    },
+                    "titles": {
+                        "type": "object",
+                        "description": (
+                            "Optional map of asset id (string) -> title, for "
+                            "assets being added. Existing titles are kept "
+                            "unless overridden here."
+                        ),
+                        "additionalProperties": {"type": "string"},
+                    },
+                    "force": {
+                        "type": "boolean",
+                        "description": (
+                            "Required when the new list is shorter than the "
+                            "current one (i.e. the call removes images)."
+                        ),
+                        "default": False,
+                    },
+                },
+                "required": ["site", "media_set_id", "asset_ids"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                # Can unlink assets from the gallery — force-gated, but the
+                # host should still be able to prompt.
+                "destructiveHint": True,
+                "idempotentHint": True,
+            },
+        ),
     ]
 
 
@@ -269,9 +337,95 @@ def _media_set_update_asset_titles(
     )
 
 
+def _media_set_set_assets(
+    arguments: dict, client: VoogClient
+) -> list[TextContent] | CallToolResult:
+    media_set_id = arguments.get("media_set_id")
+    err = require_int("media_set_id", media_set_id, tool_name="media_set_set_assets")
+    if err:
+        return error_response(err)
+
+    asset_ids = arguments.get("asset_ids")
+    if not isinstance(asset_ids, list) or not asset_ids:
+        return error_response(
+            "media_set_set_assets: `asset_ids` must be a non-empty array of "
+            "asset ids, in display order. To empty a gallery entirely, delete "
+            "the media_set instead."
+        )
+    normalised: list[int] = []
+    for raw in asset_ids:
+        # bool is an int subclass — reject it explicitly, as require_int does.
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            return error_response(f"media_set_set_assets: asset_ids must be integers (got {raw!r})")
+        normalised.append(raw)
+    if len(set(normalised)) != len(normalised):
+        return error_response("media_set_set_assets: asset_ids contains duplicate ids")
+
+    titles = arguments.get("titles") or {}
+    if not isinstance(titles, dict):
+        return error_response("media_set_set_assets: `titles` must be an object")
+    requested_titles = {str(k): v for k, v in titles.items()}
+    for key, value in requested_titles.items():
+        if not isinstance(value, str):
+            return error_response(
+                f"media_set_set_assets: title for {key!r} must be a string "
+                f"(got {type(value).__name__})"
+            )
+
+    try:
+        media_set = client.get(f"/media_sets/{media_set_id}")
+    except Exception as e:
+        return error_response(f"media_set_set_assets GET id={media_set_id} failed: {e}")
+
+    current_assets = [a for a in (media_set.get("assets") or []) if isinstance(a, dict)]
+    current_by_id = {a.get("id"): a for a in current_assets}
+    removed = [a.get("id") for a in current_assets if a.get("id") not in set(normalised)]
+
+    # PUT /media_sets/{id} is replace-not-merge, so a shorter list silently
+    # unlinks images — the exact failure that motivated issue #120. Make the
+    # caller say it meant to.
+    if removed and not arguments.get("force"):
+        return error_response(
+            f"media_set_set_assets: this would unlink {len(removed)} asset(s) "
+            f"({sorted(str(r) for r in removed)}) from media_set {media_set_id}, "
+            "because PUT replaces the whole array. Re-run with force=true if "
+            "that is intended, or include those ids in asset_ids to keep them."
+        )
+
+    payload_assets = []
+    for asset_id in normalised:
+        existing = current_by_id.get(asset_id)
+        entry: dict = {"id": asset_id}
+        key = str(asset_id)
+        if key in requested_titles:
+            entry["title"] = requested_titles[key]
+        elif existing is not None:
+            entry["title"] = existing.get("title", "")
+        settings = (existing or {}).get("settings")
+        if isinstance(settings, dict) and settings:
+            entry["settings"] = settings
+        payload_assets.append(entry)
+
+    try:
+        result = client.put(f"/media_sets/{media_set_id}", {"assets": payload_assets})
+    except Exception as e:
+        return error_response(f"media_set_set_assets PUT id={media_set_id} failed: {e}")
+
+    simplified = _simplify_media_set(result) if isinstance(result, dict) else None
+    added = [a for a in normalised if a not in current_by_id]
+    return success_response(
+        simplified if simplified else result,
+        summary=(
+            f"🖼️  media_set {media_set_id}: {len(payload_assets)} assets set "
+            f"({len(added)} added, {len(removed)} unlinked)"
+        ),
+    )
+
+
 _DISPATCH = {
     "media_set_get": _media_set_get,
     "media_set_update_asset_titles": _media_set_update_asset_titles,
+    "media_set_set_assets": _media_set_set_assets,
 }
 
 

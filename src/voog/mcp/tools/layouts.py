@@ -22,11 +22,32 @@ on every tool (per PR #27 review — spec defaults destructiveHint=true when
 readOnlyHint=false, so non-destructive mutating tools must be explicit).
 """
 
+from pathlib import Path
+
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import require_force, require_int, strip_site
+
+# Binary layout assets Voog accepts on the multipart POST route. Text
+# assets (.css/.js/.tpl) go through layout_asset_create's `data` field
+# instead — they are editable, these are not.
+BINARY_ASSET_CONTENT_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
+    ".eot": "application/vnd.ms-fontobject",
+    ".pdf": "application/pdf",
+}
 
 
 def get_tools() -> list[Tool]:
@@ -238,6 +259,51 @@ def get_tools() -> list[Tool]:
                 "readOnlyHint": False,
                 "destructiveHint": False,
                 "idempotentHint": True,
+            },
+        ),
+        Tool(
+            name="layout_asset_upload",
+            description=(
+                "Upload a BINARY layout asset from disk — favicon, icon, "
+                "font, inline image (multipart POST /layout_assets, issue "
+                "#140 item 4). layout_asset_create only carries text `data`, "
+                "so binaries previously needed a raw curl call.\n"
+                "\n"
+                "Served from /images/<filename> (or the site's asset path), "
+                "not /photos — these live with the templates, not in the "
+                "media library. For photos referenced from content or "
+                "site.data use asset_upload instead.\n"
+                "\n"
+                "Voog derives asset_type and content_type from the file; the "
+                "result is editable=false (no text body to edit). Uploading "
+                "the same filename again creates a SECOND asset — delete the "
+                "old one, or use asset_replace semantics, if you meant to "
+                "replace it."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "file_path": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to the local file "
+                            f"({', '.join(sorted(BINARY_ASSET_CONTENT_TYPES))})"
+                        ),
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": (
+                            "Filename to store it under (default: the local file's own name)"
+                        ),
+                    },
+                },
+                "required": ["site", "file_path"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                "destructiveHint": False,
+                "idempotentHint": False,
             },
         ),
         Tool(
@@ -658,6 +724,47 @@ def _layout_asset_update(arguments: dict, client: VoogClient) -> list[TextConten
     )
 
 
+def _layout_asset_upload(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    raw_path = arguments.get("file_path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return error_response("layout_asset_upload: file_path is required")
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        return error_response(f"layout_asset_upload: {raw_path!r} is not an absolute path")
+    if not path.is_file():
+        return error_response(
+            f"layout_asset_upload: {raw_path!r} does not exist (or is not a file)"
+        )
+    content_type = BINARY_ASSET_CONTENT_TYPES.get(path.suffix.lower())
+    if content_type is None:
+        return error_response(
+            f"layout_asset_upload: unsupported type {path.suffix!r}. Binary types: "
+            f"{', '.join(sorted(BINARY_ASSET_CONTENT_TYPES))}. For text assets "
+            "(.css/.js/.tpl) use layout_asset_create with `data`, or layouts_push "
+            "to deploy from a pulled tree."
+        )
+    filename = arguments.get("filename") or path.name
+    err = _validate_voog_name(filename, "filename")
+    if err:
+        return error_response(f"layout_asset_upload: {err}")
+    try:
+        result = client.post_file(
+            "/layout_assets",
+            filename=filename,
+            content=path.read_bytes(),
+            content_type=content_type,
+        )
+    except Exception as e:
+        return error_response(f"layout_asset_upload {filename!r} failed: {e}")
+    return success_response(
+        result,
+        summary=(
+            f"📁 layout_asset {result.get('id') if isinstance(result, dict) else '?'} "
+            f"uploaded: {filename} ({path.stat().st_size} bytes)"
+        ),
+    )
+
+
 def _layout_asset_delete(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
     asset_id = arguments.get("asset_id")
     err = require_int("asset_id", asset_id, tool_name="layout_asset_delete")
@@ -689,5 +796,6 @@ _DISPATCH = {
     "layout_delete": _layout_delete,
     "layout_asset_create": _layout_asset_create,
     "layout_asset_update": _layout_asset_update,
+    "layout_asset_upload": _layout_asset_upload,
     "layout_asset_delete": _layout_asset_delete,
 }
