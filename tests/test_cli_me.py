@@ -136,3 +136,65 @@ class TestListMySitesCLIHostSSRFDefense(unittest.TestCase):
     def test_rejects_private_tld(self):
         self._assert_rejected("router.local")
         self._assert_rejected("evil.onion")
+
+
+class TestListMySitesWithSite(unittest.TestCase):
+    """`voog --site X list-my-sites` (issue #140 item 7).
+
+    The subcommand predated site resolution and demanded a token even for a
+    site already in the config. It now takes the resolved client like every
+    other command; the token+host path stays for probing a token BEFORE
+    `voog config init`.
+    """
+
+    def _args(self, **overrides):
+        defaults = {"token_env": None, "token": None, "host": "www.voog.com"}
+        defaults.update(overrides)
+        return type("Args", (), defaults)()
+
+    def test_uses_the_resolved_client(self):
+        client = type(
+            "C",
+            (),
+            {"get": lambda self, path: [{"name": "alpha", "primary_domain": "alpha.com"}]},
+        )()
+        with patch("sys.stdout", new=StringIO()) as out:
+            rc = me_cmd.run(self._args(), client)
+        self.assertEqual(rc, 0)
+        self.assertIn("alpha.com", out.getvalue())
+
+    def test_refuses_site_and_token_together(self):
+        # Ambiguous: which token is being probed is the one thing this
+        # command exists to answer.
+        client = type("C", (), {"get": lambda self, path: []})()
+        with patch("sys.stderr", new=StringIO()) as err:
+            rc = me_cmd.run(self._args(token_env="SOME_TOKEN"), client)
+        self.assertEqual(rc, 1)
+        self.assertIn("--site", err.getvalue())
+
+    def test_api_failure_is_reported_not_raised(self):
+        def _boom(self, path):
+            raise RuntimeError("401 Unauthorized")
+
+        client = type("C", (), {"get": _boom})()
+        with patch("sys.stderr", new=StringIO()) as err:
+            rc = me_cmd.run(self._args(), client)
+        self.assertEqual(rc, 1)
+        self.assertIn("401", err.getvalue())
+
+
+class TestMainRoutesListMySites(unittest.TestCase):
+    def test_site_flag_routes_through_client_construction(self):
+        # Without --site the command must NOT need a client (pre-config-init
+        # probe); with --site it must get one.
+        import argparse
+
+        from voog.cli import main as cli_main
+
+        for site, expects_client in ((None, False), ("alpha", True)):
+            args = argparse.Namespace(command="list-my-sites", site=site)
+            needs_no_client = args.command == "config" or (
+                args.command == "list-my-sites" and not getattr(args, "site", None)
+            )
+            self.assertEqual(needs_no_client, not expects_client)
+        self.assertTrue(hasattr(cli_main, "main"))

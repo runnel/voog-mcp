@@ -320,6 +320,49 @@ class VoogClient:
             self._local.tool_name = None
             self._local.request_id = None
 
+    def _note_successful_request(self) -> None:
+        """Budget + daily-quota accounting for one successful request.
+
+        Extracted so every transport path shares it — ``_request`` and
+        ``post_file`` (multipart, which cannot go through ``_request``).
+        Call AFTER the response body is read, so a mid-read exception
+        does not inflate the counter."""
+        self._request_count += 1
+        # ``>=`` (not ``==``) so the warning still fires if two
+        # concurrent ``parallel_map`` workers race the boundary
+        # and the lost-update window skips over exactly 1000.
+        # The duplicate-warn race (two workers both seeing
+        # ``not self._warned_at_threshold``) is bounded by the
+        # fan-out width (≤8 lines under snapshot's max_workers);
+        # the once-only flag is best-effort.
+        if self._request_count >= _REQUEST_BUDGET_WARN_AT and not self._warned_at_threshold:
+            logger.warning(
+                "VoogClient request count reached %d (cap=%s) — "
+                "consider whether the calling tool is in a runaway loop",
+                self._request_count,
+                self._request_cap if self._request_cap is not None else "off",
+            )
+            self._warned_at_threshold = True
+        if self._request_cap is not None and self._request_count > self._request_cap:
+            raise RequestBudgetExceeded(
+                f"VoogClient exceeded request budget: count={self._request_count}, "
+                f"cap={self._request_cap} (set VOOG_REQUEST_CAP to raise/disable). "
+                f"Site={self.site_name!r}, host={self.host!r}."
+            )
+        # S-7: per-site daily quota. Skipped when either
+        # ``site_name`` or ``daily_request_quota`` is unset
+        # (CLI ad-hoc callers, tests, sites that opted out).
+        # ``quota.increment`` raises DailyQuotaExceeded; it
+        # propagates to the caller for snapshot's MD4 catch.
+        if self.site_name is not None and self.daily_request_quota is not None:
+            # Local import to keep client.py importable in any
+            # environment where ``platformdirs`` isn't installed
+            # (the typical test fixture path uses ``_TmpQuotaPath``
+            # which always sets the env override).
+            from voog import quota as _quota
+
+            _quota.increment(self.site_name, self.daily_request_quota)
+
     def _request(
         self,
         method: str,
@@ -443,41 +486,7 @@ class VoogClient:
                 # be one ahead of the on-disk quota state — this is the
                 # "coarse safety rail" trade-off documented in
                 # voog/quota.py's module docstring.
-                self._request_count += 1
-                # ``>=`` (not ``==``) so the warning still fires if two
-                # concurrent ``parallel_map`` workers race the boundary
-                # and the lost-update window skips over exactly 1000.
-                # The duplicate-warn race (two workers both seeing
-                # ``not self._warned_at_threshold``) is bounded by the
-                # fan-out width (≤8 lines under snapshot's max_workers);
-                # the once-only flag is best-effort.
-                if self._request_count >= _REQUEST_BUDGET_WARN_AT and not self._warned_at_threshold:
-                    logger.warning(
-                        "VoogClient request count reached %d (cap=%s) — "
-                        "consider whether the calling tool is in a runaway loop",
-                        self._request_count,
-                        self._request_cap if self._request_cap is not None else "off",
-                    )
-                    self._warned_at_threshold = True
-                if self._request_cap is not None and self._request_count > self._request_cap:
-                    raise RequestBudgetExceeded(
-                        f"VoogClient exceeded request budget: count={self._request_count}, "
-                        f"cap={self._request_cap} (set VOOG_REQUEST_CAP to raise/disable). "
-                        f"Site={self.site_name!r}, host={self.host!r}."
-                    )
-                # S-7: per-site daily quota. Skipped when either
-                # ``site_name`` or ``daily_request_quota`` is unset
-                # (CLI ad-hoc callers, tests, sites that opted out).
-                # ``quota.increment`` raises DailyQuotaExceeded; it
-                # propagates to the caller for snapshot's MD4 catch.
-                if self.site_name is not None and self.daily_request_quota is not None:
-                    # Local import to keep client.py importable in any
-                    # environment where ``platformdirs`` isn't installed
-                    # (the typical test fixture path uses ``_TmpQuotaPath``
-                    # which always sets the env override).
-                    from voog import quota as _quota
-
-                    _quota.increment(self.site_name, self.daily_request_quota)
+                self._note_successful_request()
                 return json.loads(body) if body else None
             except httpx.HTTPStatusError as e:
                 code = e.response.status_code
@@ -541,6 +550,72 @@ class VoogClient:
 
     def post(self, path: str, data, *, base: str | None = None, params: dict | None = None):
         return self._request("POST", path, base=base, data=data, params=params)
+
+    def post_file(
+        self,
+        path: str,
+        *,
+        filename: str,
+        content: bytes,
+        content_type: str,
+        fields: dict | None = None,
+        base: str | None = None,
+    ):
+        """POST multipart/form-data with a single file part (issue #140 item 4).
+
+        Deliberately outside ``_request``: that method serialises ``data`` as
+        JSON and the session sets a JSON Content-Type, neither of which can
+        express a file part. POST is never retried anyway (a retried POST
+        under "accepted but response lost" duplicates the resource), so this
+        forgoes nothing but the retry loop.
+
+        Runs on its own short-lived connection rather than the shared pool:
+        the pool carries ``Content-Type: application/json`` at client level,
+        and httpx resolves client-level headers OVER the multipart type it
+        generates — so the boundary never reaches the wire and Voog rejects
+        the body without reading it. (Setting the header to ``None`` to drop
+        it is a requests idiom; httpx raises on it.) Uploads are rare and
+        large, so a fresh connection costs little.
+
+        The per-call tracking headers (X-MCP-Tool / X-Request-Id) still
+        apply, so an upload is attributable in Voog's logs like any other
+        call.
+        """
+        url = f"{base or self.base_url}{path}"
+        headers = {k: v for k, v in self.headers.items() if k.lower() != "content-type"}
+        tool_name = getattr(self._local, "tool_name", None)
+        request_id = getattr(self._local, "request_id", None)
+        if tool_name:
+            headers["X-MCP-Tool"] = tool_name
+            headers["User-Agent"] = (
+                f"{self.headers.get('User-Agent', '')} (tool={tool_name})".strip()
+            )
+        if request_id:
+            headers["X-Request-Id"] = request_id
+
+        logger.debug("POST %s (multipart, file=%s, %d bytes)", url, filename, len(content))
+        # follow_redirects=False, unlike the pooled client: httpx strips only
+        # `Authorization` across origins, never a custom header, so a redirect
+        # would forward X-API-Token — and on 307/308 the whole multipart body
+        # with it — to whatever host answered. An upload endpoint has no
+        # legitimate reason to redirect.
+        with httpx.Client(http2=True, headers=headers, follow_redirects=False) as upload_client:
+            try:
+                resp = upload_client.post(
+                    url,
+                    files={"file": (filename, content, content_type)},
+                    data=fields or {},
+                    timeout=self.timeout,
+                )
+            except httpx.TimeoutException as e:
+                # Match _request's contract — callers catch TimeoutError.
+                raise TimeoutError(str(e)) from e
+        resp.raise_for_status()
+        self._note_successful_request()
+        body = resp.content
+        if not body:
+            return None
+        return json.loads(body.decode())
 
     def patch(
         self,

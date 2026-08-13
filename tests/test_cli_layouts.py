@@ -355,3 +355,48 @@ class TestLayoutCreate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLayoutAssetUploadCLI(unittest.TestCase):
+    """`voog layout-asset-upload` (issue #140 item 8).
+
+    `voog push` reads tracked files as UTF-8 text, so binaries were
+    unreachable from the CLI even when the manifest listed them.
+    """
+
+    def _args(self, file_path, filename=None):
+        return type("Args", (), {"file_path": file_path, "filename": filename})()
+
+    def _png(self, tmpdir, name="favicon.png"):
+        path = Path(tmpdir) / name
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+        return str(path)
+
+    def test_uploads_with_derived_content_type(self):
+        client = MagicMock()
+        client.post_file.return_value = {"id": 2642542, "public_url": "https://x/images/f.png"}
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("sys.stdout", new=io.StringIO()) as out:
+                rc = layouts_cmd.cmd_layout_asset_upload(self._args(self._png(tmp)), client)
+        self.assertEqual(rc, 0)
+        self.assertEqual(client.post_file.call_args.kwargs["content_type"], "image/png")
+        self.assertIn("2642542", out.getvalue())
+
+    def test_text_asset_is_pointed_at_voog_push(self):
+        client = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "main.css"
+            path.write_text("body{}", encoding="utf-8")
+            with patch("sys.stderr", new=io.StringIO()) as err:
+                rc = layouts_cmd.cmd_layout_asset_upload(self._args(str(path)), client)
+        self.assertEqual(rc, 1)
+        self.assertIn("voog push", err.getvalue())
+        client.post_file.assert_not_called()
+
+    def test_missing_file_reported(self):
+        client = MagicMock()
+        with patch("sys.stderr", new=io.StringIO()) as err:
+            rc = layouts_cmd.cmd_layout_asset_upload(self._args("/nope/x.png"), client)
+        self.assertEqual(rc, 1)
+        self.assertIn("does not exist", err.getvalue())
+        client.post_file.assert_not_called()

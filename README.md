@@ -157,18 +157,19 @@ Full endpoint coverage reference: [docs/voog-mcp-endpoint-coverage.md](docs/voog
 
 | Group | Tools |
 |---|---|
-| Sites | `voog_list_sites`, `voog_list_my_sites` |
+| Sites | `voog_list_sites`, `voog_list_my_sites`, `voog_reload_config` (pick up sites added after the server started, without restarting the MCP host) |
 | Search | `voog_search` |
 | Pages | `pages_list`, `page_get`, `page_create`, `page_update`, `page_set_hidden`, `page_set_layout`, `page_set_data`, `page_delete_data`, `page_duplicate`, `page_delete` |
 | Articles | `articles_list`, `article_get`, `article_create`, `article_update`, `article_publish`, `article_set_data`, `article_delete_data`, `article_delete` |
 | Comments | `comments_list`, `comment_delete`, `comment_toggle_spam` |
 | Tags | `tags_list`, `tag_get`, `tag_delete` |
-| Layouts | `layouts_pull`, `layouts_push`, `layout_create`, `layout_update`, `layout_rename`, `layout_delete`, `layout_asset_create`, `layout_asset_update`, `layout_asset_delete`, `asset_replace` |
-| Texts / contents | `text_get`, `text_update`, `page_add_content`, `content_partial_update` |
+| Layouts | `layouts_pull`, `layouts_push`, `layout_create`, `layout_update`, `layout_rename`, `layout_delete`, `layout_asset_create`, `layout_asset_update`, `layout_asset_upload` (binary: favicons, fonts, icons — multipart), `layout_asset_delete`, `asset_replace` |
+| Texts / contents | `text_get`, `text_update`, `page_add_content`, `article_add_content`, `content_partial_update` |
 | Elements | `elements_list`, `element_get`, `element_definitions_list`, `element_create`, `element_update`, `element_move`, `element_delete` |
 | Products | `products_list`, `product_get`, `product_create`, `product_update`, `product_set_images`, `product_delete`, `product_duplicate`, `products_bulk_action` |
 | Categories | `categories_list`, `category_get`, `category_create`, `category_update`, `category_delete` |
-| Media sets (galleries) | `media_set_get`, `media_set_update_asset_titles` (safe GET-then-PUT — `PUT /media_sets/{id}` is replace-not-merge) |
+| Media library | `asset_upload` (unattached image upload — reuses a same-named asset instead of letting Voog auto-suffix a duplicate, waits for the async resizes, returns the derivative widths Voog actually made) |
+| Media sets (galleries) | `media_set_get`, `media_set_update_asset_titles` (safe GET-then-PUT — `PUT /media_sets/{id}` is replace-not-merge), `media_set_set_assets` (build/reorder a gallery; refuses to drop images without `force`) |
 | Orders | `orders_list`, `order_get` (read-only; PII-stripped by default, `include_pii=true` requires `force=true`) |
 | Discounts | `discounts_list`, `discount_get`, `discount_create`, `discount_update`, `discount_delete` |
 | Cart rules | `cart_rules_list`, `cart_rule_get`, `cart_rule_create`, `cart_rule_update`, `cart_rule_delete` |

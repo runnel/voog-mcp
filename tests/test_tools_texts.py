@@ -8,11 +8,11 @@ from voog.mcp.tools import texts as texts_tools
 
 
 class TestGetTools(unittest.TestCase):
-    def test_three_tools_registered(self):
+    def test_four_tools_registered(self):
         names = sorted(t.name for t in texts_tools.get_tools())
         self.assertEqual(
             names,
-            ["page_add_content", "text_get", "text_update"],
+            ["article_add_content", "page_add_content", "text_get", "text_update"],
         )
 
 
@@ -175,3 +175,77 @@ class TestPageAddContent(unittest.TestCase):
         )
         client.get_all.assert_not_called()
         client.post.assert_called_once()
+
+
+class TestArticleAddContent(unittest.TestCase):
+    """Issue #140 item 6 — the article half of page_add_content.
+
+    Both halves share one implementation, so these tests pin the parts that
+    differ (endpoint, id field, wording) plus the duplicate pre-check, which
+    is the behaviour worth not regressing.
+    """
+
+    def test_posts_to_articles_contents(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        client.post.return_value = {"id": 11979977, "name": "body", "content_type": "text"}
+        result = texts_tools.call_tool(
+            "article_add_content",
+            {"article_id": 2585756, "name": "body"},
+            client,
+        )
+        self.assertEqual(client.post.call_args.args[0], "/articles/2585756/contents")
+        self.assertEqual(
+            client.post.call_args.args[1],
+            {"name": "body", "content_type": "text"},
+        )
+        self.assertIn("article 2585756", result[0].text)
+
+    def test_pre_check_reads_the_article_collection(self):
+        client = MagicMock()
+        client.get_all.return_value = []
+        texts_tools.call_tool("article_add_content", {"article_id": 7}, client)
+        self.assertEqual(client.get_all.call_args.args[0], "/articles/7/contents")
+
+    def test_duplicate_name_refused(self):
+        client = MagicMock()
+        client.get_all.return_value = [{"id": 42, "name": "img-gallery"}]
+        result = texts_tools.call_tool(
+            "article_add_content",
+            {"article_id": 7, "name": "img-gallery", "content_type": "gallery"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("article 7", payload["error"])
+        self.assertIn("force=true", payload["error"])
+        client.post.assert_not_called()
+
+    def test_force_allows_repeated_names(self):
+        # Repeated names are real: an article on the live test site carries
+        # two 'text-images' areas.
+        client = MagicMock()
+        client.post.return_value = {"id": 1, "name": "text-images"}
+        texts_tools.call_tool(
+            "article_add_content",
+            {"article_id": 7, "name": "text-images", "force": True},
+            client,
+        )
+        client.get_all.assert_not_called()
+        client.post.assert_called_once()
+
+    def test_invalid_content_type_rejected(self):
+        client = MagicMock()
+        result = texts_tools.call_tool(
+            "article_add_content",
+            {"article_id": 7, "content_type": "video"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        client.post.assert_not_called()
+
+    def test_article_id_bool_rejected(self):
+        client = MagicMock()
+        result = texts_tools.call_tool("article_add_content", {"article_id": True}, client)
+        self.assertTrue(result.isError)
+        client.post.assert_not_called()

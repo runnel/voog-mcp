@@ -9,13 +9,21 @@ Two filesystem-touching tools:
                                       ``manifest.json`` mapping local paths → ids.
                                       Refuses to overwrite an existing tree
                                       that already contains ``.tpl`` files.
-  - ``layouts_push(target_dir, files)`` — read ``manifest.json`` + ``.tpl``
+  - ``layouts_push(target_dir, files)`` — read ``manifest.json`` + tracked
                                       files from ``target_dir`` and PUT each to
-                                      ``/layouts/{id}``. Optional ``files``
-                                      filter pushes only the named relative
-                                      paths. Returns per-file success/failure
-                                      breakdown — partial failure does not
-                                      abort the rest of the push.
+                                      the endpoint its manifest type maps to
+                                      (``/layouts/{id}`` for layouts,
+                                      ``/layout_assets/{id}`` for assets).
+                                      Optional ``files`` filter pushes only the
+                                      named relative paths. Returns per-file
+                                      success/failure breakdown — partial
+                                      failure does not abort the rest of the
+                                      push.
+
+Because push reads content from disk in this process, it is the byte-exact
+way to deploy a ``.js``/``.css`` asset from an MCP host: tool arguments cross
+a JSON boundary, so content handed to ``layout_asset_update`` as a string can
+arrive with literal ``\\uXXXX`` escapes already decoded (issue #138).
 
 Manifest format (matches ``voog.py`` CLI shape so MCP-pulled and CLI-pulled
 trees are interchangeable):
@@ -23,6 +31,8 @@ trees are interchangeable):
       "<rel_path>": {"id": <int>, "type": "layout", "updated_at": "<iso>"},
       ...
     }
+``type`` is ``layout`` for templates, ``asset`` for layout_assets (legacy
+voog.py manifests spell it ``layout_asset``) — see ``voog._manifest_push``.
 
 Annotations: ``readOnlyHint=False`` (writes disk and/or API),
 ``destructiveHint=False`` (additive — pull writes to a fresh dir; push
@@ -36,10 +46,21 @@ from pathlib import Path
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog._concurrency import parallel_map
+from voog._manifest_push import ENDPOINT_BY_TYPE, verify_persisted
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site, validate_output_dir, write_json
 from voog.projections import LAYOUTS_INCLUDE_BODY
+
+# Same folder layout `voog pull` writes, so a tree is interchangeable
+# between the CLI and MCP surfaces.
+_ASSET_TYPE_TO_FOLDER = {
+    "stylesheet": "stylesheets",
+    "javascript": "javascripts",
+    "image": "images",
+    "font": "assets",
+    "unknown": "assets",
+}
 
 
 def get_tools() -> list[Tool]:
@@ -47,8 +68,11 @@ def get_tools() -> list[Tool]:
         Tool(
             name="layouts_pull",
             description=(
-                "Fetch every layout + component from /layouts and write per-layout "
-                ".tpl files to target_dir/layouts/ and target_dir/components/. "
+                "Fetch every layout + component from /layouts, plus the editable "
+                "layout_assets (CSS/JS), and write them under target_dir: .tpl "
+                "files to layouts/ and components/, assets to stylesheets/ "
+                "javascripts/ assets/. Binary assets are skipped (no text to "
+                "round-trip — use layout_asset_upload for those). "
                 "Builds manifest.json mapping each local path to {id, type, "
                 "updated_at}. REFUSES to overwrite an existing tree that already "
                 "contains .tpl files — pick a fresh location or clear it first. "
@@ -75,14 +99,19 @@ def get_tools() -> list[Tool]:
         Tool(
             name="layouts_push",
             description=(
-                "Read manifest.json + .tpl files from target_dir and PUT each "
-                'to /layouts/{id}. Optional files=["layouts/x.tpl", ...] '
-                "filter pushes only the named relative paths. files=null (or "
-                "omitted) pushes every type=layout entry in the manifest "
-                "(non-layout entries — e.g. type=layout_asset from voog.py-"
-                "pulled trees — are captured as per-file failures rather "
-                "than mis-PUT to /layouts/{id}). Returns per-file success/"
-                "failure breakdown; missing files and PUT errors are captured "
+                "Read manifest.json + tracked files from target_dir and PUT "
+                "each to the endpoint its manifest type maps to: type=layout "
+                "→ /layouts/{id} {body}, type=asset (legacy: layout_asset) → "
+                "/layout_assets/{id} {data}. Optional "
+                'files=["javascripts/app.js", ...] filter pushes only the '
+                "named relative paths; files=null (or omitted) pushes every "
+                "manifest entry. THE BYTE-EXACT WAY to deploy a .js/.css "
+                "asset: content is read from disk here, whereas a string "
+                "passed to layout_asset_update crosses a JSON boundary that "
+                "decodes literal \\uXXXX escapes in the source (issue #138). "
+                "A PUT that returns 200 without persisting is reported as a "
+                "failure, not a ✓. Returns per-file success/failure "
+                "breakdown; missing files and PUT errors are captured "
                 "per-entry and do not abort the remaining pushes. Recommended "
                 "pre-flight: site_snapshot for full backup before a mass push."
             ),
@@ -247,12 +276,58 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
         else:
             layouts_written += 1
 
+    # Layout assets (CSS / JS), mirroring `voog pull`. Without these the
+    # tree has no `type=asset` entries, so layouts_push — advertised as the
+    # byte-exact way to deploy a .js/.css file — would have nothing to push
+    # on an MCP-only host, and the promise would only hold for CLI-pulled
+    # trees. Binaries are skipped: they carry no `data` to round-trip
+    # (use layout_asset_upload for those).
+    assets_written = 0
+    try:
+        assets = client.get_all("/layout_assets")
+    except Exception as e:
+        per_layout_errors.append({"layout_id": None, "error": f"/layout_assets failed: {e}"})
+        assets = []
+    for asset in assets:
+        if not isinstance(asset, dict) or not asset.get("filename"):
+            continue
+        filename = asset["filename"]
+        if "/" in filename or "\\" in filename or ".." in filename or "\x00" in filename:
+            per_layout_errors.append(
+                {"layout_id": asset.get("id"), "error": f"unsafe asset filename: {filename!r}"}
+            )
+            continue
+        # The list endpoint stopped returning `data` (observed 2026-06, see
+        # v1.4.1) — only the detail GET carries it, and only for editable
+        # (text) assets.
+        kind = asset.get("asset_type") or asset.get("kind") or "unknown"
+        data = asset.get("data")
+        if data is None and asset.get("editable"):
+            try:
+                data = (client.get(f"/layout_assets/{asset['id']}") or {}).get("data")
+            except Exception as e:
+                per_layout_errors.append({"layout_id": asset.get("id"), "error": str(e)})
+                continue
+        if data is None:
+            continue
+        folder_name = _ASSET_TYPE_TO_FOLDER.get(kind, "assets")
+        (target / folder_name).mkdir(exist_ok=True)
+        rel_path = f"{folder_name}/{filename}"
+        (target / rel_path).write_text(data, encoding="utf-8")
+        manifest[rel_path] = {
+            "id": asset["id"],
+            "type": "asset",
+            "kind": kind,
+            "updated_at": asset.get("updated_at", ""),
+        }
+        assets_written += 1
+
     manifest_path = target / "manifest.json"
     write_json(manifest_path, manifest)
 
     summary = (
         f"📥 layouts_pull: {layouts_written} layouts + {components_written} components "
-        f"→ {target_dir}"
+        f"+ {assets_written} assets → {target_dir}"
     )
     if per_layout_errors:
         summary += f" ({len(per_layout_errors)} per-layout errors)"
@@ -261,6 +336,7 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
         {
             "target_dir": target_dir,
             "layouts_written": layouts_written,
+            "assets_written": assets_written,
             "components_written": components_written,
             "manifest_path": str(manifest_path),
             "per_layout_errors": per_layout_errors,
@@ -302,6 +378,7 @@ def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
     # in parallel. Final ``results`` list is rebuilt in input order to preserve
     # the existing per-file shape exactly.
     results_by_path: dict = {}
+    manifest_dirty = False
     put_items: list = []  # list of (rel_path, layout_id, content)
 
     for rel_path in targets:
@@ -314,19 +391,23 @@ def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
             }
             continue
 
-        # voog.py-pulled trees mix type=layout and type=layout_asset entries.
-        # Sending an asset id to PUT /layouts/{id} either 404s or — worst case
-        # if the id-spaces collide — overwrites a real layout's body with a
-        # CSS/JS payload. Bucket non-layout types as per-file failures.
+        # Pulled trees mix type=layout with type=asset (current `voog pull`)
+        # and type=layout_asset (legacy voog.py manifests). Each type carries
+        # its own endpoint + payload field — sending an asset id to
+        # PUT /layouts/{id} either 404s or, worst case if the id-spaces
+        # collide, overwrites a real layout's body with a CSS/JS payload.
+        # ENDPOINT_BY_TYPE is the single dispatch shared with `voog push`;
+        # anything not in it stays a per-file failure.
         entry_type = info.get("type")
-        if entry_type != "layout":
+        endpoint = ENDPOINT_BY_TYPE.get(entry_type)
+        if endpoint is None:
             results_by_path[rel_path] = {
                 "file": rel_path,
                 "ok": False,
                 "id": info.get("id"),
                 "error": (
                     f"unsupported manifest type {entry_type!r}; layouts_push "
-                    "only handles type='layout' (use the `voog push` CLI for asset push)"
+                    f"handles {sorted(ENDPOINT_BY_TYPE)}"
                 ),
             }
             continue
@@ -365,28 +446,63 @@ def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
             }
             continue
 
-        put_items.append((rel_path, info.get("id"), content))
+        put_items.append((rel_path, info.get("id"), content, entry_type, info))
 
     # Writes are more sensitive than reads — max_workers=4 (spec § 4.3).
     def _put_one(item):
-        rel_path, layout_id, content = item
-        return client.put(f"/layouts/{layout_id}", {"body": content})
+        _rel_path, entry_id, content, entry_type, _info = item
+        path_prefix, content_field = ENDPOINT_BY_TYPE[entry_type]
+        return client.put(f"{path_prefix}/{entry_id}", {content_field: content})
 
     parallel_results = parallel_map(_put_one, put_items, max_workers=4)
-    for (rel_path, layout_id, _content), _result, exc in parallel_results:
-        if exc is None:
-            results_by_path[rel_path] = {
-                "file": rel_path,
-                "ok": True,
-                "id": layout_id,
-            }
-        else:
+    for (rel_path, entry_id, content, entry_type, info), result, exc in parallel_results:
+        if exc is not None:
             results_by_path[rel_path] = {
                 "file": rel_path,
                 "ok": False,
-                "id": layout_id,
+                "id": entry_id,
                 "error": str(exc),
             }
+            continue
+        # A 200 is not proof of a write: Voog answers some no-op PUTs with a
+        # clean success (issue #96). Same size/updated_at signals the CLI
+        # checks, same helper, so the two cannot drift.
+        persist_err = verify_persisted(entry_type, content, info, result)
+        if persist_err:
+            results_by_path[rel_path] = {
+                "file": rel_path,
+                "ok": False,
+                "id": entry_id,
+                "error": persist_err,
+            }
+            continue
+        results_by_path[rel_path] = {
+            "file": rel_path,
+            "ok": True,
+            "id": entry_id,
+        }
+        # Advance the manifest's anchor, exactly as `voog push` does. The
+        # layout check compares the response's updated_at against the
+        # manifest's; leaving it pinned at pull time makes the check pass
+        # forever after the first successful push, so the no-op detection
+        # this tool advertises would only ever work once per pull.
+        if isinstance(result, dict) and result.get("updated_at"):
+            info["updated_at"] = result["updated_at"]
+            manifest_dirty = True
+
+    if manifest_dirty:
+        try:
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+        except OSError as e:
+            # The pushes landed; a manifest we could not rewrite only costs
+            # the freshness of the next no-op check, so report and continue.
+            results_by_path.setdefault(
+                "manifest.json",
+                {"file": "manifest.json", "ok": False, "error": f"manifest write failed: {e}"},
+            )
 
     # Rebuild in original input order so per-file shape is byte-for-byte
     # identical to the pre-parallelization output.

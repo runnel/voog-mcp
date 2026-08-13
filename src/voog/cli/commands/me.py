@@ -1,9 +1,17 @@
 """voog list-my-sites — probe /admin/api/me/sites.
 
-CLI parity for the MCP tool `voog_list_my_sites`. Operator supplies
-token+host on the command line. The CLI bootstraps a one-off
-VoogClient (no `voog.json` site resolution) — useful BEFORE
-`voog config init` to confirm the token works.
+CLI parity for the MCP tool `voog_list_my_sites`. Two ways in:
+
+  - ``--token-env`` / ``--token`` (+ optional ``--host``) bootstraps a
+    one-off VoogClient with no site resolution — the pre-``voog config
+    init`` path, for confirming a token works before it is registered.
+  - ``--site NAME`` resolves host and token from the config like every
+    other subcommand (issue #140 item 7 — the command predated site
+    resolution and used to demand a token even for a registered site).
+
+The two are mutually exclusive: supplying both would leave it ambiguous
+which token is being probed, which is the one thing this command exists
+to answer.
 """
 
 from __future__ import annotations
@@ -42,11 +50,20 @@ def add_arguments(subparsers):
     p.set_defaults(func=run)
 
 
-def run(args) -> int:
-    """Top-level run signature differs from other CLI commands —
-    no client is passed because there's no site to resolve. main.py
-    treats this command like `config` (no client construction).
+def run(args, client: VoogClient | None = None) -> int:
+    """``client`` is None on the token-supplied path (main.py skips client
+    construction, same as for `config`) and a resolved VoogClient when the
+    operator passed ``--site``.
     """
+    if client is not None:
+        if args.token_env or args.token:
+            sys.stderr.write(
+                "error: --site resolves the token from your config — "
+                "don't also pass --token-env/--token\n"
+            )
+            return 1
+        return _probe(client)
+
     if args.token_env and args.token:
         sys.stderr.write(
             "error: supply --token-env OR --token, not both "
@@ -85,8 +102,11 @@ def run(args) -> int:
     if err:
         sys.stderr.write(f"error: {err}\n")
         return 1
+    return _probe(VoogClient(host=host, api_token=token))
+
+
+def _probe(client: VoogClient) -> int:
     try:
-        client = VoogClient(host=host, api_token=token)
         sites = client.get("/me/sites")
     except Exception as e:
         sys.stderr.write(f"error: list-my-sites failed: {e}\n")

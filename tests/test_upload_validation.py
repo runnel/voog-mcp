@@ -18,11 +18,14 @@ from voog._upload_validation import (
 
 
 class TestDefaults(unittest.TestCase):
-    def test_default_is_amazonaws_only(self):
-        # PR #62 hardening: speculative .voog.com / .voogcdn.com entries
-        # were dropped in favor of the narrowest possible default. Guard
-        # against accidental re-broadening.
-        self.assertEqual(_DEFAULT_UPLOAD_HOST_SUFFIXES, ("amazonaws.com",))
+    def test_default_is_amazonaws_plus_media_voog(self):
+        # PR #62 hardening dropped speculative entries in favor of the
+        # narrowest possible default; issue #137 added back the ONE host
+        # Voog actually hands out (probed live: media.voog.com fronting a
+        # presigned S3 URL). Guard against accidental re-broadening —
+        # notably to a blanket "voog.com", which would cover the admin API.
+        self.assertEqual(_DEFAULT_UPLOAD_HOST_SUFFIXES, ("amazonaws.com", "media.voog.com"))
+        self.assertNotIn("voog.com", _DEFAULT_UPLOAD_HOST_SUFFIXES)
 
     def test_empty_env_uses_default(self):
         with patch.dict(os.environ, {"VOOG_UPLOAD_HOST_SUFFIXES": ""}, clear=False):
@@ -100,6 +103,40 @@ class TestHostAllowlist(unittest.TestCase):
     def test_uppercase_host_normalized(self):
         # urlparse already lowercases hostnames — guard the assumption.
         _validate_upload_url("https://VOOG-TEST.S3.AMAZONAWS.COM/up")
+
+    def test_default_allows_voog_media_host(self):
+        # Issue #137: the real shape of Voog's POST /assets response.
+        # Probed live 2026-08-12 on the kolm-koma-2026 test site — the S3
+        # presigned query string is intact, only the host is CNAME'd.
+        _validate_upload_url(
+            "https://media.voog.com/0000/0053/4382/photos/probe.gif"
+            "?AWSAccessKeyId=AKIAIYLL3252EKOUNMDA&Expires=1786544615&Signature=lv1f%2BvO4%3D"
+        )
+
+    def test_default_rejects_voog_admin_host(self):
+        # The reason the allowlist entry is media.voog.com and not a blanket
+        # voog.com: a misbehaving API must not be able to steer the raw-bytes
+        # PUT at an admin endpoint. Both the marketing host and a tenant host
+        # (where confirm_url lives) must still fail.
+        for url in (
+            "https://www.voog.com/admin/api/assets/1/confirm",
+            "https://voog.com/admin/api/assets/1/confirm",
+            "https://kolm-koma-2026.voog.com/admin/api/assets/1/confirm",
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                _validate_upload_url(url)
+            self.assertIn("allowlist", str(ctx.exception))
+
+    def test_default_rejects_media_voog_lookalike_suffix(self):
+        # Dot-boundary matching must not let an attacker-controlled parent
+        # domain through by ending in the allowlisted string.
+        with self.assertRaises(ValueError):
+            _validate_upload_url("https://media.voog.com.attacker.example/upload")
+
+    def test_default_allows_media_voog_subdomain(self):
+        # Dot-boundary suffix semantics are shared with amazonaws.com; a
+        # future shard host under the media store stays covered.
+        _validate_upload_url("https://eu.media.voog.com/0000/0053/4382/photos/x.jpg?sig=abc")
 
 
 class TestEnvOverride(unittest.TestCase):

@@ -956,3 +956,123 @@ class TestWithTool(unittest.TestCase):
             t2.join()
         self.assertEqual(observed["page_update"], "page_update")
         self.assertEqual(observed["article_update"], "article_update")
+
+
+class TestPostFileMultipart(unittest.TestCase):
+    """VoogClient.post_file — multipart upload path (issue #140 item 4).
+
+    The reason this bypasses the shared pool: httpx resolves client-level
+    headers OVER the multipart Content-Type it generates, so the session's
+    `application/json` would strip the boundary and Voog would reject the
+    body unread. Verified empirically before the method was written.
+    """
+
+    def test_client_level_json_header_would_win(self):
+        # Pins the httpx behaviour the implementation works around — if a
+        # future httpx flips this, post_file can go back on the pool.
+        import httpx as _httpx
+
+        with _httpx.Client(headers={"Content-Type": "application/json"}) as pooled:
+            request = pooled.build_request(
+                "POST", "https://x.example/y", files={"file": ("a.png", b"x", "image/png")}
+            )
+        self.assertEqual(request.headers.get("content-type"), "application/json")
+
+    def test_sends_multipart_without_the_json_content_type(self):
+        from unittest.mock import MagicMock, patch
+
+        client = VoogClient(host="t.example.com", api_token="tok")
+        captured = {}
+
+        class _FakeClient:
+            def __init__(self, **kwargs):
+                captured["headers"] = kwargs.get("headers", {})
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, files=None, data=None, timeout=None):
+                captured["url"] = url
+                captured["files"] = files
+                resp = MagicMock()
+                resp.content = b'{"id": 7}'
+                resp.raise_for_status = MagicMock()
+                return resp
+
+        with patch("voog.client.httpx.Client", _FakeClient):
+            result = client.post_file(
+                "/layout_assets",
+                filename="favicon.ico",
+                content=b"\x00\x00\x01\x00",
+                content_type="image/x-icon",
+            )
+
+        self.assertEqual(result, {"id": 7})
+        self.assertTrue(captured["url"].endswith("/layout_assets"))
+        self.assertEqual(captured["files"]["file"][0], "favicon.ico")
+        self.assertEqual(captured["files"]["file"][2], "image/x-icon")
+        # The JSON content-type must NOT be carried over; the token must be.
+        header_names = {k.lower() for k in captured["headers"]}
+        self.assertNotIn("content-type", header_names)
+        self.assertIn("x-api-token", header_names)
+
+    def test_counts_against_the_request_budget(self):
+        from unittest.mock import MagicMock, patch
+
+        client = VoogClient(host="t.example.com", api_token="tok")
+        before = client._request_count
+
+        class _FakeClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, files=None, data=None, timeout=None):
+                resp = MagicMock()
+                resp.content = b"{}"
+                resp.raise_for_status = MagicMock()
+                return resp
+
+        with patch("voog.client.httpx.Client", _FakeClient):
+            client.post_file(
+                "/layout_assets", filename="a.png", content=b"x", content_type="image/png"
+            )
+        self.assertEqual(client._request_count, before + 1)
+
+
+class TestVersionSingleSource(unittest.TestCase):
+    """pyproject.toml and voog.__version__ must not drift.
+
+    They did: 1.4.2 shipped with __version__ still at 1.4.1, so every
+    request from that release announced itself as voog-mcp/1.4.1 in the
+    User-Agent — the one place Voog-side logs can attribute traffic. The
+    v1.4 changelog had already called out this drift once (N1); without a
+    test it came back at the next release.
+    """
+
+    def test_package_version_matches_pyproject(self):
+        import re
+        from pathlib import Path
+
+        pyproject = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+        # Deliberately not tomllib — it lands in the stdlib at 3.11 and this
+        # package supports 3.10.
+        match = re.search(r'^version = "([^"]+)"', pyproject, flags=re.M)
+        self.assertIsNotNone(match, "pyproject.toml must declare a version")
+        self.assertEqual(
+            voog.__version__,
+            match.group(1),
+            "src/voog/__init__.py __version__ drifted from pyproject.toml — "
+            "the User-Agent is derived from __version__, so a release with "
+            "the wrong value misreports itself to Voog",
+        )

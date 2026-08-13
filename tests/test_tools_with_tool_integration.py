@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, patch
 from voog.client import VoogClient
 from voog.mcp.tools import (
     articles,
+    assets,
     cart_rules,
     categories,
     comments,
@@ -81,6 +82,11 @@ class TestSweepBatch1(unittest.TestCase):
 
     def test_articles_list_enters_with_tool(self):
         _assert_with_tool_invoked(self, articles, "articles_list", {})
+
+    def test_asset_upload_enters_with_tool(self):
+        # Validation short-circuits on empty args, but with_tool must be
+        # entered first so the request tagging holds for every call path.
+        _assert_with_tool_invoked(self, assets, "asset_upload", {})
 
     def test_content_partials_update_enters_with_tool(self):
         # Single-tool module — pattern test even on an empty-args call
@@ -323,6 +329,7 @@ class TestEveryToolModuleHasWithToolSweep(unittest.TestCase):
             tags,
             texts,
             webhooks,
+            assets,
         }
         registered = set(server.TOOL_GROUPS)
         missing = registered - covered_modules

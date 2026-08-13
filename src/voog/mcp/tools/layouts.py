@@ -22,11 +22,32 @@ on every tool (per PR #27 review — spec defaults destructiveHint=true when
 readOnlyHint=false, so non-destructive mutating tools must be explicit).
 """
 
+from pathlib import Path
+
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import require_force, require_int, strip_site
+
+# Binary layout assets Voog accepts on the multipart POST route. Text
+# assets (.css/.js/.tpl) go through layout_asset_create's `data` field
+# instead — they are editable, these are not.
+BINARY_ASSET_CONTENT_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".otf": "font/otf",
+    ".eot": "application/vnd.ms-fontobject",
+    ".pdf": "application/pdf",
+}
 
 
 def get_tools() -> list[Tool]:
@@ -132,7 +153,12 @@ def get_tools() -> list[Tool]:
             description=(
                 "Update a layout — body (Liquid template source), title, "
                 "or both. At least one must be supplied. Reversible by "
-                "calling again with the previous values; idempotent."
+                "calling again with the previous values; idempotent. "
+                "`body` crosses a JSON boundary, so literal \\uXXXX escapes "
+                "in a source file arrive already decoded; raw U+2028/U+2029 "
+                "and C0 controls are refused as the fingerprint of that "
+                "(issue #138). To deploy a tracked .tpl byte-exactly, use "
+                "layouts_push."
             ),
             inputSchema={
                 "type": "object",
@@ -181,7 +207,12 @@ def get_tools() -> list[Tool]:
         Tool(
             name="layout_asset_create",
             description=(
-                "Create a layout_asset (CSS/JS/image). filename + asset_type "
+                "Create a layout_asset. TEXT content only, and `data` crosses "
+                "a JSON boundary — literal \\uXXXX escapes in a source file "
+                "arrive already decoded, so raw U+2028/U+2029 and C0 controls "
+                "are refused as the fingerprint of that (issue #138). Deploy a "
+                "tracked file byte-exactly with layouts_push; upload binaries "
+                "with layout_asset_upload. filename + asset_type "
                 "+ data required. asset_type ∈ {stylesheet, javascript, "
                 "image, plain_text, video, pdf, ...}. For image uploads, "
                 "use POST /assets + 3-step protocol via product_set_images "
@@ -212,7 +243,14 @@ def get_tools() -> list[Tool]:
             description=(
                 "Update a layout_asset's content (PUT /layout_assets/{id} "
                 "{data}). filename is read-only — Voog returns 500 if "
-                "filename is sent on PUT. Use asset_replace to rename."
+                "filename is sent on PUT. Use asset_replace to rename. "
+                "NOT byte-exact for a file on disk: `data` crosses a JSON "
+                "boundary, so literal \\uXXXX escapes in the source arrive "
+                "decoded and Voog stores the decoded form under a clean ✓ "
+                "(issue #138). To deploy a tracked .js/.css file, use "
+                "layouts_push(files=[...]) — it reads from disk. This tool "
+                "refuses content carrying raw U+2028/U+2029 or C0 controls, "
+                "the decode fingerprints that change what a file means."
             ),
             inputSchema={
                 "type": "object",
@@ -231,6 +269,54 @@ def get_tools() -> list[Tool]:
                 "readOnlyHint": False,
                 "destructiveHint": False,
                 "idempotentHint": True,
+            },
+        ),
+        Tool(
+            name="layout_asset_upload",
+            description=(
+                "Upload a BINARY layout asset from disk — favicon, icon, "
+                "font, inline image (multipart POST /layout_assets, issue "
+                "#140 item 4). layout_asset_create only carries text `data`, "
+                "so binaries previously needed a raw curl call.\n"
+                "\n"
+                "Served from /images/<filename> (or the site's asset path), "
+                "not /photos — these live with the templates, not in the "
+                "media library. For photos referenced from content or "
+                "site.data use asset_upload instead.\n"
+                "\n"
+                "Voog derives asset_type and content_type from the file; the "
+                "result is editable=false (no text body to edit). Uploading "
+                "the same filename again creates a SECOND asset — delete the "
+                "old one, or use asset_replace semantics, if you meant to "
+                "replace it."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "site": {"type": "string"},
+                    "file_path": {
+                        "type": "string",
+                        "description": (
+                            "Absolute path to the local file "
+                            f"({', '.join(sorted(BINARY_ASSET_CONTENT_TYPES))})"
+                        ),
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": (
+                            "Filename to store it under (default: the local file's own name)"
+                        ),
+                    },
+                },
+                "required": ["site", "file_path"],
+            },
+            annotations={
+                "readOnlyHint": False,
+                # Reads an arbitrary local path and PUBLISHES it under
+                # /images/. Same reasoning as product_set_images and
+                # asset_upload: the host should get to prompt.
+                "destructiveHint": True,
+                "idempotentHint": False,
             },
         ),
         Tool(
@@ -305,6 +391,62 @@ def _detect_silent_no_op(result, sent: dict, field: str) -> str | None:
     return None
 
 
+# Characters that cannot plausibly be typed into a template or source file
+# but ARE what a JSON transport produces when it decodes a literal \uXXXX
+# escape from one (issue #138):
+#   - U+2028 / U+2029 are exactly what JS minifiers escape *out of* source,
+#     because raw they terminate a line for the parser and break JSONP and
+#     inline-script embedding.
+#   - raw C0 controls (other than tab / LF / CR) and U+007F never appear in
+#     hand-written Liquid, CSS or JS.
+# Tab, LF, CR — plus vertical tab and form feed, which are legal
+# whitespace in both CSS and JS and appear in hand-written source (^L page
+# breaks) — are always allowed. Refusing those would be a false positive on
+# ordinary files.
+_ALLOWED_CONTROL_CHARS = frozenset("\t\n\r\v\f")
+_ESCAPE_DECODE_MARKERS = {
+    "\u2028": "LINE SEPARATOR",
+    "\u2029": "PARAGRAPH SEPARATOR",
+}
+
+
+def _detect_decoded_escape(content, *, field: str, tool_name: str) -> str | None:
+    """Refuse content that shows the fingerprint of transport-decoded escapes.
+
+    MCP tool arguments cross a JSON boundary: a literal ``\\uXXXX`` sequence
+    in the caller's source file only survives if it was doubled on the way
+    in, and nothing downstream can tell a decoded escape from a character
+    the caller meant to send. ``_detect_silent_no_op`` cannot help — Voog
+    stores exactly what it was sent, so a corrupted body reads back as ✓.
+
+    Returns an error message when the content carries a character that is
+    (a) semantically load-bearing and (b) never authored raw, else ``None``.
+    Push from disk (``layouts_push`` / ``voog push``) is the byte-exact path
+    and is what the message points at.
+    """
+    if not isinstance(content, str):
+        return None
+    for index, char in enumerate(content):
+        code_point = ord(char)
+        name = _ESCAPE_DECODE_MARKERS.get(char)
+        if name is None:
+            is_control = code_point < 0x20 or code_point == 0x7F
+            if not is_control or char in _ALLOWED_CONTROL_CHARS:
+                continue
+            name = "C0 control character"
+        return (
+            f"{tool_name}: {field} contains a raw {name} (U+{code_point:04X}) at "
+            f"offset {index}. MCP arguments cross a JSON boundary, so a literal "
+            f"\\u{code_point:04X} escape in your source file arrives already "
+            f"decoded — what Voog would store is not the file on disk (issue "
+            f"#138). Push from disk instead: layouts_push(site=…, target_dir=…, "
+            f"files=[…]) reads the file itself, or use the `voog push` CLI. If "
+            f"the character really is intended, it must be written as an escape "
+            f"by the source file, not sent raw."
+        )
+    return None
+
+
 def _validate_voog_name(value: str, field: str) -> str | None:
     """Voog title/filename rules: non-empty, no / or \\, no leading dot.
 
@@ -346,6 +488,13 @@ def _layout_create(arguments: dict, client: VoogClient) -> list[TextContent] | C
     err = _validate_voog_name(title, "title")
     if err:
         return error_response(f"layout_create: {err}")
+    # Same JSON-boundary corruption class as layout_update / the asset
+    # tools (#138) — this is the route that puts a brand-new layout body
+    # on the site straight from an MCP string argument, so leaving it
+    # unguarded was an oversight, not a decision.
+    err = _detect_decoded_escape(body, field="body", tool_name="layout_create")
+    if err:
+        return error_response(err)
     if kind not in ("layout", "component"):
         return error_response(f"layout_create: kind must be 'layout' or 'component' (got {kind!r})")
 
@@ -451,6 +600,9 @@ def _layout_update(arguments: dict, client: VoogClient) -> list[TextContent] | C
             return error_response(f"layout_update: {err}")
         body["title"] = title
     if arguments.get("body") is not None:
+        err = _detect_decoded_escape(arguments["body"], field="body", tool_name="layout_update")
+        if err:
+            return error_response(err)
         body["body"] = arguments["body"]
     if not body:
         return error_response("layout_update: at least one of title/body required")
@@ -550,6 +702,9 @@ def _layout_asset_create(arguments: dict, client: VoogClient) -> list[TextConten
         return error_response("layout_asset_create: asset_type is required")
     if data is None:
         return error_response("layout_asset_create: data is required")
+    err = _detect_decoded_escape(data, field="data", tool_name="layout_asset_create")
+    if err:
+        return error_response(err)
     try:
         result = client.post(
             "/layout_assets",
@@ -575,6 +730,9 @@ def _layout_asset_update(arguments: dict, client: VoogClient) -> list[TextConten
         )
     if arguments.get("data") is None:
         return error_response("layout_asset_update: data is required")
+    err = _detect_decoded_escape(arguments["data"], field="data", tool_name="layout_asset_update")
+    if err:
+        return error_response(err)
     payload = {"data": arguments["data"]}
     try:
         result = client.put(f"/layout_assets/{asset_id}", payload)
@@ -586,6 +744,47 @@ def _layout_asset_update(arguments: dict, client: VoogClient) -> list[TextConten
     return success_response(
         result,
         summary=f"📁 layout_asset {asset_id} content updated",
+    )
+
+
+def _layout_asset_upload(arguments: dict, client: VoogClient) -> list[TextContent] | CallToolResult:
+    raw_path = arguments.get("file_path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return error_response("layout_asset_upload: file_path is required")
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        return error_response(f"layout_asset_upload: {raw_path!r} is not an absolute path")
+    if not path.is_file():
+        return error_response(
+            f"layout_asset_upload: {raw_path!r} does not exist (or is not a file)"
+        )
+    content_type = BINARY_ASSET_CONTENT_TYPES.get(path.suffix.lower())
+    if content_type is None:
+        return error_response(
+            f"layout_asset_upload: unsupported type {path.suffix!r}. Binary types: "
+            f"{', '.join(sorted(BINARY_ASSET_CONTENT_TYPES))}. For text assets "
+            "(.css/.js/.tpl) use layout_asset_create with `data`, or layouts_push "
+            "to deploy from a pulled tree."
+        )
+    filename = arguments.get("filename") or path.name
+    err = _validate_voog_name(filename, "filename")
+    if err:
+        return error_response(f"layout_asset_upload: {err}")
+    try:
+        result = client.post_file(
+            "/layout_assets",
+            filename=filename,
+            content=path.read_bytes(),
+            content_type=content_type,
+        )
+    except Exception as e:
+        return error_response(f"layout_asset_upload {filename!r} failed: {e}")
+    return success_response(
+        result,
+        summary=(
+            f"📁 layout_asset {result.get('id') if isinstance(result, dict) else '?'} "
+            f"uploaded: {filename} ({path.stat().st_size} bytes)"
+        ),
     )
 
 
@@ -620,5 +819,6 @@ _DISPATCH = {
     "layout_delete": _layout_delete,
     "layout_asset_create": _layout_asset_create,
     "layout_asset_update": _layout_asset_update,
+    "layout_asset_upload": _layout_asset_upload,
     "layout_asset_delete": _layout_asset_delete,
 }

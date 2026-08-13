@@ -10,7 +10,7 @@ from voog.mcp.tools import layouts as layouts_tools
 
 
 class TestGetTools(unittest.TestCase):
-    def test_get_tools_returns_three(self):
+    def test_get_tools_returns_every_layout_tool(self):
         tools = layouts_tools.get_tools()
         names = [t.name for t in tools]
         self.assertEqual(
@@ -23,6 +23,7 @@ class TestGetTools(unittest.TestCase):
                 "layout_delete",
                 "layout_asset_create",
                 "layout_asset_update",
+                "layout_asset_upload",
                 "layout_asset_delete",
             ],
         )
@@ -879,6 +880,226 @@ class TestAllToolsRequireSite(unittest.TestCase):
                 tool.inputSchema.get("required", []),
                 f"tool {tool.name} must require 'site'",
             )
+
+
+class TestDecodedEscapeGuard(unittest.TestCase):
+    """Issue #138 — refuse content that shows transport-decoded escapes.
+
+    A literal ``\\uXXXX`` in a source file only survives the JSON boundary if
+    it was doubled; otherwise the tool receives the decoded character and
+    Voog stores that under a clean ✓. U+2028 / U+2029 and raw C0 controls are
+    the fingerprints worth refusing: minifiers escape them out of JS source
+    precisely because raw they change what the file means.
+
+    Every marker is written here as a Python escape, never as a raw literal —
+    an invisible character in a test file is its own foot-gun.
+    """
+
+    def _call(self, name, args):
+        from voog.mcp.tools import layouts as layouts_tools
+
+        client = MagicMock()
+        client.put.return_value = {"id": 99}
+        client.post.return_value = {"id": 99}
+        result = layouts_tools.call_tool(name, args, client)
+        return result, client
+
+    def test_asset_update_rejects_line_separator(self):
+        result, client = self._call(
+            "layout_asset_update",
+            {"asset_id": 99, "data": "var dash = '\u2028';"},
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("U+2028", payload["error"])
+        self.assertIn("layouts_push", payload["error"])
+        # Nothing may reach Voog — refusing after the PUT would be pointless.
+        self.assertEqual(client.put.call_count, 0)
+
+    def test_asset_update_rejects_paragraph_separator(self):
+        result, client = self._call(
+            "layout_asset_update",
+            {"asset_id": 99, "data": "a\u2029b"},
+        )
+        self.assertTrue(result.isError)
+        self.assertIn("U+2029", json.loads(result.content[0].text)["error"])
+        self.assertEqual(client.put.call_count, 0)
+
+    def test_asset_update_rejects_c0_control(self):
+        result, client = self._call(
+            "layout_asset_update",
+            {"asset_id": 99, "data": "console.log('\u0007');"},
+        )
+        self.assertTrue(result.isError)
+        self.assertIn("U+0007", json.loads(result.content[0].text)["error"])
+        self.assertEqual(client.put.call_count, 0)
+
+    def test_asset_update_allows_ordinary_text(self):
+        # The guard must not fire on the content people actually push:
+        # Estonian letters, typographic dashes, emoji, tabs and newlines.
+        # An en-dash IS what a decoded – looks like — but it is also a
+        # character authors type directly, so refusing it would break real
+        # pushes to catch a cosmetic diff.
+        payload_text = "/* õäöü – — ✓ 🇪🇪 */\n\tvar x = 1;\r\n"
+        result, client = self._call(
+            "layout_asset_update",
+            {"asset_id": 99, "data": payload_text},
+        )
+        self.assertFalse(getattr(result, "isError", False))
+        self.assertEqual(client.put.call_args.args[1], {"data": payload_text})
+
+    def test_asset_create_rejects_line_separator(self):
+        result, client = self._call(
+            "layout_asset_create",
+            {"filename": "app.js", "asset_type": "javascript", "data": "x\u2028y"},
+        )
+        self.assertTrue(result.isError)
+        self.assertIn("U+2028", json.loads(result.content[0].text)["error"])
+        self.assertEqual(client.post.call_count, 0)
+
+    def test_layout_update_body_rejects_line_separator(self):
+        result, client = self._call(
+            "layout_update",
+            {"layout_id": 42, "body": "{% if x %}\u2028{% endif %}"},
+        )
+        self.assertTrue(result.isError)
+        self.assertIn("U+2028", json.loads(result.content[0].text)["error"])
+        self.assertEqual(client.put.call_count, 0)
+
+    def test_layout_update_title_only_unaffected(self):
+        # The guard is scoped to content fields; a title-only update must
+        # still work exactly as before.
+        result, client = self._call("layout_update", {"layout_id": 42, "title": "Uus nimi"})
+        self.assertFalse(getattr(result, "isError", False))
+        self.assertEqual(client.put.call_args.args[1], {"title": "Uus nimi"})
+
+    def test_source_file_carries_no_raw_separators(self):
+        # The module warns about invisible characters — it must not contain
+        # any itself. Guards against a future edit pasting one in.
+        from pathlib import Path
+
+        from voog.mcp.tools import layouts as layouts_tools
+
+        source = Path(layouts_tools.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("\u2028", source)
+        self.assertNotIn("\u2029", source)
+
+
+class TestLayoutAssetUpload(unittest.TestCase):
+    """Issue #140 item 4 — binary layout assets (favicons, fonts, icons).
+
+    layout_asset_create carries text `data` only, so binaries previously
+    needed a raw curl call. Verified live: multipart POST returns
+    asset_type=image, editable=false.
+    """
+
+    def _png(self, tmpdir, name="favicon.png"):
+        from pathlib import Path as _P
+
+        path = _P(tmpdir) / name
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 32)
+        return str(path)
+
+    def test_posts_multipart_with_derived_content_type(self):
+        import tempfile
+
+        client = MagicMock()
+        client.post_file.return_value = {"id": 2642542, "filename": "favicon.png"}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._png(tmp)
+            result = layouts_tools.call_tool("layout_asset_upload", {"file_path": path}, client)
+        kwargs = client.post_file.call_args.kwargs
+        self.assertEqual(client.post_file.call_args.args[0], "/layout_assets")
+        self.assertEqual(kwargs["filename"], "favicon.png")
+        self.assertEqual(kwargs["content_type"], "image/png")
+        self.assertTrue(kwargs["content"].startswith(b"\x89PNG"))
+        self.assertIn("2642542", result[0].text)
+
+    def test_filename_override(self):
+        import tempfile
+
+        client = MagicMock()
+        client.post_file.return_value = {"id": 1}
+        with tempfile.TemporaryDirectory() as tmp:
+            layouts_tools.call_tool(
+                "layout_asset_upload",
+                {"file_path": self._png(tmp), "filename": "site-icon.png"},
+                client,
+            )
+        self.assertEqual(client.post_file.call_args.kwargs["filename"], "site-icon.png")
+
+    def test_text_asset_extension_points_at_the_right_tool(self):
+        import tempfile
+
+        client = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._png(tmp, "styles.css")
+            result = layouts_tools.call_tool("layout_asset_upload", {"file_path": path}, client)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("layout_asset_create", payload["error"])
+        self.assertIn("layouts_push", payload["error"])
+        client.post_file.assert_not_called()
+
+    def test_relative_path_and_missing_file_rejected(self):
+        client = MagicMock()
+        for args in ({"file_path": "icons/favicon.png"}, {"file_path": "/nope/favicon.png"}):
+            result = layouts_tools.call_tool("layout_asset_upload", args, client)
+            self.assertTrue(result.isError)
+        client.post_file.assert_not_called()
+
+    def test_filename_with_slash_rejected(self):
+        import tempfile
+
+        client = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = layouts_tools.call_tool(
+                "layout_asset_upload",
+                {"file_path": self._png(tmp), "filename": "icons/favicon.png"},
+                client,
+            )
+        self.assertTrue(result.isError)
+        client.post_file.assert_not_called()
+
+
+class TestEscapeGuardWhitespaceTolerance(unittest.TestCase):
+    """The guard must not fire on whitespace that real sources contain.
+
+    Vertical tab and form feed are legal whitespace in both CSS and JS, and
+    ^L page breaks appear in hand-written files. Refusing them would be a
+    false positive on ordinary content — the guard exists for characters
+    that are never authored raw.
+    """
+
+    def test_vertical_tab_and_form_feed_are_allowed(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 1}
+        body = "/* page one */\u000c.a{color:red}\u000b"
+        result = layouts_tools.call_tool(
+            "layout_asset_update", {"asset_id": 1, "data": body}, client
+        )
+        self.assertFalse(getattr(result, "isError", False))
+        self.assertEqual(client.put.call_args.args[1], {"data": body})
+
+    def test_every_guarded_tool_documents_the_json_boundary(self):
+        # The changelog claims all three say so up front; an LLM reads the
+        # description, not the source, so the claim has to be true.
+        tools = {t.name: t for t in layouts_tools.get_tools()}
+        for name in ("layout_update", "layout_asset_create", "layout_asset_update"):
+            self.assertIn("#138", tools[name].description, f"{name} omits the caveat")
+
+    def test_layout_create_body_is_guarded(self):
+        # The one route that puts a brand-new layout body on the site from
+        # an MCP string argument — same corruption class as the rest.
+        client = MagicMock()
+        result = layouts_tools.call_tool(
+            "layout_create",
+            {"title": "T", "kind": "layout", "body": "{% if x %}\u2028{% endif %}"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        self.assertIn("U+2028", json.loads(result.content[0].text)["error"])
+        client.post.assert_not_called()
 
 
 if __name__ == "__main__":
