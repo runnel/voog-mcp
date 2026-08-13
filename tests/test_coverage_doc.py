@@ -50,118 +50,70 @@ class TestCoverageDocDrift(unittest.TestCase):
             f"to the coverage matrix before merging: {missing}",
         )
 
-    def test_doc_does_not_advertise_a_tool_that_no_longer_exists(self):
-        # Reverse drift: a removed or renamed wrapper still documented.
-        # Scan backtick-wrapped snake_case identifiers that look like tool
-        # names, and ignore prose that happens to use the same shape.
-        real = _all_server_tools()
-        candidates = set(re.findall(r"`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`", self.doc))
-        # Names in the doc that are Voog fields / CLI flags / helper
-        # functions rather than MCP tools. Anything not listed here and not
-        # a real tool fails, so a genuinely stale tool name cannot hide.
-        known_non_tools = {
-            "api_key_env",
+    # Backticked snake_case identifiers in the doc that are Voog field
+    # names, enum values or argument names — NOT MCP tools. This list is
+    # exhaustive by construction: anything backticked that is neither a
+    # registered tool nor listed here fails the test below. That is
+    # deliberately noisier than a name-shape heuristic, which the PR #141
+    # review broke by injecting `voog_legacy_api_list` (a tool name that
+    # does not exist) and watching the test stay green — the heuristic was
+    # blind to 53 of 110 real tool names, so it could not have caught a
+    # stale one either.
+    NON_TOOL_IDENTIFIERS = frozenset(
+        {
+            # Voog request/response fields and arguments
+            "amount_mode",
+            "applies_to",
             "asset_ids",
+            "cart_rule",
+            "cart_rules",
             "cart_rules_applied",
-            "content_type",
-            "created_at",
-            "daily_request_quota",
-            "default_site",
-            "discount_objects",
-            "effective_price",
+            "category_id",
+            "created_after",
+            "created_before",
+            "discount_type",
             "element_definition_id",
             "element_definition_title",
-            "element_definitions",
-            "external_shipment_attrs",
-            "gateway_transaction_id",
             "image_id",
-            "in_stock",
-            "include_body",
-            "include_pii",
-            "internal_trial_assets_quota",
-            "is_spam",
             "items_subtotal_amount",
             "items_total_amount",
-            "language_code",
-            "layout_id",
-            "max_workers",
-            "media_set",
-            "menu_title",
-            "meta_keywords",
-            "on_sale",
-            "output_dir",
+            "node_id",
             "page_id",
             "parent_id",
             "parent_node_id",
-            "per_page",
-            "price_entry_mode",
-            "price_max",
-            "price_min",
-            "primary_domain",
-            "processed_ids",
-            "failed_ids",
+            "payment_status",
             "products_url_slug",
-            "public_url",
-            "redirect_type",
-            "return_url",
+            "redemption_limit",
             "shipping_method",
-            "shipping_method_option",
-            "sitemap_enabled",
             "sizes_complete",
-            "state_dir",
+            "target_id",
             "target_ids",
-            "tag_names",
+            "target_kind",
             "total_discount_amount",
-            "updated_at",
-            "uses_variants",
             "valid_from",
             "valid_to",
-            "variant_attributes",
-            "variant_types",
-            "voog_mcp_version",
-            "redemption_limit",
-            "amount_mode",
-            "discount_type",
-            "applies_to",
-            "target_kind",
-            "target_id",
-            "value_type",
-            "enabled_methods",
-            "all_payment_methods",
-            "physical_properties",
-            "data_usage",
-            "source_field",
-            "target_field",
-            "aborted_reason",
-            "allow_duplicate",
-            "wait_for_sizes",
-            "order_verified",
-            "stored_asset_ids",
-            "asset_type",
-            "content_partials",
-            "layout_assets",
-            "redirect_rules",
-            "media_sets",
-            "element_definitions_list",
+            # Voog enum values
+            "blog_article",
+            "error_401",
+            "error_404",
         }
+    )
 
-        def _looks_like_a_tool_name(name: str) -> bool:
-            # Tool names in this package carry the `voog_` prefix or end in a
-            # verb segment; Voog field names (`asset_ids`, `valid_from`) do
-            # neither, so this keeps prose out of the check.
-            return name.startswith("voog_") or name.endswith(
-                ("_list", "_get", "_create", "_update", "_delete", "_snapshot")
-            )
+    def test_doc_does_not_advertise_a_tool_that_no_longer_exists(self):
+        # Reverse drift: a removed or renamed wrapper still documented.
+        real = _all_server_tools()
+        candidates = set(re.findall(r"`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)`", self.doc))
 
         def _documented_as_absent(name: str) -> bool:
-            # The doc legitimately names tools that do NOT exist, to say so:
-            # "node_create / node_delete deferred — not documented by Voog".
-            # Flagging those would push the doc toward silence about the
-            # gaps, which is the opposite of what it is for.
+            # The doc legitimately names tools that do NOT exist, in order to
+            # say so: "node_create / node_delete deferred — not documented by
+            # Voog". Flagging those would push the doc toward silence about
+            # its own gaps. Only "deferred" earns the exemption — an earlier
+            # version also exempted any line containing "passthrough", which
+            # covered every row describing the passthrough tools and blinded
+            # the check to 25 more names.
             for line in self.doc.splitlines():
-                if f"`{name}`" in line and (
-                    "deferred" in line.lower() or "passthrough" in line.lower()
-                ):
+                if f"`{name}`" in line and "deferred" in line.lower():
                     return True
             return False
 
@@ -169,15 +121,25 @@ class TestCoverageDocDrift(unittest.TestCase):
             name
             for name in candidates
             if name not in real
-            and name not in known_non_tools
-            and _looks_like_a_tool_name(name)
+            and name not in self.NON_TOOL_IDENTIFIERS
             and not _documented_as_absent(name)
         )
         self.assertEqual(
             stale,
             [],
-            f"Coverage doc references tool(s) that the server does not register: {stale}",
+            "Coverage doc references name(s) the server does not register. If "
+            "these are Voog field names rather than tools, add them to "
+            f"NON_TOOL_IDENTIFIERS; otherwise fix the doc: {stale}",
         )
+
+    def test_the_reverse_check_would_catch_an_invented_tool_name(self):
+        # Forward-failing guard on the guard. The PR #141 review defeated the
+        # previous implementation with exactly this injection.
+        real = _all_server_tools()
+        for invented in ("voog_legacy_api_list", "page_set_colour", "frobnicate"):
+            with self.subTest(invented=invented):
+                self.assertNotIn(invented, real)
+                self.assertNotIn(invented, self.NON_TOOL_IDENTIFIERS)
 
     def test_footer_verification_date_is_present(self):
         # The doc's value is "this matched Voog on date X"; an undated

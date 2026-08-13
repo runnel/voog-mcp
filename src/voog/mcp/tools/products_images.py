@@ -78,10 +78,12 @@ def get_tools() -> list[Tool]:
                 "Gallery ORDER is applied by re-reading it back and repeating "
                 "the PUT: Voog lands the requested order only about half the "
                 "time on the first write (200 either way). If the order still "
-                "has not taken after 3 attempts the result says so and carries "
-                "`order_verified: false` plus the `stored_asset_ids` Voog "
-                "actually holds — every image is linked in that case, only the "
-                "sequence is wrong."
+                "has not taken, the call comes back as an ERROR carrying "
+                "`order_verified: false` and the `stored_asset_ids` Voog "
+                "actually holds. In that case every image IS linked and only "
+                "the sequence is wrong — do NOT re-run this tool to fix it, "
+                "that re-uploads every file as a new asset. Re-send just the "
+                "order via voog_ecommerce_api_call PUT /products/{id}."
             ),
             inputSchema={
                 "type": "object",
@@ -270,45 +272,79 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
         product = client.get(f"/products/{product_id}", base=client.ecommerce_url)
         return list(product.get("asset_ids") or [])
 
-    try:
-        _, verified, final_order = put_ordered_with_readback(
-            put=_put_assets,
-            read_order=_read_order,
-            wanted=new_asset_ids,
-        )
-    except Exception as e:
+    outcome = put_ordered_with_readback(
+        put=_put_assets,
+        read_order=_read_order,
+        wanted=new_asset_ids,
+    )
+
+    details = {
+        "product_id": product_id,
+        "old_asset_ids": old_asset_ids,
+        "uploaded": uploaded,
+        "failed": failed,
+    }
+
+    if outcome.error is not None:
+        # A write raised. Whether the product was touched depends on
+        # WHICH write raised: the retry loop means an earlier attempt may
+        # already have applied the images. Saying "NOT updated" in that
+        # case sends the operator to re-link assets that are linked, and a
+        # re-run of this tool re-uploads every file as a fresh asset.
+        if outcome.target_modified:
+            return error_response(
+                f"product_set_images: product {product_id} WAS updated "
+                f"({outcome.writes_applied} of {outcome.attempts} write(s) applied), "
+                f"then a follow-up write failed: {outcome.error}. The images are "
+                "linked; the ORDER may be wrong. Do NOT re-run this tool to fix "
+                "the order — it would upload every file again as new assets. "
+                "Verify with product_get and, if needed, re-send just the order "
+                "via voog_ecommerce_api_call PUT /products/{id} with "
+                '{"assets": [{"id": N}, ...]}.',
+                details={**details, "new_asset_ids": new_asset_ids},
+            )
         return error_response(
-            f"product_set_images: uploads OK but product {product_id} update "
-            f"failed: {e}. Assets exist in Voog's library — re-link manually.",
-            details={
-                "product_id": product_id,
-                "old_asset_ids": old_asset_ids,
-                "uploaded": uploaded,
-                "failed": failed,
-            },
+            f"product_set_images: uploads OK but product {product_id} was NOT "
+            f"updated: {outcome.error}. Assets exist in Voog's library — re-link "
+            "manually or delete them via DELETE /assets/{id}.",
+            details=details,
         )
 
     payload = {
-        "product_id": product_id,
-        "old_asset_ids": old_asset_ids,
+        **details,
         "new_asset_ids": new_asset_ids,
-        "uploaded": uploaded,
-        "failed": failed,
-        "order_verified": verified,
+        "order_verified": outcome.verified,
     }
-    if not verified:
-        # Membership is right; the order is not. Reporting a clean ✓ here
-        # would be the same lie 1.4.4 removed from media_set_set_assets.
-        payload["stored_asset_ids"] = final_order
-        return success_response(
-            payload,
-            summary=(
-                f"⚠️ product {product_id}: {len(new_asset_ids)} image(s) attached, "
-                f"but Voog did not apply the requested ORDER after 3 attempts. "
-                f"Wanted {new_asset_ids}, Voog holds "
-                f"{final_order or '(order could not be read back)'}. "
-                "All images are linked — reorder in the Voog admin UI, or re-run."
-            ),
+    if not outcome.verified:
+        # Membership is right; the order is not — or could not be read. Both
+        # are reported as errors, matching media_set_set_assets: `isError` is
+        # the signal an LLM caller reliably branches on, and a ⚠️ buried in a
+        # success payload gets skimmed past.
+        payload["stored_asset_ids"] = outcome.final
+        payload["order_read_back"] = not outcome.read_failed
+        if outcome.read_failed:
+            # Nothing is known about the stored order. Do not claim the
+            # images are correctly linked — the read-back is also the only
+            # thing that would have caught a wrong-envelope PUT.
+            return error_response(
+                f"product_set_images: product {product_id} was written "
+                f"({outcome.writes_applied} write(s)), but reading it back to "
+                "confirm the images and their order FAILED, so neither is "
+                "verified. Check with product_get before assuming the gallery "
+                "is right. Do NOT re-run this tool blindly — it would upload "
+                "every file again as new assets.",
+                details=payload,
+            )
+        return error_response(
+            f"product_set_images: product {product_id} holds the right "
+            f"{len(new_asset_ids)} image(s), but Voog did not apply the requested "
+            f"ORDER after {outcome.attempts} attempt(s). Wanted {new_asset_ids}, "
+            f"Voog holds {outcome.final}. Every image IS linked — only the "
+            "sequence is wrong. Do NOT re-run this tool to fix it (that "
+            "re-uploads every file as a new asset); re-send the order via "
+            "voog_ecommerce_api_call PUT /products/{id} with "
+            '{"assets": [{"id": N}, ...]}, or fix it in the Voog admin UI.',
+            details=payload,
         )
 
     summary = (

@@ -30,7 +30,43 @@ a ``position`` key entirely.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
+
+
+@dataclass
+class OrderedWriteResult:
+    """Outcome of a write-read-retry cycle, in enough detail to describe it.
+
+    A boolean "did it work" is not enough for the caller's message, because
+    three different things can go wrong and they call for different advice:
+
+      - the order never took after every attempt (``verified`` False,
+        ``final`` non-empty) — Voog holds a known, wrong order;
+      - the read-back itself failed (``verified`` False, ``read_failed``
+        True) — nothing is known about the stored order, and in particular
+        NOT that the write was correct;
+      - a retry raised (``error`` set, ``writes_applied`` > 0) — an earlier
+        write already landed, so "the target was not modified" is false.
+
+    That last one is the reason this is a dataclass and not a 3-tuple: a
+    caller that reports "update failed, nothing changed" after a successful
+    first write and a failed second one sends the operator to a recovery
+    procedure for a problem they do not have.
+    """
+
+    result: Any = None
+    verified: bool = False
+    final: list = field(default_factory=list)
+    attempts: int = 0
+    writes_applied: int = 0
+    read_failed: bool = False
+    error: Exception | None = None
+
+    @property
+    def target_modified(self) -> bool:
+        """True when at least one write reached the server."""
+        return self.writes_applied > 0
 
 
 def put_ordered_with_readback(
@@ -39,36 +75,40 @@ def put_ordered_with_readback(
     read_order: Callable[[], list],
     wanted: list,
     attempts: int = 3,
-) -> tuple[Any, bool, list]:
+) -> OrderedWriteResult:
     """Write an ordered array, read it back, and retry until the order took.
 
-    ``put`` performs the write (its return value is passed through to the
-    caller unchanged). ``read_order`` returns the ids currently stored, in
-    stored order. ``wanted`` is the order the caller asked for.
+    ``put`` performs the write (its return value is passed through on
+    :attr:`OrderedWriteResult.result`). ``read_order`` returns the ids
+    currently stored, in stored order. ``wanted`` is the requested order.
 
-    Returns ``(result, verified, final)``:
+    Never raises. A write that fails is recorded on ``error`` along with
+    ``writes_applied``, so the caller can distinguish "nothing happened"
+    from "the first write landed and the retry blew up" — the second is not
+    a failure to report as "the target was not modified".
 
-      - ``result`` — whatever the last ``put`` returned.
-      - ``verified`` — True when a read-back matched ``wanted`` exactly.
-        **False obliges the caller to say so** instead of reporting a clean
-        success; the membership is right, the order is not.
-      - ``final`` — the last order read back, or ``[]`` when the read
-        itself failed.
-
-    A failing read-back is treated as unverified rather than fatal: the
-    write probably landed, and turning a verification hiccup into an error
-    would be a worse lie than an honest "could not confirm".
+    A failing read-back is likewise recorded rather than raised: the write
+    probably landed, and turning a verification hiccup into an error would
+    be a worse lie than an honest "could not confirm". It is NOT recorded
+    as success either — ``verified`` stays False and ``read_failed`` is set,
+    because an unread order is an unknown order.
     """
-    result = None
-    final: list = []
+    outcome = OrderedWriteResult()
     for _ in range(max(1, attempts)):
-        result = put()
+        outcome.attempts += 1
         try:
-            final = list(read_order())
+            outcome.result = put()
+        except Exception as exc:
+            outcome.error = exc
+            return outcome
+        outcome.writes_applied += 1
+        try:
+            outcome.final = list(read_order())
         except Exception:
-            # Verification is best-effort — a failed read must not undo,
-            # or misreport, a write that probably succeeded.
-            return result, False, []
-        if final == wanted:
-            return result, True, final
-    return result, False, final
+            outcome.read_failed = True
+            outcome.final = []
+            return outcome
+        if outcome.final == wanted:
+            outcome.verified = True
+            return outcome
+    return outcome

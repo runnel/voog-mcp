@@ -774,17 +774,25 @@ class TestGalleryOrderVerification(unittest.TestCase):
         self.assertEqual(stored["writes"], 2, "should have retried exactly once")
         self.assertNotIn("stored_asset_ids", payload)
 
-    def test_order_that_never_takes_is_reported_not_claimed_as_success(self):
+    def test_order_that_never_takes_is_reported_as_an_error(self):
+        # isError is the signal an LLM caller reliably branches on, and
+        # media_set_set_assets already uses it for exactly this state.
         result, stored, wanted = self._run(bad_writes=99)
-        payload = json.loads(result[-1].text)
-        self.assertFalse(payload["order_verified"])
-        # Membership is still correct — say that, don't imply data loss.
-        self.assertEqual(sorted(payload["stored_asset_ids"]), sorted(wanted))
-        self.assertNotEqual(payload["stored_asset_ids"], wanted)
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        message = payload["error"]
+        self.assertIn("ORDER", message)
+        self.assertIn("3 attempt", message)
+        # Membership IS correct — the message must say so rather than imply
+        # the images were lost.
+        self.assertIn("Every image IS linked", message)
+        # And it must not invite the retry that re-uploads every file.
+        self.assertIn("Do NOT re-run", message)
+        details = payload["details"]
+        self.assertFalse(details["order_verified"])
+        self.assertEqual(sorted(details["stored_asset_ids"]), sorted(wanted))
+        self.assertNotEqual(details["stored_asset_ids"], wanted)
         self.assertEqual(stored["writes"], 3, "attempt cap is 3")
-        summary = result[0].text
-        self.assertIn("ORDER", summary)
-        self.assertNotIn("🖼️", summary)
 
     def test_clean_first_write_does_not_retry(self):
         _, stored, wanted = self._run(bad_writes=0)
@@ -850,7 +858,10 @@ class TestConfirmRetry(unittest.TestCase):
 
     def _make_client(self):
         client = _make_client()
-        client.get.return_value = {"id": 42, "name": "Widget", "asset_ids": []}
+        # The order read-back (v1.5) reads the same endpoint as the force
+        # pre-flight. Reflect the single uploaded asset so these tests keep
+        # exercising the confirm retry rather than tripping over ordering.
+        client.get.return_value = {"id": 42, "name": "Widget", "asset_ids": [100]}
         client.post.return_value = {
             "id": 100,
             "upload_url": "https://voog-test.s3.amazonaws.com/up100",
@@ -1068,3 +1079,108 @@ class TestConfirmIdempotency(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWriteFailureIsReportedHonestly(unittest.TestCase):
+    """The two blockers from the PR #141 review, pinned.
+
+    Before v1.5 this tool made exactly one product PUT, so "an exception
+    happened" and "the product was not touched" were the same statement and
+    the error text was built on that. The retry loop broke the equivalence
+    and the text was not revisited: a first write that landed followed by a
+    failing retry reported "product NOT updated ... re-link manually", over
+    a product whose images were already linked — and the suggested recovery
+    (re-run) re-uploads every file as a fresh asset.
+    """
+
+    def _client_with_put_failing_on(self, failing_attempt: int, *, stored_after_write=True):
+        client = _make_client()
+        state = {"asset_ids": [], "product_writes": 0}
+        client.get.side_effect = lambda path, *a, **kw: {
+            "id": 42,
+            "asset_ids": list(state["asset_ids"]),
+        }
+        client.post.side_effect = lambda path, body, **kw: {
+            "id": 500,
+            "upload_url": "https://voog-test.s3.amazonaws.com/up500",
+        }
+
+        def _put(path, body=None, **kwargs):
+            if path.endswith("/confirm"):
+                return {"id": 500, "public_url": "https://cdn/500.jpg", "width": 8, "height": 6}
+            state["product_writes"] += 1
+            if state["product_writes"] == failing_attempt:
+                raise RuntimeError("502 Bad Gateway")
+            if stored_after_write:
+                # Wrong order on purpose, so the loop retries and hits the
+                # failing attempt.
+                state["asset_ids"] = [999, *[a["id"] for a in (body or {}).get("assets", [])]]
+            return {"id": 42}
+
+        client.put.side_effect = _put
+        return client, state
+
+    def _run(self, client):
+        with tempfile.TemporaryDirectory() as tmp:
+            img = _write_image(Path(tmp), "a.jpg")
+            with patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen:
+                mock_urlopen.return_value.__enter__.return_value.status = 200
+                return products_images_tools.call_tool(
+                    "product_set_images",
+                    {"product_id": 42, "files": [str(img)]},
+                    client,
+                )
+
+    def test_first_write_fails_says_the_product_was_not_updated(self):
+        client, state = self._client_with_put_failing_on(1)
+        result = self._run(client)
+        self.assertTrue(result.isError)
+        message = json.loads(result.content[0].text)["error"]
+        self.assertIn("NOT", message)
+        self.assertEqual(state["product_writes"], 1)
+
+    def test_a_failing_retry_does_not_claim_the_product_was_untouched(self):
+        # Attempt 1 lands, attempt 2 raises. The product IS updated.
+        client, state = self._client_with_put_failing_on(2)
+        result = self._run(client)
+        self.assertTrue(result.isError)
+        message = json.loads(result.content[0].text)["error"]
+        self.assertIn("WAS updated", message)
+        self.assertNotIn("NOT updated", message)
+        # And it must not send the caller down the orphan-cleanup path for a
+        # problem they do not have, nor invite a re-upload.
+        self.assertNotIn("re-link manually", message)
+        self.assertIn("Do NOT re-run", message)
+        self.assertEqual(state["product_writes"], 2)
+
+    def test_read_back_failure_does_not_claim_the_images_are_linked(self):
+        # The read-back is the ONLY thing that would catch a wrong-envelope
+        # PUT keeping just the hero image, so "could not read it back" must
+        # not be reported as "everything is linked, only the order is off".
+        client = _make_client()
+        reads = {"n": 0}
+
+        def _get(path, *a, **kw):
+            reads["n"] += 1
+            if reads["n"] == 1:
+                return {"id": 42, "asset_ids": []}  # force pre-flight
+            raise RuntimeError("503 on read-back")
+
+        client.get.side_effect = _get
+        client.post.side_effect = lambda path, body, **kw: {
+            "id": 600,
+            "upload_url": "https://voog-test.s3.amazonaws.com/up600",
+        }
+        client.put.side_effect = lambda path, body=None, **kw: (
+            {"id": 600, "public_url": "https://cdn/600.jpg", "width": 8, "height": 6}
+            if path.endswith("/confirm")
+            else {"id": 42}
+        )
+        result = self._run(client)
+        self.assertTrue(result.isError)
+        message = json.loads(result.content[0].text)["error"]
+        self.assertIn("FAILED", message)
+        self.assertIn("neither is", message)
+        self.assertNotIn("Every image IS linked", message)
+        details = json.loads(result.content[0].text)["details"]
+        self.assertFalse(details["order_read_back"])

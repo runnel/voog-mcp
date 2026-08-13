@@ -117,11 +117,23 @@ def _validate_config_host(host: object, *, site_name: str) -> str | None:
     err = validate_host(host, tool_name=f"site '{site_name}'")
     if err is None:
         return None
-    if os.environ.get("VOOG_ALLOW_UNSAFE_CONFIG_HOSTS", "").strip() in ("1", "true", "yes"):
+    # Case-insensitive: an operator who sets VOOG_ALLOW_UNSAFE_CONFIG_HOSTS=TRUE
+    # has expressed the intent, and answering their explicit opt-in with the
+    # same error telling them to set the variable they just set is a dead end.
+    if os.environ.get("VOOG_ALLOW_UNSAFE_CONFIG_HOSTS", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        # WARNING, not debug: the whole point is that the operator can see,
+        # in the log, which host their full-admin API token is being sent to.
         logger.warning(
             "%s — allowed by VOOG_ALLOW_UNSAFE_CONFIG_HOSTS. The API token for "
-            "this site will be sent to that host.",
+            "site %r will be sent to host %r.",
             err,
+            site_name,
+            host,
         )
         return None
     return (

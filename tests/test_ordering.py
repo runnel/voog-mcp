@@ -35,13 +35,16 @@ class TestHappyPath(unittest.TestCase):
     def test_a_write_that_lands_first_time_costs_one_put(self):
         ep = _FakeEndpoint()
         wanted = [1, 2, 3]
-        result, verified, final = put_ordered_with_readback(
+        outcome = put_ordered_with_readback(
             put=lambda: ep.put(wanted), read_order=ep.read, wanted=wanted
         )
-        self.assertTrue(verified)
-        self.assertEqual(final, wanted)
+        self.assertTrue(outcome.verified)
+        self.assertEqual(outcome.final, wanted)
         self.assertEqual(ep.writes, 1)
-        self.assertEqual(result, {"ok": True, "write": 1})
+        self.assertEqual(outcome.result, {"ok": True, "write": 1})
+        self.assertEqual(outcome.attempts, 1)
+        self.assertEqual(outcome.writes_applied, 1)
+        self.assertIsNone(outcome.error)
 
 
 class TestRetry(unittest.TestCase):
@@ -50,23 +53,26 @@ class TestRetry(unittest.TestCase):
         # transposed; the identical repeat fixed every one of them.
         ep = _FakeEndpoint(bad_writes=1)
         wanted = [10, 20, 30, 40]
-        _, verified, final = put_ordered_with_readback(
+        outcome = put_ordered_with_readback(
             put=lambda: ep.put(wanted), read_order=ep.read, wanted=wanted
         )
-        self.assertTrue(verified)
-        self.assertEqual(final, wanted)
+        self.assertTrue(outcome.verified)
+        self.assertEqual(outcome.final, wanted)
         self.assertEqual(ep.writes, 2)
+        self.assertEqual(outcome.attempts, 2)
 
     def test_gives_up_after_the_attempt_cap_and_reports_unverified(self):
         ep = _FakeEndpoint(bad_writes=99)
         wanted = [1, 2, 3]
-        _, verified, final = put_ordered_with_readback(
+        outcome = put_ordered_with_readback(
             put=lambda: ep.put(wanted), read_order=ep.read, wanted=wanted, attempts=3
         )
-        self.assertFalse(verified)
+        self.assertFalse(outcome.verified)
         self.assertEqual(ep.writes, 3)
+        self.assertEqual(outcome.attempts, 3)
+        self.assertFalse(outcome.read_failed)
         # The caller gets what Voog actually holds, so it can say so.
-        self.assertEqual(final, [2, 1, 3])
+        self.assertEqual(outcome.final, [2, 1, 3])
 
     def test_attempts_below_one_still_writes_exactly_once(self):
         # A zero/negative cap must not turn the write into a no-op — that
@@ -87,44 +93,66 @@ class TestReadBackFailure(unittest.TestCase):
         def _read():
             raise RuntimeError("transient 502 on read-back")
 
-        result, verified, final = put_ordered_with_readback(
+        outcome = put_ordered_with_readback(
             put=lambda: writes.append(1) or "wrote",
             read_order=_read,
             wanted=[1, 2],
         )
-        self.assertEqual(result, "wrote")
-        self.assertFalse(verified)
-        self.assertEqual(final, [])
+        self.assertEqual(outcome.result, "wrote")
+        self.assertFalse(outcome.verified)
+        self.assertEqual(outcome.final, [])
+        # The caller MUST be able to tell "order is wrong" from "order is
+        # unknown" — they call for different advice.
+        self.assertTrue(outcome.read_failed)
+        self.assertTrue(outcome.target_modified)
         # Exactly one write — a failed read must not trigger a retry storm
         # against an endpoint that may already be struggling.
         self.assertEqual(len(writes), 1)
 
-    def test_write_exception_propagates(self):
-        # A failed WRITE is a real failure and must reach the caller; only
-        # read-back failures are forgiven.
+    def test_a_first_write_that_raises_reports_nothing_was_applied(self):
         def _put():
             raise RuntimeError("422 quota_exceeded")
 
-        with self.assertRaises(RuntimeError):
-            put_ordered_with_readback(put=_put, read_order=lambda: [], wanted=[1])
+        outcome = put_ordered_with_readback(put=_put, read_order=lambda: [], wanted=[1])
+        self.assertIsInstance(outcome.error, RuntimeError)
+        self.assertEqual(outcome.writes_applied, 0)
+        self.assertFalse(outcome.target_modified)
+
+    def test_a_retry_that_raises_still_reports_the_earlier_write(self):
+        # The blocker this dataclass exists for: attempt 1 lands, attempt 2
+        # blows up. "The target was not modified" is FALSE, and a caller
+        # that says it sends the operator to the wrong recovery.
+        ep = _FakeEndpoint(bad_writes=1)
+        calls = {"n": 0}
+
+        def _put():
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("502 from the retry")
+            return ep.put([1, 2])
+
+        outcome = put_ordered_with_readback(put=_put, read_order=ep.read, wanted=[1, 2])
+        self.assertIsInstance(outcome.error, RuntimeError)
+        self.assertEqual(outcome.writes_applied, 1)
+        self.assertTrue(outcome.target_modified)
 
 
 class TestOrderIsComparedExactly(unittest.TestCase):
     def test_same_membership_wrong_sequence_is_not_verified(self):
         ep = _FakeEndpoint()
         ep.stored = [3, 2, 1]
-        _, verified, _ = put_ordered_with_readback(
+        outcome = put_ordered_with_readback(
             put=lambda: None, read_order=ep.read, wanted=[1, 2, 3], attempts=1
         )
-        self.assertFalse(verified)
+        self.assertFalse(outcome.verified)
 
     def test_extra_asset_left_behind_is_not_verified(self):
         ep = _FakeEndpoint()
         ep.stored = [1, 2, 3, 4]
-        _, verified, _ = put_ordered_with_readback(
+        outcome = put_ordered_with_readback(
             put=lambda: None, read_order=ep.read, wanted=[1, 2, 3], attempts=1
         )
-        self.assertFalse(verified)
+        self.assertFalse(outcome.verified)
 
 
 if __name__ == "__main__":

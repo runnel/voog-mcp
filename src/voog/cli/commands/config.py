@@ -69,7 +69,7 @@ def init(args) -> int:
         name = input("Site name (blank to finish): ").strip()
         if not name:
             break
-        host = input(f"  Host for '{name}' (e.g., example.com): ").strip()
+        host = input(f"  Host for '{name}' (e.g., mysite.voog.com): ").strip()
         token = input(f"  API token for '{name}' (paste from Voog Admin → API): ").strip()
         if not token:
             sys.stderr.write(f"error: api_key for '{name}' cannot be empty.\n")

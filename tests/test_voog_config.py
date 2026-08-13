@@ -611,10 +611,6 @@ class TestSiteNameValidation(unittest.TestCase):
             )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestConfigHostValidation(unittest.TestCase):
     """v1.5: config hosts run through the same SSRF validator as LLM-supplied
     ones. SECURITY.md calls validate_host the load-bearing defense for hosts
@@ -685,6 +681,29 @@ class TestConfigHostValidation(unittest.TestCase):
                 cfg = load_global_config(cfg_path)
             self.assertEqual(cfg.sites["s"].host, "voog.internal")
 
+    def test_escape_hatch_is_case_insensitive(self):
+        # An operator who sets =TRUE has expressed the intent; answering it
+        # with the same error telling them to set the variable they just set
+        # is a dead end (PR #141 review).
+        for value in ("TRUE", "True", "Yes", "ON", "1"):
+            with self.subTest(value=value), TemporaryDirectory() as tmp:
+                cfg_path = self._write(tmp, "voog.internal")
+                with patch.dict("os.environ", {"VOOG_ALLOW_UNSAFE_CONFIG_HOSTS": value}):
+                    cfg = load_global_config(cfg_path)
+                self.assertEqual(cfg.sites["s"].host, "voog.internal")
+
+    def test_escape_hatch_logs_which_host_gets_the_token(self):
+        # The operator has to be able to see, in the log, where their
+        # full-admin token is going.
+        with TemporaryDirectory() as tmp:
+            cfg_path = self._write(tmp, "voog.internal")
+            with patch.dict("os.environ", {"VOOG_ALLOW_UNSAFE_CONFIG_HOSTS": "1"}):
+                with self.assertLogs("voog.config", level="WARNING") as logs:
+                    load_global_config(cfg_path)
+        joined = "\n".join(logs.output)
+        self.assertIn("voog.internal", joined)
+        self.assertIn("VOOG_ALLOW_UNSAFE_CONFIG_HOSTS", joined)
+
     def test_escape_hatch_ignores_unrecognised_values(self):
         with TemporaryDirectory() as tmp:
             cfg_path = self._write(tmp, "voog.internal")
@@ -703,3 +722,7 @@ class TestConfigHostValidation(unittest.TestCase):
             )
             with self.assertRaises(ConfigError):
                 load_global_config(cfg_path)
+
+
+if __name__ == "__main__":
+    unittest.main()

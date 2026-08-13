@@ -228,3 +228,48 @@ class TestBuildClient(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConfigCommandsSurviveABadConfig(unittest.TestCase):
+    """`voog config check` / `list-sites` are what you run when the config is
+    broken, so they must not answer with a raw traceback (PR #141 review).
+
+    They bypass ``_build_client``, which is where every other subcommand's
+    ConfigError handling lives — the v1.5 host validation made that gap
+    reachable for the first time.
+    """
+
+    def _run(self, argv, cfg_body):
+        import subprocess
+        import sys
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            cfg = Path(tmp) / "voog.json"
+            cfg.write_text(cfg_body)
+            # --config is a GLOBAL flag and must precede the subcommand.
+            return subprocess.run(
+                [sys.executable, "-m", "voog", "--config", str(cfg), *argv],
+                capture_output=True,
+                text=True,
+                cwd=tmp,
+            )
+
+    def test_check_reports_a_rejected_host_as_an_error(self):
+        result = self._run(
+            ["config", "check"],
+            json.dumps({"sites": {"s": {"host": "169.254.169.254", "api_key_env": "X"}}}),
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("error:", result.stderr)
+        self.assertIn("169.254.169.254", result.stderr)
+
+    def test_list_sites_reports_a_rejected_host_as_an_error(self):
+        result = self._run(
+            ["config", "list-sites"],
+            json.dumps({"sites": {"s": {"host": "localhost", "api_key_env": "X"}}}),
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("error:", result.stderr)
