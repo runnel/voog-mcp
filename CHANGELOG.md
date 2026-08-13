@@ -8,6 +8,14 @@ versioning: [PEP 440](https://peps.python.org/pep-0440/).
 
 (no changes yet)
 
+## [1.4.4] — 2026-08-13
+
+### Fixed
+- **Gallery ordering was never actually applied — and `media_set_update_asset_titles` could reshuffle a gallery while claiming to preserve it.** Both tools built the asset array in the right order and let Voog infer positions from it. Live on the kolm-koma-2026 test site (media_set 1561863, 7 assets): PUTting a reversed array without an explicit `position` came back with two assets sharing position 6 and two pairs swapped — every attempt. Two things were wrong:
+  - **Array order is not enough.** Both tools now send an explicit 1-based `position` per asset (Voog reports positions as 1..N, so 1 is the first slot). For `media_set_update_asset_titles` this is the load-bearing part: it promises that editing one title preserves "every other asset's id, order, title", and without positions a title edit could quietly reorder the gallery.
+  - **One PUT is not enough either.** Even with explicit positions, the first write applied only partially; the identical PUT repeated immediately afterwards produced the exact requested order. `media_set_set_assets` now reads the gallery back, retries up to three times, and — if the order still has not taken — reports that instead of a clean ✓, naming what was wanted and what Voog holds. Membership is correct either way; only the order is at stake.
+- **`media_set_set_assets` no longer claims it can build a gallery "from scratch".** A media_set has to exist first: `POST /media_sets` returns 500, and a freshly created gallery content area carries none until Voog makes one. The description now says so and points at where the id actually lives — the content area's `gallery` field, **not** `media_set` (which is `null` even on populated galleries).
+
 ## [1.4.3] — 2026-08-13
 
 > Note: **1.4.2 was never published to PyPI** — the release tag was not

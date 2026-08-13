@@ -253,9 +253,26 @@ class TestMediaSetSetAssets(unittest.TestCase):
     """
 
     def _client(self, assets):
+        """Fake Voog that APPLIES the write, so read-back verification passes.
+
+        The tool now re-reads the gallery to confirm the order took (Voog
+        applies a reorder only partially on the first PUT). A fixture that
+        always returned the original order would fail every reorder test for
+        the wrong reason.
+        """
         client = MagicMock()
-        client.get.return_value = {"id": 5, "title": "Gallery", "assets": assets}
-        client.put.return_value = {"id": 5, "title": "Gallery", "assets": assets}
+        state = {"assets": list(assets)}
+
+        def _get(path):
+            return {"id": 5, "title": "Gallery", "assets": state["assets"]}
+
+        def _put(path, payload):
+            by_id = {a["id"]: a for a in assets}
+            state["assets"] = [{**by_id.get(e["id"], {}), **e} for e in payload.get("assets", [])]
+            return {"id": 5, "title": "Gallery", "assets": state["assets"]}
+
+        client.get.side_effect = _get
+        client.put.side_effect = _put
         return client
 
     def test_sets_full_array_in_given_order(self):
@@ -365,3 +382,116 @@ class TestMediaSetSetAssets(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestExplicitPositions(unittest.TestCase):
+    """Gallery order must be sent explicitly, not implied by array order.
+
+    Proven live 2026-08-13 on media_set 1561863: PUTting a reordered array
+    WITHOUT `position` left two assets sharing position 6 and the order
+    partly wrong. With an explicit 1-based `position` the reorder was exact
+    and round-tripped. This bites `media_set_update_asset_titles` too — it
+    promises to preserve order while editing a title, and without positions
+    it could silently reshuffle the gallery.
+    """
+
+    def _client(self, assets):
+        client = MagicMock()
+        client.get.return_value = {"id": 5, "assets": assets}
+        client.put.return_value = {"id": 5, "assets": assets}
+        return client
+
+    def test_set_assets_sends_one_based_positions_in_order(self):
+        client = self._client([{"id": 11, "position": 1}, {"id": 22, "position": 2}])
+        media_sets_tools.call_tool(
+            "media_set_set_assets", {"media_set_id": 5, "asset_ids": [22, 11]}, client
+        )
+        sent = client.put.call_args.args[1]["assets"]
+        self.assertEqual([(a["id"], a["position"]) for a in sent], [(22, 1), (11, 2)])
+
+    def test_title_edit_pins_positions_too(self):
+        client = self._client(
+            [
+                {"id": 11, "title": "a", "position": 1},
+                {"id": 22, "title": "b", "position": 2},
+                {"id": 33, "title": "c", "position": 3},
+            ]
+        )
+        media_sets_tools.call_tool(
+            "media_set_update_asset_titles", {"media_set_id": 5, "titles": {"22": "new"}}, client
+        )
+        sent = client.put.call_args.args[1]["assets"]
+        self.assertEqual([(a["id"], a["position"]) for a in sent], [(11, 1), (22, 2), (33, 3)])
+        self.assertEqual([a["title"] for a in sent], ["a", "new", "c"])
+
+    def test_positions_start_at_one_not_zero(self):
+        # Voog reports 1..N; a 0-based first slot is not what it echoes back.
+        client = self._client([{"id": 11, "position": 1}])
+        media_sets_tools.call_tool(
+            "media_set_set_assets", {"media_set_id": 5, "asset_ids": [11]}, client
+        )
+        self.assertEqual(client.put.call_args.args[1]["assets"][0]["position"], 1)
+
+
+class TestReorderVerification(unittest.TestCase):
+    """Voog applies a gallery reorder only partially on the first PUT.
+
+    Proven live on media_set 1561863: reversing 7 assets left two sharing
+    position 6; the identical PUT repeated immediately after produced the
+    exact order. So one write is not proof — the tool reads back, retries,
+    and refuses to report success on an order that never took.
+    """
+
+    def _flaky_client(self, assets, succeed_on):
+        """Applies the write only from the Nth attempt onward."""
+        client = MagicMock()
+        state = {"assets": list(assets), "n": 0}
+
+        def _put(path, payload):
+            state["n"] += 1
+            if state["n"] >= succeed_on:
+                by_id = {a["id"]: a for a in assets}
+                state["assets"] = [
+                    {**by_id.get(e["id"], {}), **e} for e in payload.get("assets", [])
+                ]
+            return {"id": 5, "assets": state["assets"]}
+
+        client.put.side_effect = _put
+        client.get.side_effect = lambda path: {"id": 5, "assets": state["assets"]}
+        return client, state
+
+    def test_retries_until_the_order_takes(self):
+        assets = [{"id": 11, "position": 1}, {"id": 22, "position": 2}]
+        client, state = self._flaky_client(assets, succeed_on=2)
+        result = media_sets_tools.call_tool(
+            "media_set_set_assets", {"media_set_id": 5, "asset_ids": [22, 11]}, client
+        )
+        self.assertFalse(getattr(result, "isError", False))
+        self.assertEqual(state["n"], 2)
+        self.assertEqual([a["id"] for a in state["assets"]], [22, 11])
+
+    def test_reports_failure_when_order_never_applies(self):
+        assets = [{"id": 11, "position": 1}, {"id": 22, "position": 2}]
+        client, state = self._flaky_client(assets, succeed_on=99)
+        result = media_sets_tools.call_tool(
+            "media_set_set_assets", {"media_set_id": 5, "asset_ids": [22, 11]}, client
+        )
+        self.assertTrue(result.isError)
+        payload = json.loads(result.content[0].text)
+        self.assertIn("did not apply the requested ORDER", payload["error"])
+        self.assertIn("Re-run", payload["error"])
+        self.assertEqual(state["n"], 3)
+
+    def test_a_failed_read_back_does_not_hide_the_write(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 5}
+        client.get.side_effect = [
+            {"id": 5, "assets": [{"id": 11, "position": 1}]},  # pre-flight GET
+            RuntimeError("read failed"),
+        ]
+        result = media_sets_tools.call_tool(
+            "media_set_set_assets", {"media_set_id": 5, "asset_ids": [11]}, client
+        )
+        # Reported as unverified rather than crashing or claiming success.
+        self.assertTrue(result.isError)
+        client.put.assert_called_once()

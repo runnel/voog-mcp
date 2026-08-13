@@ -42,6 +42,14 @@ from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import require_int, strip_site
 
+# Voog does NOT reliably take gallery order from the array order alone:
+# PUTting a reordered array without `position` produced duplicate positions
+# and a partially-wrong order (proven live 2026-08-13 on media_set 1561863 —
+# two assets both landed on position 6). Sending an explicit 1-based
+# `position` per asset is exact and round-trips. Voog reports positions
+# 1..N, so 1 is the first slot, not 0.
+_FIRST_POSITION = 1
+
 
 def _simplify_media_set(media_set: dict) -> dict:
     """Curate the verbose GET shape down to the title-editing essentials."""
@@ -64,6 +72,39 @@ def _simplify_media_set(media_set: dict) -> dict:
         "assets_count": len(simplified_assets),
         "assets": simplified_assets,
     }
+
+
+def _put_assets_verified(client, media_set_id: int, entries: list, *, attempts: int = 3):
+    """PUT the asset array, then READ IT BACK and retry if order didn't take.
+
+    Voog applies a gallery reorder only partially on the first PUT: proven
+    live 2026-08-13 on media_set 1561863 — reversing 7 assets left two of
+    them sharing position 6 and two pairs swapped, while the identical PUT
+    repeated immediately afterwards produced the exact requested order.
+    A single write is therefore not enough, and array order alone is not
+    enough either (without explicit `position` the same test was wrong every
+    time).
+
+    Returns ``(result, verified, final_ids)``. ``verified`` False means the
+    caller must say so rather than report a clean success — the assets are
+    right, the ORDER is not.
+    """
+    wanted = [e["id"] for e in entries]
+    result = None
+    final: list = []
+    for _ in range(max(1, attempts)):
+        result = client.put(f"/media_sets/{media_set_id}", {"assets": entries})
+        try:
+            read_back = client.get(f"/media_sets/{media_set_id}")
+        except Exception:
+            # Verification is best-effort; a failed read must not undo a
+            # write that probably landed.
+            return result, False, []
+        assets = [a for a in (read_back.get("assets") or []) if isinstance(a, dict)]
+        final = [a.get("id") for a in sorted(assets, key=lambda a: a.get("position") or 0)]
+        if final == wanted:
+            return result, True, final
+    return result, False, final
 
 
 def get_tools() -> list[Tool]:
@@ -150,13 +191,18 @@ def get_tools() -> list[Tool]:
         Tool(
             name="media_set_set_assets",
             description=(
-                "Set a media_set's FULL asset list in one call — for building "
-                "a gallery from scratch or reordering/removing images "
+                "Set a media_set's FULL asset list in one call — for filling, "
+                "reordering or pruning an EXISTING gallery "
                 "(issue #140 item 5; media_set_update_asset_titles only edits "
                 "titles of what is already there).\n"
                 "\n"
-                "`asset_ids` is the gallery's new content IN ORDER: position "
-                "is array position. Any asset currently in the set but absent "
+                "`asset_ids` is the gallery's new content IN ORDER (an explicit "
+                "1-based position is sent per asset — array order alone is "
+                "NOT enough, Voog re-derives it and can duplicate positions). "
+                "A reorder does not always take on the first PUT, so the tool "
+                "reads the gallery back and retries; if the order still has "
+                "not applied it says so instead of reporting success. "
+                "Any asset currently in the set but absent "
                 "from the list is UNLINKED (the asset itself survives in the "
                 "library; only its membership ends). Because that is easy to "
                 "do by accident, any call that drops a current asset requires "
@@ -165,7 +211,13 @@ def get_tools() -> list[Tool]:
                 "\n"
                 "Titles and per-asset link settings are carried over for "
                 "assets that stay; pass `titles` to set them for new ones. "
-                "Upload files first with asset_upload to get ids."
+                "Upload files first with asset_upload to get ids.\n"
+                "\n"
+                "The media_set must already exist: POST /media_sets returns "
+                "500, and a freshly created gallery content area has no "
+                "media_set until Voog makes one. Find the id on the content "
+                "area's `gallery` field (NOT `media_set`) via "
+                "voog://{site}/articles/{id}/contents, then media_set_get."
             ),
             inputSchema={
                 "type": "object",
@@ -296,7 +348,14 @@ def _media_set_update_asset_titles(
     for a in ordered:
         aid = a.get("id")
         key = str(aid)
-        entry: dict = {"id": aid, "title": a.get("title", "")}
+        entry: dict = {
+            "id": aid,
+            "title": a.get("title", ""),
+            # Explicit position: without it Voog re-derives order and can
+            # duplicate positions, so a title-only edit would silently
+            # reshuffle the gallery this tool exists to preserve.
+            "position": len(new_assets) + _FIRST_POSITION,
+        }
         # Preserve per-asset link settings (linkurl/linktarget) if present.
         settings = a.get("settings")
         if isinstance(settings, dict) and settings:
@@ -415,7 +474,7 @@ def _media_set_set_assets(
     payload_assets = []
     for asset_id in normalised:
         existing = current_by_id.get(asset_id)
-        entry: dict = {"id": asset_id}
+        entry: dict = {"id": asset_id, "position": len(payload_assets) + _FIRST_POSITION}
         key = str(asset_id)
         if key in requested_titles:
             entry["title"] = requested_titles[key]
@@ -427,19 +486,27 @@ def _media_set_set_assets(
         payload_assets.append(entry)
 
     try:
-        result = client.put(f"/media_sets/{media_set_id}", {"assets": payload_assets})
+        result, verified, final_ids = _put_assets_verified(client, media_set_id, payload_assets)
     except Exception as e:
         return error_response(f"media_set_set_assets PUT id={media_set_id} failed: {e}")
 
     simplified = _simplify_media_set(result) if isinstance(result, dict) else None
     added = [a for a in normalised if a not in current_by_id]
-    return success_response(
-        simplified if simplified else result,
-        summary=(
-            f"🖼️  media_set {media_set_id}: {len(payload_assets)} assets set "
-            f"({len(added)} added, {len(removed)} unlinked)"
-        ),
+    summary = (
+        f"🖼️  media_set {media_set_id}: {len(payload_assets)} assets set "
+        f"({len(added)} added, {len(removed)} unlinked)"
     )
+    if not verified:
+        # Membership is right, order is not — and Voog reports a clean 200
+        # either way, so saying nothing would be the silent-success failure
+        # this package refuses elsewhere.
+        return error_response(
+            f"media_set_set_assets: media_set {media_set_id} now holds the right "
+            f"assets, but Voog did not apply the requested ORDER after 3 attempts. "
+            f"Wanted {[e['id'] for e in payload_assets]}, got {final_ids}. Re-run the "
+            "same call — Voog converges on repeat — or set the order in the admin UI."
+        )
+    return success_response(simplified if simplified else result, summary=summary)
 
 
 _DISPATCH = {
