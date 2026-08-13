@@ -168,7 +168,7 @@ Full endpoint coverage reference: [docs/voog-mcp-endpoint-coverage.md](docs/voog
 | Elements | `elements_list`, `element_get`, `element_definitions_list`, `element_create`, `element_update`, `element_move`, `element_delete` |
 | Products | `products_list`, `product_get`, `product_create`, `product_update`, `product_set_images`, `product_delete`, `product_duplicate`, `products_bulk_action` |
 | Categories | `categories_list`, `category_get`, `category_create`, `category_update`, `category_delete` |
-| Media library | `asset_upload` (unattached image upload — reuses a same-named asset instead of letting Voog auto-suffix a duplicate, waits for the async resizes, returns the derivative widths Voog actually made) |
+| Media library | `asset_upload` (unattached image upload — reuses a same-named asset instead of letting Voog auto-suffix a duplicate, waits for the async resizes, returns the derivative sizes Voog actually made) |
 | Media sets (galleries) | `media_set_get`, `media_set_update_asset_titles` (safe GET-then-PUT — `PUT /media_sets/{id}` is replace-not-merge), `media_set_set_assets` (build/reorder a gallery; refuses to drop images without `force`) |
 | Orders | `orders_list`, `order_get` (read-only; PII-stripped by default, `include_pii=true` requires `force=true`) |
 | Discounts | `discounts_list`, `discount_get`, `discount_create`, `discount_update`, `discount_delete` |
@@ -181,11 +181,11 @@ Full endpoint coverage reference: [docs/voog-mcp-endpoint-coverage.md](docs/voog
 | Webhooks | `webhooks_list`, `webhook_create`, `webhook_update`, `webhook_delete` |
 | Snapshot | `pages_snapshot`, `site_snapshot` |
 | **Read-only passthrough** | `voog_admin_api_read`, `voog_ecommerce_api_read` |
-| **Generic passthrough** | `voog_admin_api_call`, `voog_ecommerce_api_call` (GET deprecated — use the `_read` tools above) |
+| **Generic passthrough (writes)** | `voog_admin_api_call`, `voog_ecommerce_api_call` — POST/PUT/PATCH/DELETE only. `method='GET'` was removed in v1.5; use the `_read` tools above. |
 
 ## What's NOT supported
 
-voog-mcp covers content + ecommerce catalog management end-to-end as of v1.4. The following Voog API areas remain out of scope — drop down to the `voog_admin_api_call` / `voog_ecommerce_api_call` passthrough tools when you need them:
+voog-mcp covers content + ecommerce catalog management end-to-end as of v1.4. The following Voog API areas remain out of scope — drop down to the passthrough tools when you need them — `voog_admin_api_read` / `voog_ecommerce_api_read` to read, `voog_admin_api_call` / `voog_ecommerce_api_call` to write:
 
 - **Order mutation** — `orders_list` / `order_get` are read-only typed tools (with PII stripping); creating / updating / cancelling orders goes via passthrough. Order writes carry finance / operations risk that a future release will design separately.
 - **Cart reads** — `cart_rules_*` tools cover cart-rule CRUD, but reading individual cart sessions (`/carts`) is passthrough-only.

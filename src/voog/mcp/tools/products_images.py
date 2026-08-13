@@ -44,6 +44,7 @@ from pathlib import Path
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog._concurrency import parallel_map, propagate_tool_context
+from voog._ordering import put_ordered_with_readback
 from voog._upload_validation import _validate_upload_url
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
@@ -72,7 +73,15 @@ def get_tools() -> list[Tool]:
                 "Refuses to replace existing images unless force=true. "
                 "If any single upload fails, the product is NOT updated — "
                 "successful uploads are surfaced in `uploaded` for manual "
-                "re-linking."
+                "re-linking.\n"
+                "\n"
+                "Gallery ORDER is applied by re-reading it back and repeating "
+                "the PUT: Voog lands the requested order only about half the "
+                "time on the first write (200 either way). If the order still "
+                "has not taken after 3 attempts the result says so and carries "
+                "`order_verified: false` plus the `stored_asset_ids` Voog "
+                "actually holds — every image is linked in that case, only the "
+                "sequence is wrong."
             ),
             inputSchema={
                 "type": "object",
@@ -233,18 +242,39 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
 
     new_asset_ids = [u["asset_id"] for u in uploaded]
 
-    # Voog gotcha: PUT envelope is `assets:[{id:n}]`, not `asset_ids`
+    # Voog gotcha 1: PUT envelope is `assets:[{id:n}]`, not `asset_ids`
     # (that's POST-only). Sending `asset_ids` on PUT silently keeps only
     # the first/hero image — gallery images vanish without an error.
     # See feedback_voog_assets_vs_asset_ids memory.
-    try:
-        client.put(
+    #
+    # Voog gotcha 2 (v1.5): one PUT does not reliably apply the ORDER.
+    # Measured on the kolm-koma-2026 test site 2026-08-13 — 12 trials of a
+    # random 7-asset order — 6 of 12 single PUTs came back with one or two
+    # adjacent pairs transposed, returning 200 the whole time. A second
+    # identical PUT produced the requested order in all 12. This tool's
+    # contract is "first file becomes the main image, rest are gallery", so
+    # a silently shuffled gallery breaks the one promise it makes.
+    # Same failure and same remedy as media_set_set_assets; the loop lives
+    # in voog._ordering so the two cannot drift.
+    def _put_assets():
+        return client.put(
             f"/products/{product_id}",
             {
                 "image_id": new_asset_ids[0],
                 "assets": [{"id": aid} for aid in new_asset_ids],
             },
             base=client.ecommerce_url,
+        )
+
+    def _read_order():
+        product = client.get(f"/products/{product_id}", base=client.ecommerce_url)
+        return list(product.get("asset_ids") or [])
+
+    try:
+        _, verified, final_order = put_ordered_with_readback(
+            put=_put_assets,
+            read_order=_read_order,
+            wanted=new_asset_ids,
         )
     except Exception as e:
         return error_response(
@@ -258,19 +288,33 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
             },
         )
 
+    payload = {
+        "product_id": product_id,
+        "old_asset_ids": old_asset_ids,
+        "new_asset_ids": new_asset_ids,
+        "uploaded": uploaded,
+        "failed": failed,
+        "order_verified": verified,
+    }
+    if not verified:
+        # Membership is right; the order is not. Reporting a clean ✓ here
+        # would be the same lie 1.4.4 removed from media_set_set_assets.
+        payload["stored_asset_ids"] = final_order
+        return success_response(
+            payload,
+            summary=(
+                f"⚠️ product {product_id}: {len(new_asset_ids)} image(s) attached, "
+                f"but Voog did not apply the requested ORDER after 3 attempts. "
+                f"Wanted {new_asset_ids}, Voog holds "
+                f"{final_order or '(order could not be read back)'}. "
+                "All images are linked — reorder in the Voog admin UI, or re-run."
+            ),
+        )
+
     summary = (
         f"🖼️ product {product_id}: {len(new_asset_ids)} image(s) set (main: id:{new_asset_ids[0]})"
     )
-    return success_response(
-        {
-            "product_id": product_id,
-            "old_asset_ids": old_asset_ids,
-            "new_asset_ids": new_asset_ids,
-            "uploaded": uploaded,
-            "failed": failed,
-        },
-        summary=summary,
-    )
+    return success_response(payload, summary=summary)
 
 
 def _upload_asset(path: Path, client: VoogClient) -> dict:

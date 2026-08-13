@@ -24,20 +24,35 @@ from __future__ import annotations
 import time
 import urllib.parse
 
-# Voog caps each derivative's HEIGHT; a resize is produced only when the
-# original is taller than the cap. Widths therefore depend on the source
-# aspect ratio and cannot be predicted — which is why callers must read the
-# `sizes` array rather than assume a width list (a guessed width in a srcset
-# 403s, and browsers do not fall back to another candidate — the image just
-# renders blank).
-DERIVATIVE_HEIGHT_CAPS = (150, 600, 1280, 2048)
+# Voog caps each derivative's LONG SIDE — not its height. A resize is
+# produced exactly when the original's longer side exceeds the cap, and the
+# result has that side sitting on the cap while the other side follows the
+# source aspect ratio. Callers must therefore read the `sizes` array rather
+# than assume a width list (a guessed width in a srcset 403s, and browsers do
+# not fall back to another candidate — the image just renders blank).
+#
+# Measured against all 1032 finished images in the kolm-koma-2026 library on
+# 2026-08-13: every derivative in the library has max(width, height) exactly
+# on its cap, and `max(w, h) > cap` predicts the derivative set for 1032 of
+# 1032 images. The pre-1.5 height-only rule agreed on only 503 — it
+# undercounted every landscape image, which made `is_asset_complete` report
+# "done" while Voog was still resizing. See tests/test_assets_helpers.py,
+# which asserts the rule against the captured live fixture rather than
+# against a second copy of the constant.
+DERIVATIVE_LONG_SIDE_CAPS = (150, 600, 1280, 2048)
 
 
-def expected_derivative_count(height: int | None) -> int:
-    """How many resized copies Voog should make for an original this tall."""
-    if not height:
+def expected_derivative_count(width: int | None, height: int | None) -> int:
+    """How many resized copies Voog should make for an original this size.
+
+    Both dimensions are required because the cap applies to whichever side
+    is longer: a 2000x400 banner gets three derivatives, the same count as
+    a 400x2000 portrait, and the height alone would have predicted one.
+    """
+    long_side = max(width or 0, height or 0)
+    if not long_side:
         return 0
-    return sum(1 for cap in DERIVATIVE_HEIGHT_CAPS if height > cap)
+    return sum(1 for cap in DERIVATIVE_LONG_SIDE_CAPS if long_side > cap)
 
 
 def is_asset_complete(asset) -> bool:
@@ -45,13 +60,21 @@ def is_asset_complete(asset) -> bool:
 
     Lets callers skip the poll entirely for an asset that is already
     finished — a `status: done` asset found by lookup normally is.
+
+    BOTH dimensions must be present: the expected-derivative count depends
+    on the longer side, so deciding from height alone declared every
+    landscape image finished while resizes were still being built. Voog
+    reports width and height together, so requiring both costs nothing on
+    a real record — an asset missing either is one Voog has not finished
+    describing yet.
     """
     if not isinstance(asset, dict):
         return False
+    width = asset.get("width")
     height = asset.get("height")
-    if not height:
+    if not width or not height:
         return False
-    return len(asset.get("sizes") or []) >= expected_derivative_count(height)
+    return len(asset.get("sizes") or []) >= expected_derivative_count(width, height)
 
 
 def find_asset_by_filename(client, filename: str) -> dict | None:

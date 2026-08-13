@@ -29,8 +29,8 @@ class TestLoadGlobalConfig(unittest.TestCase):
                 json.dumps(
                     {
                         "sites": {
-                            "site_a": {"host": "a.example.com", "api_key_env": "A_KEY"},
-                            "site_b": {"host": "b.example.com", "api_key_env": "B_KEY"},
+                            "site_a": {"host": "a.voogtest.net", "api_key_env": "A_KEY"},
+                            "site_b": {"host": "b.voogtest.net", "api_key_env": "B_KEY"},
                         },
                         "default_site": "site_a",
                     }
@@ -38,7 +38,7 @@ class TestLoadGlobalConfig(unittest.TestCase):
             )
             cfg = load_global_config(cfg_path)
             self.assertEqual(cfg.default_site, "site_a")
-            self.assertEqual(cfg.sites["site_a"].host, "a.example.com")
+            self.assertEqual(cfg.sites["site_a"].host, "a.voogtest.net")
             self.assertEqual(cfg.sites["site_b"].api_key_env, "B_KEY")
 
     def test_missing_file_returns_empty(self):
@@ -225,7 +225,7 @@ class TestResolveSite(unittest.TestCase):
         return GlobalConfig(
             sites={
                 "stella": SiteConfig(name="stella", host="mysite.com", api_key_env="VOOG_API_KEY"),
-                "runnel": SiteConfig(name="runnel", host="example.com", api_key_env="RUNNEL_KEY"),
+                "runnel": SiteConfig(name="runnel", host="voogtest.net", api_key_env="RUNNEL_KEY"),
             },
             default_site=default_site,
             env_file=None,
@@ -263,14 +263,14 @@ class TestRepoSitePointerLegacyFormat(unittest.TestCase):
             (Path(tmp) / "voog-site.json").write_text(
                 json.dumps(
                     {
-                        "host": "legacy.example.com",
+                        "host": "legacy.voogtest.net",
                         "api_key_env": "LEGACY_KEY",
                     }
                 )
             )
             with patch("warnings.warn") as mock_warn:
                 pointer = find_repo_site_pointer(Path(tmp))
-                self.assertEqual(pointer.legacy_host, "legacy.example.com")
+                self.assertEqual(pointer.legacy_host, "legacy.voogtest.net")
                 self.assertEqual(pointer.legacy_api_key_env, "LEGACY_KEY")
                 self.assertIsNone(pointer.site_name)
                 mock_warn.assert_called_once()
@@ -444,13 +444,13 @@ class TestClientFactoryTokenResolution(unittest.TestCase):
 
         cfg = GlobalConfig(
             sites={
-                "x": SiteConfig(name="x", host="x.example.com", api_key="vk_inline"),
+                "x": SiteConfig(name="x", host="x.voogtest.net", api_key="vk_inline"),
             }
         )
         factory = ClientFactory(cfg, env={})
         client = factory.for_site("x")
         # VoogClient stores host/token; we verify the inline token reached it.
-        self.assertEqual(client.host, "x.example.com")
+        self.assertEqual(client.host, "x.voogtest.net")
         self.assertEqual(client.api_token, "vk_inline")
 
     def test_client_factory_resolves_env_var(self):
@@ -458,7 +458,7 @@ class TestClientFactoryTokenResolution(unittest.TestCase):
 
         cfg = GlobalConfig(
             sites={
-                "x": SiteConfig(name="x", host="x.example.com", api_key_env="X_KEY"),
+                "x": SiteConfig(name="x", host="x.voogtest.net", api_key_env="X_KEY"),
             }
         )
         factory = ClientFactory(cfg, env={"X_KEY": "from_env"})
@@ -472,7 +472,7 @@ class TestClientFactoryTokenResolution(unittest.TestCase):
             sites={
                 "x": SiteConfig(
                     name="x",
-                    host="x.example.com",
+                    host="x.voogtest.net",
                     api_key="vk_inline",
                     api_key_env="X_KEY",
                 ),
@@ -522,7 +522,7 @@ class TestSiteNameValidation(unittest.TestCase):
             with TemporaryDirectory() as tmp:
                 cfg_path = self._write_config(
                     Path(tmp),
-                    {name: {"host": "example.com", "api_key_env": "X"}},
+                    {name: {"host": "voogtest.net", "api_key_env": "X"}},
                 )
                 config = load_global_config(cfg_path)
                 self.assertIn(name, config.sites)
@@ -613,3 +613,93 @@ class TestSiteNameValidation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConfigHostValidation(unittest.TestCase):
+    """v1.5: config hosts run through the same SSRF validator as LLM-supplied
+    ones. SECURITY.md calls validate_host the load-bearing defense for hosts
+    that reach a VoogClient; until v1.5 the config path skipped it entirely,
+    on the grounds that the operator is trusted. voog_reload_config made a
+    config re-read reachable mid-session, so "validated once at startup" is
+    no longer the same statement as "validated"."""
+
+    def _write(self, tmp: Path, host):
+        cfg_path = Path(tmp) / "voog.json"
+        cfg_path.write_text(json.dumps({"sites": {"s": {"host": host, "api_key_env": "X"}}}))
+        return cfg_path
+
+    def _assert_rejected(self, host, *, expect_in=None):
+        with TemporaryDirectory() as tmp:
+            with self.assertRaises(ConfigError) as ctx:
+                load_global_config(self._write(tmp, host))
+            message = str(ctx.exception)
+            self.assertIn("site 's'", message)
+            if expect_in:
+                self.assertIn(expect_in, message)
+            # The message must tell the operator how to proceed when the
+            # host really is theirs; a bare rejection would strand them.
+            self.assertIn("VOOG_ALLOW_UNSAFE_CONFIG_HOSTS", message)
+
+    def test_real_tenant_hosts_still_load(self):
+        # Voog tenants legitimately use their own apex domain, so this must
+        # never become a *.voog.com allowlist.
+        for host in ("stellasoomlais.com", "kolm-koma-2026.voog.com", "runnel.ee"):
+            with TemporaryDirectory() as tmp:
+                cfg = load_global_config(self._write(tmp, host))
+                self.assertEqual(cfg.sites["s"].host, host)
+
+    def test_loopback_rejected(self):
+        self._assert_rejected("localhost")
+
+    def test_raw_ip_rejected(self):
+        # Including the AWS metadata address, the canonical SSRF target.
+        self._assert_rejected("169.254.169.254")
+
+    def test_private_tld_rejected(self):
+        self._assert_rejected("voog.internal")
+
+    def test_reserved_second_level_domain_rejected(self):
+        # A placeholder host must not silently receive a real API token.
+        self._assert_rejected("example.com")
+
+    def test_scheme_or_port_rejected(self):
+        self._assert_rejected("https://evil.tld")
+        self._assert_rejected("voog.com:8080")
+
+    def test_non_string_host_rejected(self):
+        self._assert_rejected_type(123)
+        self._assert_rejected_type(["voog.com"])
+
+    def _assert_rejected_type(self, host):
+        with TemporaryDirectory() as tmp:
+            with self.assertRaises(ConfigError) as ctx:
+                load_global_config(self._write(tmp, host))
+            self.assertIn("must be a string", str(ctx.exception))
+
+    def test_escape_hatch_downgrades_to_a_warning(self):
+        # The hatch is an env var, never a config key: the file supplying
+        # the host must not be able to supply its own permission too.
+        with TemporaryDirectory() as tmp:
+            cfg_path = self._write(tmp, "voog.internal")
+            with patch.dict("os.environ", {"VOOG_ALLOW_UNSAFE_CONFIG_HOSTS": "1"}):
+                cfg = load_global_config(cfg_path)
+            self.assertEqual(cfg.sites["s"].host, "voog.internal")
+
+    def test_escape_hatch_ignores_unrecognised_values(self):
+        with TemporaryDirectory() as tmp:
+            cfg_path = self._write(tmp, "voog.internal")
+            with patch.dict("os.environ", {"VOOG_ALLOW_UNSAFE_CONFIG_HOSTS": "maybe"}):
+                with self.assertRaises(ConfigError):
+                    load_global_config(cfg_path)
+
+    def test_a_reload_cannot_introduce_an_unvalidated_host(self):
+        # The reason this moved to load time: the second read is as much a
+        # trust boundary as the first.
+        with TemporaryDirectory() as tmp:
+            cfg_path = self._write(tmp, "stellasoomlais.com")
+            self.assertEqual(load_global_config(cfg_path).sites["s"].host, "stellasoomlais.com")
+            cfg_path.write_text(
+                json.dumps({"sites": {"s": {"host": "169.254.169.254", "api_key_env": "X"}}})
+            )
+            with self.assertRaises(ConfigError):
+                load_global_config(cfg_path)

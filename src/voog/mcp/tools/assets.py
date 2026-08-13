@@ -18,9 +18,11 @@ downstream maintenance script several corrections to get right; see
      asynchronously; asking the CDN for one too early earns a 403 that the
      CDN then caches for about an hour, poisoning a URL that is about to
      become valid.
-  3. **Report the sizes Voog actually made.** Derivative widths follow the
-     source aspect ratio, so a guessed width in a ``srcset`` 403s and the
-     browser renders nothing rather than falling back.
+  3. **Report the sizes Voog actually made.** Voog caps a derivative's LONG
+     side (150 / 600 / 1280 / 2048) and lets the other side follow the source
+     aspect ratio, so neither dimension is predictable from the cap alone —
+     a guessed width in a ``srcset`` 403s and the browser renders nothing
+     rather than falling back.
 """
 
 from pathlib import Path
@@ -55,7 +57,10 @@ def get_tools() -> list[Tool]:
                 "(/photos/<filename>) and the derivative `sizes` Voog actually "
                 "produced — build srcsets from those widths, never from "
                 "guessed ones (a width Voog did not make answers 403 and the "
-                "browser renders nothing).\n"
+                "browser renders nothing). Voog caps the LONG side of each "
+                "derivative at 150/600/1280/2048 and scales the other side to "
+                "match the source aspect ratio, so a wide image's derivatives "
+                "are capped on WIDTH, not height.\n"
                 "\n"
                 "By default an existing asset with the same filename is REUSED "
                 "rather than uploaded again: Voog auto-suffixes duplicate "

@@ -197,7 +197,12 @@ class TestForceGuard(unittest.TestCase):
     def test_force_false_allowed_when_product_has_no_existing_images(self):
         # Empty asset_ids — replacing nothing — force=false is safe
         client = _make_client()
-        client.get.return_value = {"id": 42, "name": "Widget", "asset_ids": []}
+        # First GET is the force-gate pre-flight; the second is the v1.5
+        # order read-back, which must show the order that was just written.
+        client.get.side_effect = [
+            {"id": 42, "name": "Widget", "asset_ids": []},
+            {"id": 42, "name": "Widget", "asset_ids": [200]},
+        ]
         client.post.return_value = {
             "id": 200,
             "upload_url": "https://voog-test.s3.amazonaws.com/up200",
@@ -225,7 +230,10 @@ class TestForceGuard(unittest.TestCase):
 
     def test_force_true_proceeds_with_existing_images(self):
         client = _make_client()
-        client.get.return_value = {"id": 42, "name": "Widget", "asset_ids": [99]}
+        client.get.side_effect = [
+            {"id": 42, "name": "Widget", "asset_ids": [99]},
+            {"id": 42, "name": "Widget", "asset_ids": [200]},
+        ]
         client.post.return_value = {
             "id": 200,
             "upload_url": "https://voog-test.s3.amazonaws.com/up200",
@@ -256,7 +264,14 @@ class TestSuccessPath(unittest.TestCase):
         # ordering on client.post / client.put is non-deterministic. Pin
         # asset_id to filename so the assertions don't race.
         client = _make_client()
-        client.get.return_value = {"id": 42, "name": "Widget", "asset_ids": []}
+        # Stateful: the order read-back must reflect what the product PUT
+        # stored, or the verify loop would burn all 3 attempts.
+        stored: dict = {"asset_ids": []}
+        client.get.side_effect = lambda path, *a, **kw: {
+            "id": 42,
+            "name": "Widget",
+            "asset_ids": list(stored["asset_ids"]),
+        }
 
         post_ids = {"main.jpg": 201, "gallery.png": 202}
 
@@ -283,9 +298,10 @@ class TestSuccessPath(unittest.TestCase):
                 }
             # /products/42
             product_put_payload = body
+            stored["asset_ids"] = [a["id"] for a in (body or {}).get("assets", [])]
             return {
                 "id": 42,
-                "asset_ids": [a["id"] for a in (body or {}).get("assets", [])],
+                "asset_ids": list(stored["asset_ids"]),
                 "image_id": (body or {}).get("image_id"),
             }
 
@@ -698,6 +714,90 @@ class TestUploadUrlValidationCallerFlow(unittest.TestCase):
         self.assertEqual(len(details["failed"]), 1)
         self.assertEqual(details["failed"][0]["filename"], "x.jpg")
         self.assertIn("upload_url", details["failed"][0]["error"].lower())
+
+
+class TestGalleryOrderVerification(unittest.TestCase):
+    """v1.5: one PUT does not reliably apply the gallery ORDER.
+
+    Live on kolm-koma-2026 2026-08-13, 12 trials of a random 7-asset order:
+    6 of 12 single PUTs stored the right assets in the wrong sequence and
+    still returned 200. A second identical PUT fixed all 12. The tool's
+    whole contract is "first file is the main image, rest are gallery", so
+    reporting a clean ✓ over a shuffled gallery is the failure to prevent.
+    """
+
+    def _run(self, *, bad_writes: int, files=("a.jpg", "b.jpg", "c.jpg")):
+        client = _make_client()
+        ids = {name: 300 + n for n, name in enumerate(files)}
+        stored: dict = {"asset_ids": [], "writes": 0}
+
+        client.get.side_effect = lambda path, *a, **kw: {
+            "id": 42,
+            "asset_ids": list(stored["asset_ids"]),
+        }
+        client.post.side_effect = lambda path, body, **kw: {
+            "id": ids[body["filename"]],
+            "upload_url": f"https://voog-test.s3.amazonaws.com/up{ids[body['filename']]}",
+        }
+
+        def put_dispatch(path, body=None, **kwargs):
+            if path.endswith("/confirm"):
+                aid = int(path.split("/")[2])
+                return {"id": aid, "public_url": f"https://cdn/{aid}.jpg", "width": 8, "height": 6}
+            sent = [a["id"] for a in (body or {}).get("assets", [])]
+            stored["writes"] += 1
+            # Voog's observed misbehaviour: right membership, one adjacent
+            # pair transposed.
+            if stored["writes"] <= bad_writes and len(sent) >= 2:
+                sent = [sent[1], sent[0], *sent[2:]]
+            stored["asset_ids"] = sent
+            return {"id": 42, "asset_ids": list(sent)}
+
+        client.put.side_effect = put_dispatch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = [str(_write_image(Path(tmp), name)) for name in files]
+            with patch("voog.mcp.tools.products_images.urllib.request.urlopen") as mock_urlopen:
+                mock_urlopen.return_value.__enter__.return_value.status = 200
+                result = products_images_tools.call_tool(
+                    "product_set_images",
+                    {"product_id": 42, "files": paths},
+                    client,
+                )
+        return result, stored, [ids[n] for n in files]
+
+    def test_partial_first_write_is_repaired_and_reported_verified(self):
+        result, stored, wanted = self._run(bad_writes=1)
+        payload = json.loads(result[-1].text)
+        self.assertTrue(payload["order_verified"])
+        self.assertEqual(stored["asset_ids"], wanted)
+        self.assertEqual(stored["writes"], 2, "should have retried exactly once")
+        self.assertNotIn("stored_asset_ids", payload)
+
+    def test_order_that_never_takes_is_reported_not_claimed_as_success(self):
+        result, stored, wanted = self._run(bad_writes=99)
+        payload = json.loads(result[-1].text)
+        self.assertFalse(payload["order_verified"])
+        # Membership is still correct — say that, don't imply data loss.
+        self.assertEqual(sorted(payload["stored_asset_ids"]), sorted(wanted))
+        self.assertNotEqual(payload["stored_asset_ids"], wanted)
+        self.assertEqual(stored["writes"], 3, "attempt cap is 3")
+        summary = result[0].text
+        self.assertIn("ORDER", summary)
+        self.assertNotIn("🖼️", summary)
+
+    def test_clean_first_write_does_not_retry(self):
+        _, stored, wanted = self._run(bad_writes=0)
+        self.assertEqual(stored["writes"], 1)
+        self.assertEqual(stored["asset_ids"], wanted)
+
+    def test_single_image_still_verifies(self):
+        # No pair to transpose — the loop must not spin on a 1-asset gallery.
+        result, stored, wanted = self._run(bad_writes=1, files=("only.jpg",))
+        payload = json.loads(result[-1].text)
+        self.assertTrue(payload["order_verified"])
+        self.assertEqual(stored["writes"], 1)
+        self.assertEqual(payload["new_asset_ids"], wanted)
 
 
 class TestUnknownTool(unittest.TestCase):

@@ -96,6 +96,41 @@ def default_global_config_path() -> Path:
 _SITE_NAME_RE = re.compile(r"^[A-Za-z0-9_\-.]{1,64}$")
 
 
+def _validate_config_host(host: object, *, site_name: str) -> str | None:
+    """Run the shared SSRF host validator over a ``voog.json`` host value.
+
+    Returns an error message, or None when the host is acceptable.
+
+    The escape hatch is ``VOOG_ALLOW_UNSAFE_CONFIG_HOSTS=1``, which downgrades
+    a rejection to a WARNING. It exists for one real case: a tenant on a
+    private-TLD or otherwise non-public hostname that worked in v1.4 and
+    should not be bricked by an upgrade. It is deliberately an environment
+    variable and not a config key, so the file that supplies the host cannot
+    also supply its own permission.
+    """
+    if not isinstance(host, str):
+        return f"site '{site_name}' host must be a string (got {type(host).__name__})"
+    # Imported lazily: voog._security has no dependency on voog.config and
+    # keeping it that way avoids an import cycle through voog.errors.
+    from voog._security import validate_host
+
+    err = validate_host(host, tool_name=f"site '{site_name}'")
+    if err is None:
+        return None
+    if os.environ.get("VOOG_ALLOW_UNSAFE_CONFIG_HOSTS", "").strip() in ("1", "true", "yes"):
+        logger.warning(
+            "%s — allowed by VOOG_ALLOW_UNSAFE_CONFIG_HOSTS. The API token for "
+            "this site will be sent to that host.",
+            err,
+        )
+        return None
+    return (
+        f"{err}. Config hosts are validated as of v1.5 — the same check that "
+        "guards LLM-supplied hosts. If this host is genuinely yours, set "
+        "VOOG_ALLOW_UNSAFE_CONFIG_HOSTS=1 to downgrade this to a warning."
+    )
+
+
 def _validate_site_name(name: str) -> None:
     """Reject site names that would break ``voog://{site}/...`` URI parsing.
 
@@ -143,6 +178,20 @@ def load_global_config(
         api_key = entry.get("api_key")
         if not host:
             raise ConfigError(f"site '{name}' must have a 'host' field")
+        # SSRF-defensive host check, same validator the LLM-supplied host on
+        # voog_list_my_sites goes through. SECURITY.md calls validate_host
+        # "the load-bearing defense" for hosts that reach a VoogClient, and
+        # until v1.5 config hosts skipped it entirely on the grounds that the
+        # operator is trusted. The operator still is — but `voog_reload_config`
+        # (v1.4.3) made a config re-read reachable mid-session in one turn, so
+        # the file that was validated once at startup is no longer the only
+        # file that can supply a host to a client holding a live API token.
+        # Validating here rather than in ClientFactory.for_site covers every
+        # surface at once (server startup, reload, and every CLI subcommand)
+        # and fails loudly at load time instead of on the first request.
+        host_err = _validate_config_host(host, site_name=name)
+        if host_err:
+            raise ConfigError(host_err)
         if api_key is not None and not str(api_key).strip():
             raise ConfigError(f"site '{name}' has an empty or whitespace-only 'api_key'")
         if api_key_env is not None and not str(api_key_env).strip():

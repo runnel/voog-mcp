@@ -38,6 +38,7 @@ description carries an explicit destructive-PUT caveat.
 
 from mcp.types import CallToolResult, TextContent, Tool
 
+from voog._ordering import put_ordered_with_readback
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import require_int, strip_site
@@ -83,28 +84,30 @@ def _put_assets_verified(client, media_set_id: int, entries: list, *, attempts: 
     repeated immediately afterwards produced the exact requested order.
     A single write is therefore not enough, and array order alone is not
     enough either (without explicit `position` the same test was wrong every
-    time).
+    time) — which is why ``entries`` carries an explicit 1-based position and
+    the read-back sorts by it.
+
+    ``PUT /products/{id}`` fails the same way, so the write-read-retry loop
+    itself lives in :mod:`voog._ordering` and is shared; what stays here is
+    the media_set-specific part (explicit positions, position-sorted
+    read-back).
 
     Returns ``(result, verified, final_ids)``. ``verified`` False means the
     caller must say so rather than report a clean success — the assets are
     right, the ORDER is not.
     """
-    wanted = [e["id"] for e in entries]
-    result = None
-    final: list = []
-    for _ in range(max(1, attempts)):
-        result = client.put(f"/media_sets/{media_set_id}", {"assets": entries})
-        try:
-            read_back = client.get(f"/media_sets/{media_set_id}")
-        except Exception:
-            # Verification is best-effort; a failed read must not undo a
-            # write that probably landed.
-            return result, False, []
+
+    def _read_order() -> list:
+        read_back = client.get(f"/media_sets/{media_set_id}")
         assets = [a for a in (read_back.get("assets") or []) if isinstance(a, dict)]
-        final = [a.get("id") for a in sorted(assets, key=lambda a: a.get("position") or 0)]
-        if final == wanted:
-            return result, True, final
-    return result, False, final
+        return [a.get("id") for a in sorted(assets, key=lambda a: a.get("position") or 0)]
+
+    return put_ordered_with_readback(
+        put=lambda: client.put(f"/media_sets/{media_set_id}", {"assets": entries}),
+        read_order=_read_order,
+        wanted=[e["id"] for e in entries],
+        attempts=attempts,
+    )
 
 
 def get_tools() -> list[Tool]:
