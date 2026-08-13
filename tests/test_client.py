@@ -1046,3 +1046,33 @@ class TestPostFileMultipart(unittest.TestCase):
                 "/layout_assets", filename="a.png", content=b"x", content_type="image/png"
             )
         self.assertEqual(client._request_count, before + 1)
+
+
+class TestVersionSingleSource(unittest.TestCase):
+    """pyproject.toml and voog.__version__ must not drift.
+
+    They did: 1.4.2 shipped with __version__ still at 1.4.1, so every
+    request from that release announced itself as voog-mcp/1.4.1 in the
+    User-Agent — the one place Voog-side logs can attribute traffic. The
+    v1.4 changelog had already called out this drift once (N1); without a
+    test it came back at the next release.
+    """
+
+    def test_package_version_matches_pyproject(self):
+        import re
+        from pathlib import Path
+
+        pyproject = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+        # Deliberately not tomllib — it lands in the stdlib at 3.11 and this
+        # package supports 3.10.
+        match = re.search(r'^version = "([^"]+)"', pyproject, flags=re.M)
+        self.assertIsNotNone(match, "pyproject.toml must declare a version")
+        self.assertEqual(
+            voog.__version__,
+            match.group(1),
+            "src/voog/__init__.py __version__ drifted from pyproject.toml — "
+            "the User-Agent is derived from __version__, so a release with "
+            "the wrong value misreports itself to Voog",
+        )

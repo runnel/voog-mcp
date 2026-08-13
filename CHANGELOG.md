@@ -6,6 +6,13 @@ versioning: [PEP 440](https://peps.python.org/pep-0440/).
 
 ## [Unreleased]
 
+(no changes yet)
+
+## [1.4.3] — 2026-08-13
+
+### Fixed — release hygiene
+- **`voog.__version__` had drifted from `pyproject.toml` again.** 1.4.2 shipped with `__version__` still reading `1.4.1`, so every request from that release announced itself as `voog-mcp/1.4.1` in the User-Agent — the one field Voog-side logs can attribute traffic by. The v1.4 changelog already recorded fixing this drift once (N1); nothing tested it, so it came back at the next release. Both are now `1.4.3`, and `tests/test_client.py::TestVersionSingleSource` fails the build if they diverge.
+
 ### Added — site-duplication gaps (issue #140)
 
 Duplicating a full site (55 layouts, 38 layout assets, 617 media files, 7 pages, 60 articles) ran on raw API scripts rather than this package, because MCP could not express the job. Seven of the eight recorded gaps are closed here; **item 2 (cross-site copy / `snapshot_apply`) stays open** — that is phased migration logic with its own failure modes, not one more tool.
