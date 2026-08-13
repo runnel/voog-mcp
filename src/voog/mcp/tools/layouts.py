@@ -153,7 +153,12 @@ def get_tools() -> list[Tool]:
             description=(
                 "Update a layout — body (Liquid template source), title, "
                 "or both. At least one must be supplied. Reversible by "
-                "calling again with the previous values; idempotent."
+                "calling again with the previous values; idempotent. "
+                "`body` crosses a JSON boundary, so literal \\uXXXX escapes "
+                "in a source file arrive already decoded; raw U+2028/U+2029 "
+                "and C0 controls are refused as the fingerprint of that "
+                "(issue #138). To deploy a tracked .tpl byte-exactly, use "
+                "layouts_push."
             ),
             inputSchema={
                 "type": "object",
@@ -202,7 +207,12 @@ def get_tools() -> list[Tool]:
         Tool(
             name="layout_asset_create",
             description=(
-                "Create a layout_asset (CSS/JS/image). filename + asset_type "
+                "Create a layout_asset. TEXT content only, and `data` crosses "
+                "a JSON boundary — literal \\uXXXX escapes in a source file "
+                "arrive already decoded, so raw U+2028/U+2029 and C0 controls "
+                "are refused as the fingerprint of that (issue #138). Deploy a "
+                "tracked file byte-exactly with layouts_push; upload binaries "
+                "with layout_asset_upload. filename + asset_type "
                 "+ data required. asset_type ∈ {stylesheet, javascript, "
                 "image, plain_text, video, pdf, ...}. For image uploads, "
                 "use POST /assets + 3-step protocol via product_set_images "
@@ -302,7 +312,10 @@ def get_tools() -> list[Tool]:
             },
             annotations={
                 "readOnlyHint": False,
-                "destructiveHint": False,
+                # Reads an arbitrary local path and PUBLISHES it under
+                # /images/. Same reasoning as product_set_images and
+                # asset_upload: the host should get to prompt.
+                "destructiveHint": True,
                 "idempotentHint": False,
             },
         ),
@@ -386,8 +399,11 @@ def _detect_silent_no_op(result, sent: dict, field: str) -> str | None:
 #     inline-script embedding.
 #   - raw C0 controls (other than tab / LF / CR) and U+007F never appear in
 #     hand-written Liquid, CSS or JS.
-# Tab, LF and CR are ordinary whitespace and always allowed.
-_ALLOWED_CONTROL_CHARS = frozenset("\t\n\r")
+# Tab, LF, CR — plus vertical tab and form feed, which are legal
+# whitespace in both CSS and JS and appear in hand-written source (^L page
+# breaks) — are always allowed. Refusing those would be a false positive on
+# ordinary files.
+_ALLOWED_CONTROL_CHARS = frozenset("\t\n\r\v\f")
 _ESCAPE_DECODE_MARKERS = {
     "\u2028": "LINE SEPARATOR",
     "\u2029": "PARAGRAPH SEPARATOR",
@@ -472,6 +488,13 @@ def _layout_create(arguments: dict, client: VoogClient) -> list[TextContent] | C
     err = _validate_voog_name(title, "title")
     if err:
         return error_response(f"layout_create: {err}")
+    # Same JSON-boundary corruption class as layout_update / the asset
+    # tools (#138) — this is the route that puts a brand-new layout body
+    # on the site straight from an MCP string argument, so leaving it
+    # unguarded was an oversight, not a decision.
+    err = _detect_decoded_escape(body, field="body", tool_name="layout_create")
+    if err:
+        return error_response(err)
     if kind not in ("layout", "component"):
         return error_response(f"layout_create: kind must be 'layout' or 'component' (got {kind!r})")
 

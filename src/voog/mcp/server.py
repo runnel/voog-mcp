@@ -184,6 +184,9 @@ class ClientFactory:
         self._env = env
         self._config_path = config_path
         self._cache: dict[str, VoogClient] = {}
+        # Per-site request counts, kept across reloads so dropping a
+        # cached client cannot reset the budget rail.
+        self._spent: dict[str, int] = {}
 
     def reload(self) -> dict:
         """Re-read voog.json + .env and drop cached clients (issue #140 item 1).
@@ -198,20 +201,53 @@ class ClientFactory:
 
         A malformed config raises ConfigError and leaves the current one in
         place — a reload must never be able to break a working session.
+
+        The per-site request count SURVIVES the reload. ``_request_count``
+        lives on the client, so dropping cached clients would hand the next
+        caller a counter at zero — and since the ``RequestBudgetExceeded``
+        message suggests raising the cap while this tool is advertised as a
+        recovery step, a model that hit the cap would plausibly reload and
+        sail past it without any adversarial intent. The cap is documented
+        as the last-line safety against a runaway loop, so it is carried
+        across instead.
         """
         before = set(self._global_cfg.sites)
         new_cfg = load_global_config(self._config_path)
+        # A missing config file loads as an EMPTY config rather than raising
+        # — right at startup (first run, nothing configured yet), wrong on a
+        # reload: a deleted or temporarily unreadable file would silently
+        # unregister every site and leave the session unable to reach
+        # anything, with only a "removed" list to explain it. Refuse instead;
+        # the caller keeps the config it has.
+        if before and not new_cfg.sites:
+            raise ConfigError(
+                f"reload would leave zero sites configured (was {sorted(before)}) — "
+                f"{self._config_path or default_global_config_path()} is missing or empty. "
+                "Keeping the current config."
+            )
         env_path = find_env_file(new_cfg, Path.cwd())
         new_env = load_env_file(env_path) if env_path else {}
         self._global_cfg = new_cfg
         self._env = new_env
+        for name, client in self._cache.items():
+            self._spent[name] = client._request_count
         self._cache.clear()
         after = set(new_cfg.sites)
-        return {
+        delta = {
             "sites": sorted(after),
             "added": sorted(after - before),
             "removed": sorted(before - after),
         }
+        # Audit trail: a config re-read mid-session changes which host the
+        # operator's token is sent to, so make it visible in the log rather
+        # than only in the tool response.
+        logger.warning(
+            "config reloaded from %s — added=%s removed=%s",
+            self._config_path or default_global_config_path(),
+            delta["added"],
+            delta["removed"],
+        )
+        return delta
 
     def for_site(self, site_name: str) -> VoogClient:
         if site_name in self._cache:
@@ -228,6 +264,9 @@ class ClientFactory:
             site_name=site.name,
             daily_request_quota=site.daily_request_quota,
         )
+        # Restore what this site already spent, so a reload cannot be used
+        # (deliberately or accidentally) to reset the runaway-loop rail.
+        client._request_count = self._spent.get(site_name, 0)
         self._cache[site_name] = client
         return client
 
@@ -327,7 +366,11 @@ async def run_server(
         if name == "voog_reload_config":
             try:
                 delta = await asyncio.to_thread(factory.reload)
-            except ConfigError as exc:
+            except Exception as exc:
+                # Broad on purpose: a malformed voog.json raises ConfigError,
+                # but a bad .env or an unreadable path raises OSError /
+                # ValueError, and the promise is that a failed reload leaves
+                # the session working — not that it takes the server down.
                 # Keep serving the config we have — a typo in voog.json must
                 # not take the running session down with it.
                 return error_response(f"voog_reload_config: config unchanged, reload failed: {exc}")

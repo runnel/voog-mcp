@@ -448,11 +448,12 @@ class TestLayoutsPull(unittest.TestCase):
                 {"target_dir": str(target)},
                 client,
             )
-        # Verify the params kwarg carried include_body=true.
-        client.get_all.assert_called_once()
-        args, kwargs = client.get_all.call_args
-        self.assertEqual(args, ("/layouts",))
-        self.assertEqual(kwargs.get("params"), {"include_body": "true"})
+        # Verify the params kwarg carried include_body=true. The pull also
+        # lists /layout_assets now, so assert on the /layouts call rather
+        # than on it being the only one.
+        layouts_calls = [c for c in client.get_all.call_args_list if c.args[0] == "/layouts"]
+        self.assertEqual(len(layouts_calls), 1)
+        self.assertEqual(layouts_calls[0].kwargs.get("params"), {"include_body": "true"})
 
     def test_layouts_pull_skips_detail_when_body_present_on_list(self):
         # S1 — when list response carries `body`, no per-id detail fetch.
@@ -1037,6 +1038,215 @@ class TestAllToolsRequireSite(unittest.TestCase):
                 tool.inputSchema.get("required", []),
                 f"tool {tool.name} must require 'site'",
             )
+
+
+class TestLayoutsPushManifestAnchor(unittest.TestCase):
+    """The no-op check needs a manifest anchor that moves.
+
+    `verify_persisted` compares the response's updated_at against the
+    manifest's. `voog push` writes the new value back after each success
+    ("so a second push without an intervening pull still has a fresh
+    anchor"); without that, the MCP tool's advertised "a PUT that returns
+    200 without persisting is reported as a failure" holds only until the
+    first successful push.
+    """
+
+    def test_successful_push_advances_the_manifest_timestamp(self):
+        client = _make_client()
+        client.put.return_value = {"id": 100, "updated_at": "2026-08-13T10:00:00.000Z"}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            _make_pulled_tree(
+                target,
+                manifest={
+                    "layouts/page.tpl": {
+                        "id": 100,
+                        "type": "layout",
+                        "updated_at": "2026-08-01T00:00:00.000Z",
+                    }
+                },
+                contents={"layouts/page.tpl": "body"},
+            )
+            layouts_sync_tools.call_tool("layouts_push", {"target_dir": str(target)}, client)
+            written = json.loads((target / "manifest.json").read_text())
+        self.assertEqual(written["layouts/page.tpl"]["updated_at"], "2026-08-13T10:00:00.000Z")
+
+    def test_second_push_that_no_ops_is_caught(self):
+        # The regression this exists for: push, then push again against a
+        # server that quietly does nothing and echoes the same timestamp.
+        client = _make_client()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            _make_pulled_tree(
+                target,
+                manifest={
+                    "layouts/page.tpl": {
+                        "id": 100,
+                        "type": "layout",
+                        "updated_at": "2026-08-01T00:00:00.000Z",
+                    }
+                },
+                contents={"layouts/page.tpl": "body"},
+            )
+            client.put.return_value = {"id": 100, "updated_at": "2026-08-13T10:00:00.000Z"}
+            first = layouts_sync_tools.call_tool(
+                "layouts_push", {"target_dir": str(target)}, client
+            )
+            self.assertEqual(json.loads(first[1].text)["succeeded"], 1)
+
+            # Server no-ops: same updated_at as the write we just recorded.
+            second = layouts_sync_tools.call_tool(
+                "layouts_push", {"target_dir": str(target)}, client
+            )
+        breakdown = json.loads(second[1].text)
+        self.assertEqual(breakdown["failed"], 1)
+        self.assertIn("did not advance", breakdown["results"][0]["error"])
+
+    def test_naive_manifest_timestamp_does_not_crash_the_push(self):
+        # A hand-written manifest can carry a tz-naive timestamp; comparing
+        # it with Voog's "…Z" raises TypeError, which used to escape the
+        # results loop AFTER the PUTs had landed, losing every per-file result.
+        client = _make_client()
+        client.put.return_value = {"id": 100, "updated_at": "2026-08-13T10:00:00.000Z"}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            _make_pulled_tree(
+                target,
+                manifest={
+                    "layouts/page.tpl": {
+                        "id": 100,
+                        "type": "layout",
+                        "updated_at": "2026-01-01T00:00:00",
+                    }
+                },
+                contents={"layouts/page.tpl": "body"},
+            )
+            result = layouts_sync_tools.call_tool(
+                "layouts_push", {"target_dir": str(target)}, client
+            )
+        breakdown = json.loads(result[1].text)
+        self.assertEqual(breakdown["succeeded"], 1)
+
+
+class TestLayoutsPullAssets(unittest.TestCase):
+    """layouts_pull must emit type=asset entries (issue #140 / review).
+
+    layouts_push advertises itself as THE byte-exact way to deploy a
+    .js/.css file, but that needs asset entries in the manifest. Before
+    this, only the CLI's `voog pull` wrote them — so on an MCP-only host
+    the advertised path had nothing to push and the promise was empty.
+    """
+
+    def _client(self, assets, detail=None):
+        client = _make_client()
+
+        def _get_all(path, **kwargs):
+            if path == "/layouts":
+                return [{"id": 1, "title": "x", "component": False, "updated_at": "", "body": "b"}]
+            if path == "/layout_assets":
+                return assets
+            return []
+
+        client.get_all.side_effect = _get_all
+        client.get.side_effect = lambda url: (detail or {}).get(url, {})
+        return client
+
+    def test_editable_asset_lands_in_manifest_and_on_disk(self):
+        client = self._client(
+            [
+                {
+                    "id": 50,
+                    "filename": "main.css",
+                    "asset_type": "stylesheet",
+                    "editable": True,
+                    "updated_at": "2026-08-01T00:00:00.000Z",
+                }
+            ],
+            detail={"/layout_assets/50": {"id": 50, "data": "body{color:red}"}},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            result = layouts_sync_tools.call_tool(
+                "layouts_pull", {"target_dir": str(target)}, client
+            )
+            manifest = json.loads((target / "manifest.json").read_text())
+            self.assertEqual(
+                (target / "stylesheets" / "main.css").read_text(encoding="utf-8"),
+                "body{color:red}",
+            )
+        self.assertEqual(
+            manifest["stylesheets/main.css"],
+            {
+                "id": 50,
+                "type": "asset",
+                "kind": "stylesheet",
+                "updated_at": "2026-08-01T00:00:00.000Z",
+            },
+        )
+        self.assertEqual(json.loads(result[1].text)["assets_written"], 1)
+
+    def test_pulled_asset_is_pushable_round_trip(self):
+        # The actual promise: pull with MCP, then push with MCP.
+        client = self._client(
+            [{"id": 51, "filename": "app.js", "asset_type": "javascript", "editable": True}],
+            detail={"/layout_assets/51": {"id": 51, "data": "console.log(1)"}},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            layouts_sync_tools.call_tool("layouts_pull", {"target_dir": str(target)}, client)
+            push_client = _make_client()
+            push_client.put.return_value = {"id": 51, "size": len("console.log(1)")}
+            result = layouts_sync_tools.call_tool(
+                "layouts_push",
+                {"target_dir": str(target), "files": ["javascripts/app.js"]},
+                push_client,
+            )
+        self.assertEqual(push_client.put.call_args.args[0], "/layout_assets/51")
+        self.assertEqual(json.loads(result[1].text)["succeeded"], 1)
+
+    def test_binary_asset_skipped(self):
+        # No `data` to round-trip; layout_asset_upload is the tool for those.
+        client = self._client(
+            [{"id": 52, "filename": "favicon.png", "asset_type": "image", "editable": False}]
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            result = layouts_sync_tools.call_tool(
+                "layouts_pull", {"target_dir": str(target)}, client
+            )
+            manifest = json.loads((target / "manifest.json").read_text())
+        self.assertNotIn("images/favicon.png", manifest)
+        self.assertEqual(json.loads(result[1].text)["assets_written"], 0)
+
+    def test_unsafe_asset_filename_refused(self):
+        client = self._client(
+            [{"id": 53, "filename": "../escape.css", "asset_type": "stylesheet", "editable": True}],
+            detail={"/layout_assets/53": {"id": 53, "data": "x"}},
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            layouts_sync_tools.call_tool("layouts_pull", {"target_dir": str(target)}, client)
+            self.assertFalse((Path(tmpdir) / "escape.css").exists())
+            manifest = json.loads((target / "manifest.json").read_text())
+        self.assertNotIn("stylesheets/../escape.css", manifest)
+
+    def test_layout_assets_failure_does_not_lose_the_layouts(self):
+        client = _make_client()
+
+        def _get_all(path, **kwargs):
+            if path == "/layouts":
+                return [{"id": 1, "title": "x", "component": False, "updated_at": "", "body": "b"}]
+            raise RuntimeError("boom")
+
+        client.get_all.side_effect = _get_all
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "tree"
+            result = layouts_sync_tools.call_tool(
+                "layouts_pull", {"target_dir": str(target)}, client
+            )
+            manifest = json.loads((target / "manifest.json").read_text())
+        self.assertIn("layouts/x.tpl", manifest)
+        self.assertEqual(json.loads(result[1].text)["layouts_written"], 1)
 
 
 if __name__ == "__main__":

@@ -972,10 +972,10 @@ class TestPostFileMultipart(unittest.TestCase):
         # future httpx flips this, post_file can go back on the pool.
         import httpx as _httpx
 
-        pooled = _httpx.Client(headers={"Content-Type": "application/json"})
-        request = pooled.build_request(
-            "POST", "https://x.example/y", files={"file": ("a.png", b"x", "image/png")}
-        )
+        with _httpx.Client(headers={"Content-Type": "application/json"}) as pooled:
+            request = pooled.build_request(
+                "POST", "https://x.example/y", files={"file": ("a.png", b"x", "image/png")}
+            )
         self.assertEqual(request.headers.get("content-type"), "application/json")
 
     def test_sends_multipart_without_the_json_content_type(self):

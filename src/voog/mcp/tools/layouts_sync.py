@@ -52,14 +52,27 @@ from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site, validate_output_dir, write_json
 from voog.projections import LAYOUTS_INCLUDE_BODY
 
+# Same folder layout `voog pull` writes, so a tree is interchangeable
+# between the CLI and MCP surfaces.
+_ASSET_TYPE_TO_FOLDER = {
+    "stylesheet": "stylesheets",
+    "javascript": "javascripts",
+    "image": "images",
+    "font": "assets",
+    "unknown": "assets",
+}
+
 
 def get_tools() -> list[Tool]:
     return [
         Tool(
             name="layouts_pull",
             description=(
-                "Fetch every layout + component from /layouts and write per-layout "
-                ".tpl files to target_dir/layouts/ and target_dir/components/. "
+                "Fetch every layout + component from /layouts, plus the editable "
+                "layout_assets (CSS/JS), and write them under target_dir: .tpl "
+                "files to layouts/ and components/, assets to stylesheets/ "
+                "javascripts/ assets/. Binary assets are skipped (no text to "
+                "round-trip — use layout_asset_upload for those). "
                 "Builds manifest.json mapping each local path to {id, type, "
                 "updated_at}. REFUSES to overwrite an existing tree that already "
                 "contains .tpl files — pick a fresh location or clear it first. "
@@ -263,12 +276,58 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
         else:
             layouts_written += 1
 
+    # Layout assets (CSS / JS), mirroring `voog pull`. Without these the
+    # tree has no `type=asset` entries, so layouts_push — advertised as the
+    # byte-exact way to deploy a .js/.css file — would have nothing to push
+    # on an MCP-only host, and the promise would only hold for CLI-pulled
+    # trees. Binaries are skipped: they carry no `data` to round-trip
+    # (use layout_asset_upload for those).
+    assets_written = 0
+    try:
+        assets = client.get_all("/layout_assets")
+    except Exception as e:
+        per_layout_errors.append({"layout_id": None, "error": f"/layout_assets failed: {e}"})
+        assets = []
+    for asset in assets:
+        if not isinstance(asset, dict) or not asset.get("filename"):
+            continue
+        filename = asset["filename"]
+        if "/" in filename or "\\" in filename or ".." in filename or "\x00" in filename:
+            per_layout_errors.append(
+                {"layout_id": asset.get("id"), "error": f"unsafe asset filename: {filename!r}"}
+            )
+            continue
+        # The list endpoint stopped returning `data` (observed 2026-06, see
+        # v1.4.1) — only the detail GET carries it, and only for editable
+        # (text) assets.
+        kind = asset.get("asset_type") or asset.get("kind") or "unknown"
+        data = asset.get("data")
+        if data is None and asset.get("editable"):
+            try:
+                data = (client.get(f"/layout_assets/{asset['id']}") or {}).get("data")
+            except Exception as e:
+                per_layout_errors.append({"layout_id": asset.get("id"), "error": str(e)})
+                continue
+        if data is None:
+            continue
+        folder_name = _ASSET_TYPE_TO_FOLDER.get(kind, "assets")
+        (target / folder_name).mkdir(exist_ok=True)
+        rel_path = f"{folder_name}/{filename}"
+        (target / rel_path).write_text(data, encoding="utf-8")
+        manifest[rel_path] = {
+            "id": asset["id"],
+            "type": "asset",
+            "kind": kind,
+            "updated_at": asset.get("updated_at", ""),
+        }
+        assets_written += 1
+
     manifest_path = target / "manifest.json"
     write_json(manifest_path, manifest)
 
     summary = (
         f"📥 layouts_pull: {layouts_written} layouts + {components_written} components "
-        f"→ {target_dir}"
+        f"+ {assets_written} assets → {target_dir}"
     )
     if per_layout_errors:
         summary += f" ({len(per_layout_errors)} per-layout errors)"
@@ -277,6 +336,7 @@ def _layouts_pull(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
         {
             "target_dir": target_dir,
             "layouts_written": layouts_written,
+            "assets_written": assets_written,
             "components_written": components_written,
             "manifest_path": str(manifest_path),
             "per_layout_errors": per_layout_errors,
@@ -318,6 +378,7 @@ def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
     # in parallel. Final ``results`` list is rebuilt in input order to preserve
     # the existing per-file shape exactly.
     results_by_path: dict = {}
+    manifest_dirty = False
     put_items: list = []  # list of (rel_path, layout_id, content)
 
     for rel_path in targets:
@@ -420,6 +481,28 @@ def _layouts_push(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
             "ok": True,
             "id": entry_id,
         }
+        # Advance the manifest's anchor, exactly as `voog push` does. The
+        # layout check compares the response's updated_at against the
+        # manifest's; leaving it pinned at pull time makes the check pass
+        # forever after the first successful push, so the no-op detection
+        # this tool advertises would only ever work once per pull.
+        if isinstance(result, dict) and result.get("updated_at"):
+            info["updated_at"] = result["updated_at"]
+            manifest_dirty = True
+
+    if manifest_dirty:
+        try:
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+        except OSError as e:
+            # The pushes landed; a manifest we could not rewrite only costs
+            # the freshness of the next no-op check, so report and continue.
+            results_by_path.setdefault(
+                "manifest.json",
+                {"file": "manifest.json", "ok": False, "error": f"manifest write failed: {e}"},
+            )
 
     # Rebuild in original input order so per-file shape is byte-for-byte
     # identical to the pre-parallelization output.

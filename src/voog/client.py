@@ -594,13 +594,22 @@ class VoogClient:
             headers["X-Request-Id"] = request_id
 
         logger.debug("POST %s (multipart, file=%s, %d bytes)", url, filename, len(content))
-        with httpx.Client(http2=True, headers=headers, follow_redirects=True) as upload_client:
-            resp = upload_client.post(
-                url,
-                files={"file": (filename, content, content_type)},
-                data=fields or {},
-                timeout=self.timeout,
-            )
+        # follow_redirects=False, unlike the pooled client: httpx strips only
+        # `Authorization` across origins, never a custom header, so a redirect
+        # would forward X-API-Token — and on 307/308 the whole multipart body
+        # with it — to whatever host answered. An upload endpoint has no
+        # legitimate reason to redirect.
+        with httpx.Client(http2=True, headers=headers, follow_redirects=False) as upload_client:
+            try:
+                resp = upload_client.post(
+                    url,
+                    files={"file": (filename, content, content_type)},
+                    data=fields or {},
+                    timeout=self.timeout,
+                )
+            except httpx.TimeoutException as e:
+                # Match _request's contract — callers catch TimeoutError.
+                raise TimeoutError(str(e)) from e
         resp.raise_for_status()
         self._note_successful_request()
         body = resp.content

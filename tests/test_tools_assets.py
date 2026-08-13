@@ -27,8 +27,16 @@ class TestSchema(unittest.TestCase):
     def test_annotations_explicit(self):
         ann = assets_tools.get_tools()[0].annotations
         self.assertIs(_ann_get(ann, "readOnlyHint", "read_only_hint"), False)
-        self.assertIs(_ann_get(ann, "destructiveHint", "destructive_hint"), False)
         self.assertIs(_ann_get(ann, "idempotentHint", "idempotent_hint"), True)
+
+    def test_destructive_hint_set_because_uploads_publish(self):
+        # The tool reads an arbitrary local path and publishes it at a public
+        # URL. SECURITY.md leans on destructiveHint for the host's approval
+        # prompt, and product_set_images already carries it — without this,
+        # these were the only arbitrary-file-to-public-web tools a compliant
+        # host would not prompt on.
+        ann = assets_tools.get_tools()[0].annotations
+        self.assertIs(_ann_get(ann, "destructiveHint", "destructive_hint"), True)
 
     def test_schema_defaults_match_handler_defaults(self):
         # Drift guard: a schema default that disagrees with the handler

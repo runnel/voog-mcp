@@ -346,6 +346,10 @@ def _upload_asset(path: Path, client: VoogClient) -> dict:
 
     return {
         "id": asset_id,
+        # Voog's OWN filename, which may differ from the local one: a
+        # duplicate name is auto-suffixed (photo.jpg -> photo-1.jpg), so
+        # echoing path.name back would name a file that does not exist.
+        "filename": (confirmed.get("filename") if confirmed else None) or path.name,
         "url": confirmed.get("public_url", "") if confirmed else "",
         "width": confirmed.get("width") if confirmed else None,
         "height": confirmed.get("height") if confirmed else None,

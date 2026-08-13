@@ -97,13 +97,21 @@ def wait_for_derivatives(
     The asset's own ``sizes`` array is API state with no CDN in front of it,
     so that is the authority this function polls.
     """
-    deadline = timeout_s
+    remaining = timeout_s
     asset = client.get(f"/assets/{asset_id}")
     while not is_asset_complete(asset):
-        if deadline <= 0:
+        # A response that isn't a record can never become complete —
+        # polling it would burn the whole window and then hand the caller
+        # a non-dict that blows up downstream with a misleading error.
+        if not isinstance(asset, dict):
             return asset
-        sleep(min(poll_s, deadline))
-        deadline -= poll_s
+        if remaining <= 0:
+            return asset
+        # Guard against a zero/negative interval: `remaining -= poll_s`
+        # alone would never terminate.
+        step = max(poll_s, 0.001)
+        sleep(min(step, remaining))
+        remaining -= step
         asset = client.get(f"/assets/{asset_id}")
     return asset
 
@@ -130,4 +138,9 @@ def summarize_asset(asset: dict) -> dict:
         "height": asset.get("height"),
         "path": f"/photos/{filename}" if filename else "",
         "sizes": sorted(sizes, key=lambda s: s.get("width") or 0),
+        # False = Voog had not finished resizing when we stopped waiting, so
+        # `sizes` is partial. Without this a timed-out wait is indistinguish-
+        # able from a finished one, and the caller builds a srcset missing
+        # widths it was told to rely on.
+        "sizes_complete": is_asset_complete(asset),
     }

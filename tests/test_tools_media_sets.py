@@ -244,10 +244,6 @@ class TestUpdateAssetTitles(unittest.TestCase):
         self.assertEqual(ids, [24898880, 24898881, 24898882, 24898883])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestMediaSetSetAssets(unittest.TestCase):
     """Issue #140 item 5 — build/reorder a gallery in one call.
 
@@ -365,3 +361,7 @@ class TestMediaSetSetAssets(unittest.TestCase):
         tools = {t.name: t for t in media_sets_tools.get_tools()}
         ann = tools["media_set_set_assets"].annotations
         self.assertIs(_ann_get(ann, "destructiveHint", "destructive_hint"), True)
+
+
+if __name__ == "__main__":
+    unittest.main()

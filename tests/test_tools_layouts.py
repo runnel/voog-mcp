@@ -985,10 +985,6 @@ class TestDecodedEscapeGuard(unittest.TestCase):
         self.assertNotIn("\u2029", source)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestLayoutAssetUpload(unittest.TestCase):
     """Issue #140 item 4 — binary layout assets (favicons, fonts, icons).
 
@@ -1064,3 +1060,47 @@ class TestLayoutAssetUpload(unittest.TestCase):
             )
         self.assertTrue(result.isError)
         client.post_file.assert_not_called()
+
+
+class TestEscapeGuardWhitespaceTolerance(unittest.TestCase):
+    """The guard must not fire on whitespace that real sources contain.
+
+    Vertical tab and form feed are legal whitespace in both CSS and JS, and
+    ^L page breaks appear in hand-written files. Refusing them would be a
+    false positive on ordinary content — the guard exists for characters
+    that are never authored raw.
+    """
+
+    def test_vertical_tab_and_form_feed_are_allowed(self):
+        client = MagicMock()
+        client.put.return_value = {"id": 1}
+        body = "/* page one */\u000c.a{color:red}\u000b"
+        result = layouts_tools.call_tool(
+            "layout_asset_update", {"asset_id": 1, "data": body}, client
+        )
+        self.assertFalse(getattr(result, "isError", False))
+        self.assertEqual(client.put.call_args.args[1], {"data": body})
+
+    def test_every_guarded_tool_documents_the_json_boundary(self):
+        # The changelog claims all three say so up front; an LLM reads the
+        # description, not the source, so the claim has to be true.
+        tools = {t.name: t for t in layouts_tools.get_tools()}
+        for name in ("layout_update", "layout_asset_create", "layout_asset_update"):
+            self.assertIn("#138", tools[name].description, f"{name} omits the caveat")
+
+    def test_layout_create_body_is_guarded(self):
+        # The one route that puts a brand-new layout body on the site from
+        # an MCP string argument — same corruption class as the rest.
+        client = MagicMock()
+        result = layouts_tools.call_tool(
+            "layout_create",
+            {"title": "T", "kind": "layout", "body": "{% if x %}\u2028{% endif %}"},
+            client,
+        )
+        self.assertTrue(result.isError)
+        self.assertIn("U+2028", json.loads(result.content[0].text)["error"])
+        client.post.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

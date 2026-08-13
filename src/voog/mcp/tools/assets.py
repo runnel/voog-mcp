@@ -33,6 +33,7 @@ from voog._assets import (
     summarize_asset,
     wait_for_derivatives,
 )
+from voog._upload_validation import validate_upload_source
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import strip_site
@@ -62,7 +63,14 @@ def get_tools() -> list[Tool]:
                 "original. Pass allow_duplicate=true to force a new asset "
                 "(e.g. a corrected re-shoot under a fresh sequence letter).\n"
                 "\n"
-                "Waits for Voog to finish its async resizes before returning. "
+                "Waits for Voog to finish its async resizes before returning "
+                "— up to 120s per file, polling the API every 5s, so a large "
+                "batch is slow by design. Each result carries "
+                "`sizes_complete`: false means the wait timed out and `sizes` "
+                "is PARTIAL, so build the srcset from a later read rather "
+                "than from those widths. Pass wait_for_sizes=false to skip "
+                "the wait entirely (then `sizes` is empty).\n"
+                "\n"
                 "Do NOT request a derivative URL over HTTP to check whether it "
                 "exists — a too-early request gets a 403 that the CDN caches "
                 "for ~1h, breaking a URL that was about to work."
@@ -101,7 +109,11 @@ def get_tools() -> list[Tool]:
             },
             annotations={
                 "readOnlyHint": False,
-                "destructiveHint": False,
+                # Reads an arbitrary local path and PUBLISHES it at
+                # /photos/<filename>. product_set_images carries the same
+                # hint for the same reason: the host should be able to
+                # prompt before a file leaves the machine.
+                "destructiveHint": True,
                 "idempotentHint": True,
             },
         ),
@@ -126,7 +138,10 @@ def _asset_upload(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
     if not isinstance(files, list) or not files:
         return error_response("asset_upload: files must be a non-empty array of paths")
     allow_duplicate = bool(arguments.get("allow_duplicate", False))
-    wait = arguments.get("wait_for_sizes", True)
+    # An explicit JSON null must not read as False — the schema default is
+    # true, and silently skipping the poll would return an empty `sizes`.
+    wait = arguments.get("wait_for_sizes")
+    wait = True if wait is None else bool(wait)
 
     # Pre-flight every path before touching the API: a bad path found halfway
     # through would otherwise leave a partial upload set behind.
@@ -134,17 +149,34 @@ def _asset_upload(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
     for raw in files:
         if not isinstance(raw, str) or not raw.strip():
             return error_response("asset_upload: every entry in files must be a path string")
-        path = Path(raw).expanduser()
+        if raw.startswith("~"):
+            return error_response(
+                f"asset_upload: {raw!r} must be an absolute path (~ is not expanded)"
+            )
+        path = Path(raw)
         if not path.is_absolute():
             return error_response(f"asset_upload: {raw!r} is not an absolute path")
-        if not path.is_file():
-            return error_response(f"asset_upload: {raw!r} does not exist (or is not a file)")
-        if path.suffix.lower() not in CONTENT_TYPES:
-            return error_response(
-                f"asset_upload: {path.name!r} has unsupported type {path.suffix!r}; "
-                f"supported: {', '.join(sorted(CONTENT_TYPES))}"
-            )
+        err = validate_upload_source(path, CONTENT_TYPES, tool_name="asset_upload")
+        if err:
+            return error_response(err)
         paths.append(path)
+
+    # Voog names an asset by its basename, so two local files sharing one
+    # would land as the SAME library entry — and with reuse on, the second
+    # file's bytes would never be sent while the result still reported a
+    # path. Caught here rather than resolved silently: only the caller knows
+    # which one they meant.
+    seen: dict[str, Path] = {}
+    for path in paths:
+        clash = seen.get(path.name)
+        if clash is not None:
+            return error_response(
+                f"asset_upload: {str(clash)!r} and {str(path)!r} share the filename "
+                f"{path.name!r}. Voog keys the library by filename, so one would "
+                "overwrite or shadow the other. Rename one, or upload them in "
+                "separate calls."
+            )
+        seen[path.name] = path
 
     uploaded: list[dict] = []
     reused: list[dict] = []
@@ -172,7 +204,10 @@ def _asset_upload(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
                 if wait
                 else {
                     "id": result["id"],
-                    "filename": path.name,
+                    # Voog's stored name, not the local one — an auto-suffixed
+                    # duplicate (photo.jpg -> photo-1.jpg) would otherwise be
+                    # reported under a /photos/ path that 404s.
+                    "filename": result.get("filename") or path.name,
                     "width": result.get("width"),
                     "height": result.get("height"),
                 }
@@ -184,6 +219,14 @@ def _asset_upload(arguments: dict, client: VoogClient) -> list[TextContent] | Ca
     summary = f"🖼️  asset_upload: {len(uploaded)} uploaded, {len(reused)} reused"
     if failed:
         summary += f", {len(failed)} failed"
+    if failed and not uploaded and not reused:
+        # Nothing landed. isError is the signal callers branch on, so a
+        # wholly-failed call must not read as success (product_set_images
+        # takes the same line).
+        return error_response(
+            "asset_upload: every file failed — "
+            + "; ".join(f"{f['file']}: {f['error']}" for f in failed)
+        )
     return success_response(
         {
             "uploaded": uploaded,

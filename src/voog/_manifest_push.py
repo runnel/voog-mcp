@@ -62,6 +62,13 @@ def verify_persisted(kind: str, body: str, entry: dict, result) -> str | None:
     elif kind == "layout":
         prev = parse_iso8601(entry.get("updated_at"))
         new = parse_iso8601(result.get("updated_at"))
+        # A hand-written manifest can carry a naive timestamp while Voog
+        # always answers with "…Z". Comparing the two raises TypeError,
+        # which would escape mid-loop AFTER the PUTs already landed and
+        # cost the caller every per-file result. Mixed awareness is
+        # exactly the "no signal" case this function promises to skip.
+        if prev and new and (prev.tzinfo is None) != (new.tzinfo is None):
+            prev = new = None
         if prev and new and new <= prev:
             return (
                 f"updated_at did not advance ({result.get('updated_at')}) — "

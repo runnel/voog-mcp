@@ -159,8 +159,9 @@ def get_tools() -> list[Tool]:
                 "is array position. Any asset currently in the set but absent "
                 "from the list is UNLINKED (the asset itself survives in the "
                 "library; only its membership ends). Because that is easy to "
-                "do by accident, a list SHORTER than the current one requires "
-                "force=true.\n"
+                "do by accident, any call that drops a current asset requires "
+                "force=true — including a same-length swap. Reordering and "
+                "adding need no force.\n"
                 "\n"
                 "Titles and per-asset link settings are carried over for "
                 "assets that stay; pass `titles` to set them for new ones. "
@@ -194,8 +195,10 @@ def get_tools() -> list[Tool]:
                     "force": {
                         "type": "boolean",
                         "description": (
-                            "Required when the new list is shorter than the "
-                            "current one (i.e. the call removes images)."
+                            "Required whenever the call drops an asset that is "
+                            "currently in the set — including a same-length or "
+                            "longer list that swaps one image for another. Pure "
+                            "reordering and pure additions need no force."
                         ),
                         "default": False,
                     },
@@ -377,6 +380,11 @@ def _media_set_set_assets(
     except Exception as e:
         return error_response(f"media_set_set_assets GET id={media_set_id} failed: {e}")
 
+    if not isinstance(media_set, dict):
+        return error_response(
+            f"media_set_set_assets: GET /media_sets/{media_set_id} returned "
+            f"{type(media_set).__name__}, not a media_set record"
+        )
     current_assets = [a for a in (media_set.get("assets") or []) if isinstance(a, dict)]
     current_by_id = {a.get("id"): a for a in current_assets}
     removed = [a.get("id") for a in current_assets if a.get("id") not in set(normalised)]
@@ -390,6 +398,18 @@ def _media_set_set_assets(
             f"({sorted(str(r) for r in removed)}) from media_set {media_set_id}, "
             "because PUT replaces the whole array. Re-run with force=true if "
             "that is intended, or include those ids in asset_ids to keep them."
+        )
+
+    # An id in `titles` that is not in `asset_ids` cannot be applied — the
+    # PUT only carries the listed assets. Refusing matches
+    # media_set_update_asset_titles, which sells "an unknown id is rejected
+    # (no silent no-op)"; silently dropping it here would be that no-op.
+    stray = sorted(set(requested_titles) - {str(a) for a in normalised})
+    if stray:
+        return error_response(
+            f"media_set_set_assets: titles reference asset id(s) {stray} that are "
+            "not in asset_ids, so they cannot be applied. Add them to asset_ids "
+            "or drop them from titles."
         )
 
     payload_assets = []
