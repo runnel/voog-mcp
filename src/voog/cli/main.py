@@ -26,6 +26,9 @@ from voog.cli.commands import (
     categories as categories_cmd,
 )
 from voog.cli.commands import (
+    clone as clone_cmd,
+)
+from voog.cli.commands import (
     config as config_cmd,
 )
 from voog.cli.commands import (
@@ -105,6 +108,7 @@ COMMANDS = [
     me_cmd,
     redirects_cmd,
     search_cmd,
+    clone_cmd,
     snapshot_cmd,
     tags_cmd,
     categories_cmd,

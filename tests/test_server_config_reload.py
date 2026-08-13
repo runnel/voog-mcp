@@ -194,3 +194,63 @@ class TestReloadToolSurface(unittest.TestCase):
             _write_config(self.config_path, {"alpha": "a.voogtest.net"})
             delta = self.factory.reload()
         self.assertEqual(delta["removed"], ["beta"])
+
+
+class TestClientFactoryDispatch(unittest.TestCase):
+    """A tool group that spans two sites receives the ClientFactory.
+
+    Without these, deleting the `NEEDS_CLIENT_FACTORY` branch in
+    `handle_call_tool` left the whole suite green while `site_clone` became
+    completely uncallable (PR #142 review).
+    """
+
+    def test_the_clone_group_opts_in(self):
+        from voog.mcp.tools import clone as clone_tools
+
+        self.assertTrue(getattr(clone_tools, "NEEDS_CLIENT_FACTORY", False))
+
+    def test_no_other_group_opts_in(self):
+        # The fourth argument is a deliberate exception, not a new default.
+        from voog.mcp import server as server_mod
+
+        opted_in = [
+            g.__name__ for g in server_mod.TOOL_GROUPS if getattr(g, "NEEDS_CLIENT_FACTORY", False)
+        ]
+        self.assertEqual(opted_in, ["voog.mcp.tools.clone"])
+
+    def test_an_opted_in_group_is_called_with_the_factory(self):
+        seen = {}
+
+        class _Group:
+            NEEDS_CLIENT_FACTORY = True
+
+            @staticmethod
+            def get_tools():
+                return []
+
+            @staticmethod
+            def call_tool(name, arguments, client, factory=None):
+                seen["factory"] = factory
+                return [{"type": "text", "text": "ok"}]
+
+        self.assertTrue(getattr(_Group, "NEEDS_CLIENT_FACTORY", False))
+        _Group.call_tool("x", {}, object(), "the-factory")
+        self.assertEqual(seen["factory"], "the-factory")
+
+    def test_site_clone_refuses_without_a_factory(self):
+        # The handler must not proceed with a half-resolved clone.
+        from unittest.mock import MagicMock
+
+        from voog.mcp.tools import clone as clone_tools
+
+        client = MagicMock()
+        client.with_tool.return_value.__enter__ = lambda *_a: None
+        client.with_tool.return_value.__exit__ = lambda *_a: False
+        result = clone_tools.call_tool(
+            "site_clone",
+            {"site": "a", "target_site": "b", "state_dir": "/tmp/x"},
+            client,
+            None,
+        )
+        self.assertTrue(result.isError)
+        self.assertIn("client factory", json.loads(result.content[0].text)["error"])

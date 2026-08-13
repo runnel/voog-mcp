@@ -39,6 +39,7 @@ from voog.mcp.tools import articles as articles_tools
 from voog.mcp.tools import assets as assets_tools
 from voog.mcp.tools import cart_rules as cart_rules_tools
 from voog.mcp.tools import categories as categories_tools
+from voog.mcp.tools import clone as clone_tools
 from voog.mcp.tools import comments as comments_tools
 from voog.mcp.tools import content_partials as content_partials_tools
 from voog.mcp.tools import discounts as discounts_tools
@@ -135,6 +136,7 @@ TOOL_GROUPS = [
     assets_tools,
     cart_rules_tools,
     categories_tools,
+    clone_tools,
     comments_tools,
     content_partials_tools,
     discounts_tools,
@@ -397,6 +399,14 @@ async def run_server(
         except ConfigError as exc:
             return error_response(str(exc))
         try:
+            if getattr(group, "NEEDS_CLIENT_FACTORY", False):
+                # A tool that spans two sites (site_clone) resolves the
+                # second one itself. It gets the factory rather than
+                # building a client from raw config so the target shares
+                # the per-site request budget and daily quota — the rails
+                # that stop a runaway loop, on the tool that issues the
+                # most requests by far.
+                return await asyncio.to_thread(group.call_tool, name, arguments, client, factory)
             return await asyncio.to_thread(group.call_tool, name, arguments, client)
         except Exception:
             logger.exception("tool %r raised an unhandled exception", name)
