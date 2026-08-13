@@ -15,6 +15,7 @@ import threading
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from voog.clone import resolve_phases, run_clone
 from voog.clone.phases import PHASE_ORDER, CloneContext, PhaseReport, quota_of
@@ -51,6 +52,10 @@ class FakeVoog:
         self.media_sets = {}
         self.deleted = []
         self.posted = []
+        # Every PUT, so destructive-path tests can assert on what was
+        # actually written rather than on a mock having been called.
+        self.puts = []
+        self.article_puts = []
         self._next_id = 9000
         # propagate_tool_context snapshots this when the assets phase fans
         # out uploads across threads.
@@ -114,6 +119,17 @@ class FakeVoog:
             layout = {"id": self._new_id(), **(body or {})}
             self.layouts.append(layout)
             return layout
+        if path == "/articles":
+            # Voog does NOT store the body from this call — it arrives in
+            # the PUT that follows. Modelling that is the whole point of the
+            # article two-stage state.
+            article = {"id": self._new_id(), "path": (body or {}).get("path")}
+            self.articles.append(article)
+            return article
+        if path == "/layout_assets":
+            asset = {"id": self._new_id(), **(body or {})}
+            self.layout_assets.append(asset)
+            return asset
         if path.endswith("/contents"):
             kind = (body or {}).get("content_type")
             made = {"id": self._new_id(), **(body or {})}
@@ -130,6 +146,10 @@ class FakeVoog:
         return {"id": self._new_id()}
 
     def put(self, path, body=None, **kw):
+        self.puts.append((path, body))
+        if path.startswith("/articles/"):
+            self.article_puts.append((path, body))
+            return {"id": int(path.rsplit("/", 1)[1])}
         if path.startswith("/texts/"):
             self.texts[int(path.rsplit("/", 1)[1])] = (body or {}).get("body", "")
             return {"id": 1}
@@ -319,13 +339,29 @@ class TestDryRun(unittest.TestCase):
 
 class TestPagesPhase(unittest.TestCase):
     def test_a_page_is_created_with_a_mapped_layout(self):
-        src, tgt = _source_site(), _target_site()
+        # The target's FIRST layout is a decoy: the fallback would pick it,
+        # so an assertion satisfied by either path would prove nothing. Only
+        # the layout_map lookup can produce id 50 here.
+        tgt = _target_site(
+            layouts=[
+                {"id": 49, "title": "Decoy", "content_type": "page", "component": False},
+                {
+                    "id": 50,
+                    "title": "Front",
+                    "content_type": "page",
+                    "component": False,
+                    "body": "old",
+                },
+            ]
+        )
+        src = _source_site()
         with TemporaryDirectory() as tmp:
             _run(src, tgt, ["layouts", "site", "pages"], state_dir=tmp)
         self.assertEqual(len(tgt.pages), 1)
         created = tgt.pages[0]
-        # Matched by (title, component) — the target already had "Front".
+        # Matched by (title, content_type, component) — not by position.
         self.assertEqual(created["layout_id"], 50)
+        self.assertNotEqual(created["layout_id"], 49, "this is the fallback's answer")
 
     def test_a_page_without_a_usable_mapped_layout_falls_back_and_says_so(self):
         # Live-found: POST /pages is rejected with
@@ -424,7 +460,18 @@ class TestAssetQuota(unittest.TestCase):
             for i in range(1, 6)
         ]
         tgt = self._site_with_quota(0, 10_000)
-        with TemporaryDirectory() as tmp:
+        with (
+            TemporaryDirectory() as tmp,
+            patch("voog.clone.phases._download", return_value=b"x" * 100),
+            patch(
+                "voog.clone.phases._upload_asset_bytes",
+                side_effect=lambda t, *, filename, content_type, blob: {
+                    "id": 1,
+                    "filename": filename,
+                    "public_url": "",
+                },
+            ),
+        ):
             result = _run(src, tgt, ["assets"], state_dir=tmp, asset_budget_bytes=250)
         assets_report = result["reports"][0]
         self.assertIn("not_uploaded_due_to_quota", assets_report)

@@ -55,7 +55,7 @@ class TestMapRoundTrip(unittest.TestCase):
         # it had recorded — and create all of them a second time.
         with TemporaryDirectory() as tmp:
             state = CloneState(Path(tmp))
-            state.put("page_map", 2851128, 3550815)
+            _run_with_deadline(lambda: state.put("page_map", 2851128, 3550815))
             self.assertTrue(state.has("page_map", "2851128"))
             self.assertEqual(state.get("page_map", 2851128), 3550815)
 
@@ -68,22 +68,22 @@ class TestMapRoundTrip(unittest.TestCase):
         # already consumed the target's quota and cannot be reclaimed.
         with TemporaryDirectory() as tmp:
             state = CloneState(Path(tmp))
-            state.put("asset_map", 1, {"id": 10})
+            _run_with_deadline(lambda: state.put("asset_map", 1, {"id": 10}))
             on_disk = json.loads((Path(tmp) / "asset_map.json").read_text())
             self.assertEqual(on_disk, {"1": {"id": 10}})
 
     def test_put_many_flushes_once_and_keeps_prior_entries(self):
         with TemporaryDirectory() as tmp:
             state = CloneState(Path(tmp))
-            state.put("layout_map", 1, 100)
-            state.put_many("layout_map", {2: 200, 3: 300})
+            _run_with_deadline(lambda: state.put("layout_map", 1, 100))
+            _run_with_deadline(lambda: state.put_many("layout_map", {2: 200, 3: 300}))
             on_disk = json.loads((Path(tmp) / "layout_map.json").read_text())
             self.assertEqual(on_disk, {"1": 100, "2": 200, "3": 300})
 
     def test_put_many_with_nothing_writes_nothing(self):
         with TemporaryDirectory() as tmp:
             state = CloneState(Path(tmp))
-            state.put_many("layout_map", {})
+            _run_with_deadline(lambda: state.put_many("layout_map", {}))
             self.assertFalse((Path(tmp) / "layout_map.json").exists())
 
     def test_missing_map_reads_as_empty(self):
@@ -167,7 +167,9 @@ class TestBinding(unittest.TestCase):
 class TestPhaseBookkeeping(unittest.TestCase):
     def test_phase_summaries_survive_a_reopen(self):
         with TemporaryDirectory() as tmp:
-            CloneState(Path(tmp)).mark_phase_done("layouts", {"created": 24})
+            _run_with_deadline(
+                lambda: CloneState(Path(tmp)).mark_phase_done("layouts", {"created": 24})
+            )
             self.assertEqual(CloneState(Path(tmp)).phase_summary("layouts"), {"created": 24})
 
     def test_unknown_phase_summary_is_none(self):

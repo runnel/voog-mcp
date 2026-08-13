@@ -119,6 +119,36 @@ class PhaseReport:
         return out
 
 
+@dataclass
+class SyncOutcome:
+    """Result of rebuilding one parent's content areas.
+
+    ``_sync_contents`` DELETES the target's existing areas before writing
+    the source's, so "how many did I create" is not enough for the caller to
+    decide anything. The state that matters is *areas were destroyed and
+    their replacements did not land* — a parent in that state must NOT be
+    recorded as done, because a resume would skip it and the page stays
+    permanently empty with nothing in the report to say why.
+    """
+
+    created: int = 0
+    attempted: int = 0
+    deleted: int = 0
+    delete_failures: int = 0
+    read_failed: bool = False
+
+    @property
+    def complete(self) -> bool:
+        """True only when every source area was recreated and nothing was
+        left behind by a failed delete."""
+        return not self.read_failed and self.delete_failures == 0 and self.created == self.attempted
+
+    @property
+    def destroyed_without_replacement(self) -> bool:
+        """True when the delete step removed areas the rebuild did not restore."""
+        return self.deleted > 0 and self.created < self.attempted
+
+
 class _AssetBudget:
     """Serialises the "is there room for this upload?" decision.
 
@@ -173,6 +203,13 @@ class CloneContext:
         so by the time contents need it there is at least one), and the
         source hostnames from the source site record.
         """
+        # Re-derive while the TARGET prefix is still unknown. The prefix
+        # comes from the target's own assets, so a rewriter built before the
+        # assets phase has run (or on a phase subset that skips it) would
+        # memoise "no media rewriting" for the whole run and every copied
+        # image would keep pointing at the source site.
+        if self._rewriter is not None and self._rewriter.target_media_prefix is None:
+            self._rewriter = None
         if self._rewriter is None:
             src_site = self.source.get("/site")
             src_hosts = [
@@ -327,7 +364,15 @@ def phase_plan(ctx: CloneContext) -> PhaseReport:
 
 
 def _layout_key(layout: dict) -> tuple:
-    return (layout.get("title"), bool(layout.get("component")))
+    """Identity of a layout across sites.
+
+    ``content_type`` is part of it: Voog allows two layouts to share a title
+    while serving different content types (a `page` and a `blog` "Front"),
+    and keying on title alone collapsed them onto one target layout — the
+    second body silently overwrote the first and the report said
+    ``updated: 2`` with no problem recorded.
+    """
+    return (layout.get("title"), layout.get("content_type"), bool(layout.get("component")))
 
 
 def phase_layouts(ctx: CloneContext) -> PhaseReport:
@@ -368,6 +413,10 @@ def phase_layouts(ctx: CloneContext) -> PhaseReport:
         body = layout.get("body")
         if body is None:
             body = (src.get(f"/layouts/{source_id}") or {}).get("body") or ""
+        # Templates are full of absolute source URLs and the source's media
+        # prefix — exactly what rewrite.py exists for. Skipping them left
+        # every cloned page pulling its markup images from the source site.
+        body = ctx.rewriter().text(body)
 
         if ctx.dry_run:
             report.created += 1
@@ -433,6 +482,10 @@ def phase_layout_assets(ctx: CloneContext) -> PhaseReport:
                 # Voog says editable but serves no data — treat as binary
                 # rather than pushing an empty file over a real one.
                 is_text = False
+            else:
+                # CSS carries `url(...)` references and JS carries absolute
+                # links; both need the same rewrite as layout bodies.
+                data = ctx.rewriter().text(data)
 
         if ctx.dry_run:
             report.created += 1
@@ -511,7 +564,18 @@ def _upload_asset_bytes(tgt, *, filename: str, content_type: str, blob: bytes) -
 
 
 def _is_quota_error(exc: Exception) -> bool:
-    text = str(exc).lower()
+    """Recognise Voog's "you are out of storage" refusal.
+
+    Must go through :func:`describe_exc`, not ``str(exc)``. ``VoogClient``
+    raises a bare ``httpx.HTTPStatusError`` whose ``str()`` is exactly the
+    status-and-URL line that ``describe_exc`` exists to supplement — the
+    word ``quota_exceeded`` lives only in the response BODY. Checking the
+    plain string matched nothing, which made the "stops cleanly rather than
+    hitting 422 partway through" promise false in precisely the mode that
+    motivated it: a plan whose cap Voog does not advertise, where the 422 is
+    the only signal there is.
+    """
+    text = describe_exc(exc).lower()
     return "quota_exceeded" in text or ("422" in text and "quota" in text)
 
 
@@ -548,24 +612,45 @@ def phase_assets(ctx: CloneContext) -> PhaseReport:
 
     ledger = _AssetBudget(budget)
 
+    quota_refusals = {"n": 0}
+
     def _copy(asset: dict):
-        if not ledger.reserve(asset.get("size") or 0):
+        # Reserve BEFORE downloading. `size` is Voog's own byte count; when
+        # it is missing the reservation would be zero, so the download comes
+        # first and the real length is reserved instead — otherwise an
+        # unsized asset is free and the budget stops meaning anything.
+        declared = asset.get("size")
+        if declared and not ledger.reserve(declared):
             return "stopped"
         url = asset.get("public_url")
         if not url:
             raise RuntimeError("asset has no public_url")
         blob = _download(url)
+        if not declared and not ledger.reserve(len(blob)):
+            return "stopped"
         content_type = (
             asset.get("content_type")
             or mimetypes.guess_type(asset.get("filename") or "")[0]
             or "application/octet-stream"
         )
-        confirmed = _upload_asset_bytes(
-            tgt,
-            filename=asset.get("filename") or f"asset-{asset['id']}",
-            content_type=content_type,
-            blob=blob,
-        )
+        try:
+            confirmed = _upload_asset_bytes(
+                tgt,
+                filename=asset.get("filename") or f"asset-{asset['id']}",
+                content_type=content_type,
+                blob=blob,
+            )
+        except Exception as exc:
+            # Stop the batch HERE, inside the worker. parallel_map drains
+            # the whole pool before it returns, so a `ledger.stop()` in the
+            # results loop below is dead code — every remaining worker would
+            # already have tried and hit the same 422, stranding an
+            # unconfirmed asset each time.
+            if _is_quota_error(exc):
+                ledger.stop()
+                quota_refusals["n"] += 1
+                return "stopped"
+            raise
         ctx.state.put(
             "asset_map",
             asset["id"],
@@ -581,13 +666,6 @@ def phase_assets(ctx: CloneContext) -> PhaseReport:
     stopped_count = 0
     for asset, outcome, exc in results:
         if exc is not None:
-            if _is_quota_error(exc):
-                # Voog said no. Stop the rest of the batch rather than
-                # letting every remaining worker discover the same 422 and
-                # strand an unconfirmed asset each time.
-                ledger.stop()
-                stopped_count += 1
-                continue
             report.problem(asset.get("filename") or asset["id"], describe_exc(exc))
         elif outcome == "stopped":
             stopped_count += 1
@@ -597,7 +675,13 @@ def phase_assets(ctx: CloneContext) -> PhaseReport:
     if stopped_count:
         report.notes.append(
             f"{stopped_count} asset(s) not uploaded — the target's asset quota "
-            "ran out. Raise the plan (or free space) and re-run this phase; it "
+            "ran out"
+            + (
+                f" (Voog refused {quota_refusals['n']} upload(s) with a quota error)"
+                if quota_refusals["n"]
+                else ""
+            )
+            + ". Raise the plan (or free space) and re-run this phase; it "
             "resumes from the state map. Content phases will report every "
             "reference to an asset that is missing."
         )
@@ -871,8 +955,16 @@ def phase_pages(ctx: CloneContext) -> PhaseReport:
         except Exception as exc:
             report.problem(f"page {path or '/'}", describe_exc(exc))
 
-    if not ctx.dry_run:
+    if not ctx.dry_run and (report.created or report.updated):
+        # Skip on a pure-resume pass. Re-running it costs two requests per
+        # page and, worse, silently reverts any menu reordering the operator
+        # has done on the target since the clone last ran.
         report.details["menu_order"] = _restore_menu_order(ctx, source_pages, report)
+    elif not ctx.dry_run:
+        report.notes.append(
+            "menu order not touched — no page was created or updated this run, so "
+            "any ordering done on the target since the last clone is left alone"
+        )
     return report
 
 
@@ -961,32 +1053,43 @@ def _sync_contents(
     target_parent_id: int,
     source_contents: list,
     report: PhaseReport,
-) -> int:
+) -> SyncOutcome:
     """Rebuild one parent's content areas: text bodies and galleries.
 
     Replace rather than merge. Voog assigns content ids per site, so there
     is no stable correspondence to update against; deleting and recreating
     is the only operation with a predictable result. That is destructive on
     the target parent by design — it is what "clone this page" means.
+
+    Returns a :class:`SyncOutcome` rather than a count, because the count
+    alone cannot express the state that matters: **areas were deleted and
+    their replacements did not land.** The caller must not mark such a
+    parent done — a resume that skips it leaves the page permanently empty
+    with nothing in the report to say so.
     """
     tgt = ctx.target
     asset_map = ctx.state.load("asset_map")
-    created = 0
+    outcome = SyncOutcome()
 
     try:
         existing = tgt.get(f"/{kind}/{target_parent_id}/contents")
     except Exception as exc:
         report.problem(f"{kind}/{target_parent_id} contents", f"cannot read: {describe_exc(exc)}")
-        return 0
+        # Nothing was touched, so this parent is retryable as-is.
+        outcome.read_failed = True
+        return outcome
     for content in existing if isinstance(existing, list) else []:
         try:
             tgt.delete(f"/{kind}/{target_parent_id}/contents/{content['id']}")
+            outcome.deleted += 1
         except Exception as exc:
             report.problem(
                 f"{kind}/{target_parent_id} content {content.get('name')!r}",
                 f"cannot delete before rebuild: {describe_exc(exc)}",
             )
+            outcome.delete_failures += 1
 
+    outcome.attempted = len([c for c in source_contents if isinstance(c, dict)])
     ordered = sorted(
         [c for c in source_contents if isinstance(c, dict)],
         key=lambda c: (c.get("position") or 0, c.get("name") or ""),
@@ -1007,7 +1110,7 @@ def _sync_contents(
                     body = (ctx.source.get(f"/texts/{source_text_id}") or {}).get("body") or ""
                 if text_id:
                     tgt.put(f"/texts/{text_id}", {"body": ctx.rewriter().text(body)})
-                    created += 1
+                    outcome.created += 1
                 else:
                     report.problem(
                         f"{kind}/{target_parent_id} text {name!r}",
@@ -1060,33 +1163,33 @@ def _sync_contents(
                         "gallery is built from the rest",
                     )
                 if entries:
-                    outcome = _fill_gallery(tgt, gallery_id, entries)
+                    gallery_write = _fill_gallery(tgt, gallery_id, entries)
                     wanted_ids = [e["id"] for e in entries]
-                    if outcome.error is not None:
+                    if gallery_write.error is not None:
                         report.problem(
                             f"{kind}/{target_parent_id} gallery {name!r}",
                             (
-                                f"gallery WAS written ({outcome.writes_applied} of "
-                                f"{outcome.attempts} attempts) and then a write failed: "
-                                f"{outcome.error}"
+                                f"gallery WAS written ({gallery_write.writes_applied} of "
+                                f"{gallery_write.attempts} attempts) and then a write failed: "
+                                f"{gallery_write.error}"
                             )
-                            if outcome.target_modified
-                            else f"gallery could not be filled, no write applied: {outcome.error}",
+                            if gallery_write.target_modified
+                            else f"gallery could not be filled, no write applied: {gallery_write.error}",
                         )
-                    elif outcome.read_failed:
+                    elif gallery_write.read_failed:
                         report.problem(
                             f"{kind}/{target_parent_id} gallery {name!r}",
                             "written, but reading it back to confirm FAILED — neither "
                             "the images nor their order is verified",
                         )
-                    elif not outcome.verified:
+                    elif not gallery_write.verified:
                         report.problem(
                             f"{kind}/{target_parent_id} gallery {name!r}",
                             f"images ARE linked but Voog did not apply the order after "
-                            f"{outcome.attempts} attempts (wanted {wanted_ids}, "
-                            f"holds {outcome.final})",
+                            f"{gallery_write.attempts} attempts (wanted {wanted_ids}, "
+                            f"holds {gallery_write.final})",
                         )
-                created += 1
+                outcome.created += 1
             else:
                 report.problem(
                     f"{kind}/{target_parent_id} content {name!r}",
@@ -1094,7 +1197,36 @@ def _sync_contents(
                 )
         except Exception as exc:
             report.problem(f"{kind}/{target_parent_id} content {name!r}", describe_exc(exc))
-    return created
+    return outcome
+
+
+def _record_contents_result(ctx, report, *, key, target_id, label: str, outcome) -> None:
+    """Mark a parent done ONLY when its areas were fully rebuilt.
+
+    The unconditional write this replaces was the worst defect in the
+    clone: `_sync_contents` deletes before it creates, so a parent whose
+    deletes succeeded and whose POSTs all failed was recorded as done with
+    zero areas. The next run skipped it, reported `skipped=1` with no
+    problems, and the page stayed empty forever.
+    """
+    if outcome.complete:
+        ctx.state.put("contents_done", key, {"target": target_id, "areas": outcome.created})
+        return
+    if outcome.destroyed_without_replacement:
+        report.problem(
+            label,
+            f"DESTRUCTIVE PARTIAL: {outcome.deleted} existing content area(s) were "
+            f"deleted and only {outcome.created} of {outcome.attempted} replacements "
+            "were created. This parent is NOT marked done — re-run the contents "
+            "phase to finish rebuilding it. Until then the target has less content "
+            "than either site.",
+        )
+    elif not outcome.read_failed:
+        report.problem(
+            label,
+            f"only {outcome.created} of {outcome.attempted} content area(s) were "
+            "created; not marked done so a re-run retries it",
+        )
 
 
 def phase_contents(ctx: CloneContext) -> PhaseReport:
@@ -1121,15 +1253,22 @@ def phase_contents(ctx: CloneContext) -> PhaseReport:
         if ctx.dry_run:
             report.created += len(source_contents or [])
             continue
-        made = _sync_contents(
+        outcome = _sync_contents(
             ctx,
             kind="pages",
             target_parent_id=target_page_id,
             source_contents=source_contents or [],
             report=report,
         )
-        report.created += made
-        ctx.state.put("contents_done", source_page_id, {"target": target_page_id, "areas": made})
+        report.created += outcome.created
+        _record_contents_result(
+            ctx,
+            report,
+            key=source_page_id,
+            target_id=target_page_id,
+            label=f"page {source_page_id}",
+            outcome=outcome,
+        )
 
     # Language-level contents (footers and other site-wide areas).
     for source_lang_id, target_lang_id in language_map.items():
@@ -1147,15 +1286,22 @@ def phase_contents(ctx: CloneContext) -> PhaseReport:
         if ctx.dry_run:
             report.created += len(source_contents or [])
             continue
-        made = _sync_contents(
+        outcome = _sync_contents(
             ctx,
             kind="languages",
             target_parent_id=target_lang_id,
             source_contents=source_contents or [],
             report=report,
         )
-        report.created += made
-        ctx.state.put("contents_done", key, {"target": target_lang_id, "areas": made})
+        report.created += outcome.created
+        _record_contents_result(
+            ctx,
+            report,
+            key=key,
+            target_id=target_lang_id,
+            label=f"language {source_lang_id}",
+            outcome=outcome,
+        )
     return report
 
 
@@ -1206,34 +1352,56 @@ def phase_articles(ctx: CloneContext) -> PhaseReport:
             report.created += 1
             continue
 
-        try:
-            created = tgt.post(
-                "/articles",
-                {
-                    "page_id": target_page_id,
-                    "autosaved_title": detail.get("title"),
-                    "path": detail.get("path"),
-                    "data": ctx.rewriter().data(detail.get("data") or {}),
-                    "tag_names": detail.get("tag_names") or [],
-                    **({"description": detail["description"]} if detail.get("description") else {}),
-                },
-            )
-        except Exception as exc:
-            report.problem(
-                f"article {detail.get('title')!r}", f"create failed: {describe_exc(exc)}"
-            )
-            continue
-        target_id = created.get("id")
-        ctx.state.put("article_map", source_id, target_id)
-        report.created += 1
+        # Two-stage state. `article_shell` records the target id the moment
+        # the article EXISTS; `article_map` records it only once the body,
+        # cover and contents have landed. `POST /articles` does NOT carry
+        # the body — that arrives in the PUT below — so recording "done" at
+        # creation time meant a 503 on the body PUT left an empty untitled
+        # stub marked complete: the report said `created: 1`, the resume
+        # said `skipped: 1`, and that article's content was gone for good.
+        shell = ctx.state.get("article_shell", source_id)
+        created = None
+        if shell:
+            target_id = shell
+        else:
+            try:
+                created = tgt.post(
+                    "/articles",
+                    {
+                        "page_id": target_page_id,
+                        "autosaved_title": detail.get("title"),
+                        "path": detail.get("path"),
+                        "data": ctx.rewriter().data(detail.get("data") or {}),
+                        "tag_names": detail.get("tag_names") or [],
+                        **(
+                            {"description": detail["description"]}
+                            if detail.get("description")
+                            else {}
+                        ),
+                    },
+                )
+            except Exception as exc:
+                report.problem(
+                    f"article {detail.get('title')!r}", f"create failed: {describe_exc(exc)}"
+                )
+                continue
+            target_id = created.get("id")
+            ctx.state.put("article_shell", source_id, target_id)
 
-        if created.get("path") and detail.get("path") and created["path"] != detail["path"]:
+        if (
+            created
+            and created.get("path")
+            and detail.get("path")
+            and created["path"] != detail["path"]
+        ):
             report.problem(
                 f"article {detail.get('title')!r}",
                 f"path {detail['path']!r} was taken; Voog assigned "
                 f"{created['path']!r}. Duplicate source paths cannot be "
                 "reproduced — see the clone's known limits.",
             )
+
+        complete = True
 
         # Publish state: a source draft must stay a draft on the target, or
         # the clone publishes unfinished work. The field is `published`
@@ -1251,8 +1419,14 @@ def phase_articles(ctx: CloneContext) -> PhaseReport:
         try:
             tgt.put(f"/articles/{target_id}", publish_body)
         except Exception as exc:
+            # The body is the article. Losing it is not a footnote.
+            complete = False
             report.problem(
-                f"article {detail.get('title')!r}", f"publish failed: {describe_exc(exc)}"
+                f"article {detail.get('title')!r}",
+                f"the article exists on the target (id {target_id}) but its BODY "
+                f"was not written: {describe_exc(exc)}. It is left as an empty "
+                "stub and deliberately NOT marked done — re-run the articles "
+                "phase to finish it.",
             )
 
         cover = detail.get("image")
@@ -1262,8 +1436,12 @@ def phase_articles(ctx: CloneContext) -> PhaseReport:
                 try:
                     tgt.put(f"/articles/{target_id}", {"image_id": mapped["id"]})
                 except Exception as exc:
+                    complete = False
                     report.problem(f"article {detail.get('title')!r} cover", describe_exc(exc))
             else:
+                # The image was never uploaded (quota). Re-running will not
+                # fix that, so this does not block completion — the assets
+                # phase does, and it says so there.
                 report.problem(
                     f"article {detail.get('title')!r} cover",
                     "cover image is not in asset_map (not uploaded — most likely "
@@ -1273,17 +1451,30 @@ def phase_articles(ctx: CloneContext) -> PhaseReport:
         try:
             source_contents = src.get(f"/articles/{source_id}/contents")
         except Exception as exc:
+            complete = False
             report.problem(
                 f"article {source_id} contents", f"cannot read source: {describe_exc(exc)}"
             )
             continue
-        _sync_contents(
+        contents_outcome = _sync_contents(
             ctx,
             kind="articles",
             target_parent_id=target_id,
             source_contents=source_contents or [],
             report=report,
         )
+        if not contents_outcome.complete:
+            complete = False
+            report.problem(
+                f"article {detail.get('title')!r} contents",
+                f"only {contents_outcome.created} of {contents_outcome.attempted} "
+                "content area(s) landed; the article is NOT marked done so a "
+                "re-run retries it",
+            )
+
+        if complete:
+            ctx.state.put("article_map", source_id, target_id)
+            report.created += 1
 
     report.notes.append(
         "created_at and published_at are not settable via the API — every copied "
@@ -1306,7 +1497,14 @@ def phase_cleanup(ctx: CloneContext) -> PhaseReport:
     tgt = ctx.target
     source_layout_keys = {_layout_key(layout) for layout in ctx.source.get_all("/layouts")}
     source_asset_names = {a.get("filename") for a in ctx.source.get_all("/layout_assets")}
-    mapped_layout_ids = {int(v) for v in ctx.state.load("layout_map").values() if v}
+    mapped_layout_ids = set()
+    for value in ctx.state.load("layout_map").values():
+        try:
+            mapped_layout_ids.add(int(value))
+        except (TypeError, ValueError):
+            # A map entry that is not an id cannot protect a layout, but it
+            # must not take the cleanup phase down either.
+            continue
 
     in_use = set()
     for page in tgt.get_all("/pages"):

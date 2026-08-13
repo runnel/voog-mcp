@@ -100,6 +100,61 @@ def resolve_phases(requested: list | None) -> list:
     return ordered
 
 
+def _refuse_self_clone(source, target, source_name: str, target_name: str) -> None:
+    """Refuse a clone whose source and target are the same Voog site.
+
+    The phases delete-and-rebuild the target's content areas, so this would
+    destroy the very content it is reading — irreversibly, and before anyone
+    noticed.
+
+    Comparing configured hosts is not enough. Every Voog site answers on
+    BOTH its own domain and its `*.voog.com` address, so two `voog.json`
+    entries can name one site with two different `host` values and sail
+    past a string comparison. The authority is the site itself: `GET /site`
+    reports `public_url` and `primary_domain`, which are identical for any
+    two aliases of one site.
+    """
+    if source_name == target_name:
+        raise ValueError(
+            f"source and target are the same site name ({source_name!r}). The clone "
+            "rebuilds the target's content areas, so this would destroy the source "
+            "it is reading from."
+        )
+    source_host = getattr(source, "host", None)
+    target_host = getattr(target, "host", None)
+    if source_host and source_host == target_host:
+        raise ValueError(
+            f"source {source_name!r} and target {target_name!r} both resolve to host "
+            f"{target_host!r} — the same site. The clone rebuilds the target's "
+            "content areas, so this would destroy the source it is reading from."
+        )
+    try:
+        source_site = source.get("/site")
+        target_site = target.get("/site")
+    except Exception:
+        # Identity could not be confirmed either way. The host check above
+        # already passed; do not block a legitimate clone on a transient
+        # read, but do not pretend it was verified either.
+        logger.warning(
+            "could not read /site on both sides to confirm %s and %s are different "
+            "sites; proceeding on the host comparison alone",
+            source_name,
+            target_name,
+        )
+        return
+    for field_name in ("public_url", "primary_domain"):
+        source_value = (source_site or {}).get(field_name)
+        target_value = (target_site or {}).get(field_name)
+        if source_value and source_value == target_value:
+            raise ValueError(
+                f"source {source_name!r} ({source_host}) and target {target_name!r} "
+                f"({target_host}) are the SAME Voog site — both report "
+                f"{field_name}={source_value!r}. A Voog site answers on both its own "
+                "domain and its *.voog.com address, so two config entries can name "
+                "one site. The clone would destroy the source it is reading from."
+            )
+
+
 def run_clone(
     *,
     source,
@@ -118,12 +173,7 @@ def run_clone(
     content areas, so source == target would destroy the very content it is
     reading, and the failure would be irreversible before it was noticed.
     """
-    if source_name == target_name or getattr(source, "host", None) == getattr(target, "host", None):
-        raise ValueError(
-            f"source and target are the same site ({source_name} -> {target_name}, "
-            f"host {getattr(target, 'host', '?')}). The clone rebuilds the target's "
-            "content areas, so this would destroy the source it is reading from."
-        )
+    _refuse_self_clone(source, target, source_name, target_name)
 
     state = CloneState(Path(state_dir))
     state.bind(
