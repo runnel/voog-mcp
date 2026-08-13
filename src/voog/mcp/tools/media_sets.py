@@ -38,6 +38,7 @@ description carries an explicit destructive-PUT caveat.
 
 from mcp.types import CallToolResult, TextContent, Tool
 
+from voog._ordering import put_ordered_with_readback
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import require_int, strip_site
@@ -83,28 +84,36 @@ def _put_assets_verified(client, media_set_id: int, entries: list, *, attempts: 
     repeated immediately afterwards produced the exact requested order.
     A single write is therefore not enough, and array order alone is not
     enough either (without explicit `position` the same test was wrong every
-    time).
+    time) — which is why ``entries`` carries an explicit 1-based position and
+    the read-back sorts by it.
 
-    Returns ``(result, verified, final_ids)``. ``verified`` False means the
-    caller must say so rather than report a clean success — the assets are
-    right, the ORDER is not.
+    ``PUT /products/{id}`` fails the same way, so the write-read-retry loop
+    itself lives in :mod:`voog._ordering` and is shared; what stays here is
+    the media_set-specific part (explicit positions, position-sorted
+    read-back).
+
+    Returns an :class:`~voog._ordering.OrderedWriteResult`. ``verified``
+    False means the caller must say so rather than report a clean success —
+    the assets are right, the ORDER is not.
+
+    **Behaviour change in v1.5, not a pure refactor:** a PUT that raises no
+    longer propagates out of this function. It is captured on the result's
+    ``error`` together with how many writes had already landed, because the
+    retry loop makes "it raised" and "nothing was written" different
+    statements. The caller decides what to report; see ``_media_set_set_assets``.
     """
-    wanted = [e["id"] for e in entries]
-    result = None
-    final: list = []
-    for _ in range(max(1, attempts)):
-        result = client.put(f"/media_sets/{media_set_id}", {"assets": entries})
-        try:
-            read_back = client.get(f"/media_sets/{media_set_id}")
-        except Exception:
-            # Verification is best-effort; a failed read must not undo a
-            # write that probably landed.
-            return result, False, []
+
+    def _read_order() -> list:
+        read_back = client.get(f"/media_sets/{media_set_id}")
         assets = [a for a in (read_back.get("assets") or []) if isinstance(a, dict)]
-        final = [a.get("id") for a in sorted(assets, key=lambda a: a.get("position") or 0)]
-        if final == wanted:
-            return result, True, final
-    return result, False, final
+        return [a.get("id") for a in sorted(assets, key=lambda a: a.get("position") or 0)]
+
+    return put_ordered_with_readback(
+        put=lambda: client.put(f"/media_sets/{media_set_id}", {"assets": entries}),
+        read_order=_read_order,
+        wanted=[e["id"] for e in entries],
+        attempts=attempts,
+    )
 
 
 def get_tools() -> list[Tool]:
@@ -485,28 +494,54 @@ def _media_set_set_assets(
             entry["settings"] = settings
         payload_assets.append(entry)
 
-    try:
-        result, verified, final_ids = _put_assets_verified(client, media_set_id, payload_assets)
-    except Exception as e:
-        return error_response(f"media_set_set_assets PUT id={media_set_id} failed: {e}")
+    outcome = _put_assets_verified(client, media_set_id, payload_assets)
+    wanted_ids = [e["id"] for e in payload_assets]
 
-    simplified = _simplify_media_set(result) if isinstance(result, dict) else None
+    if outcome.error is not None:
+        # Whether the gallery changed depends on which attempt raised: with
+        # a retry loop, an earlier write may already have replaced the asset
+        # list. Reporting a bare "PUT failed" over a gallery that WAS
+        # replaced would send the caller looking for images that are gone.
+        if outcome.target_modified:
+            return error_response(
+                f"media_set_set_assets: media_set {media_set_id} WAS replaced "
+                f"({outcome.writes_applied} of {outcome.attempts} write(s) applied), "
+                f"then a follow-up write failed: {outcome.error}. Re-read it with "
+                "media_set_get before doing anything else — the gallery now holds "
+                "the new asset list, possibly in the wrong order."
+            )
+        return error_response(
+            f"media_set_set_assets PUT id={media_set_id} failed with no write "
+            f"applied; the gallery is unchanged: {outcome.error}"
+        )
+
+    simplified = _simplify_media_set(outcome.result) if isinstance(outcome.result, dict) else None
     added = [a for a in normalised if a not in current_by_id]
     summary = (
         f"🖼️  media_set {media_set_id}: {len(payload_assets)} assets set "
         f"({len(added)} added, {len(removed)} unlinked)"
     )
-    if not verified:
+    if outcome.read_failed:
+        # Nothing is known about what the gallery holds. Do not claim the
+        # membership is right — the read-back is the only check there is.
+        return error_response(
+            f"media_set_set_assets: media_set {media_set_id} was written "
+            f"({outcome.writes_applied} write(s)), but reading it back to confirm "
+            "FAILED, so neither the membership nor the order is verified. Check "
+            "with media_set_get before assuming the gallery is correct."
+        )
+    if not outcome.verified:
         # Membership is right, order is not — and Voog reports a clean 200
         # either way, so saying nothing would be the silent-success failure
         # this package refuses elsewhere.
         return error_response(
             f"media_set_set_assets: media_set {media_set_id} now holds the right "
-            f"assets, but Voog did not apply the requested ORDER after 3 attempts. "
-            f"Wanted {[e['id'] for e in payload_assets]}, got {final_ids}. Re-run the "
-            "same call — Voog converges on repeat — or set the order in the admin UI."
+            f"assets, but Voog did not apply the requested ORDER after "
+            f"{outcome.attempts} attempt(s). Wanted {wanted_ids}, got "
+            f"{outcome.final}. Re-run the same call — Voog converges on repeat — "
+            "or set the order in the admin UI."
         )
-    return success_response(simplified if simplified else result, summary=summary)
+    return success_response(simplified if simplified else outcome.result, summary=summary)
 
 
 _DISPATCH = {

@@ -146,6 +146,31 @@ where an LLM is steered to call
 their own primary domain (e.g. `stellasoomlais.com`), so a domain
 allowlist would reject real-world setups.
 
+**Config hosts are validated too (v1.5).** Until v1.5 the `host` values
+in `voog.json` skipped `validate_host` entirely: the operator writes that
+file, the operator is trusted, and `ClientFactory.for_site` constructed a
+`VoogClient` straight from `site.host`. The threat model has not changed —
+what changed is *when* the file is read. `voog_reload_config` (v1.4.3)
+makes a config re-read reachable mid-session in a single tool call, so
+"validated once, at startup, by a human who was watching" stopped being a
+description of every host that can reach a client holding a live API
+token. A config that is edited by a script, synced from a shared repo, or
+rewritten between two turns now flows through the same validator as an
+LLM-supplied host.
+
+The check runs in `voog.config.load_global_config`, not in
+`ClientFactory.for_site`. That is the one choke point shared by server
+startup, `voog_reload_config`, and every CLI subcommand, and it fails at
+load time with the offending site named rather than at the first request
+with a confusing connection error.
+
+This is a **breaking change** for a config that previously worked with a
+loopback, raw-IP, private-TLD or `example.com` host. The escape hatch is
+the environment variable `VOOG_ALLOW_UNSAFE_CONFIG_HOSTS=1`, which
+downgrades the rejection to a logged WARNING. It is deliberately an env
+var and not a `voog.json` key: a config file must not be able to supply
+both an untrusted host and its own permission to use it.
+
 **Known limitation: apex-prefix attacker pattern.** Because the
 validator deliberately accepts arbitrary primary domains, hostnames
 shaped like `voog.com.attacker.com` slip through — the `.attacker.com`

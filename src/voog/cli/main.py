@@ -216,7 +216,16 @@ def main() -> None:
     if args.command == "config" or (
         args.command == "list-my-sites" and not getattr(args, "site", None)
     ):
-        sys.exit(args.func(args))
+        # These bypass _build_client, so they need their own ConfigError
+        # handling: a voog.json that fails validation (v1.5 host check, a
+        # malformed entry) would otherwise print a raw traceback from the
+        # two commands an operator runs precisely *because* the config is
+        # broken.
+        try:
+            sys.exit(args.func(args))
+        except ConfigError as exc:
+            sys.stderr.write(f"error: {exc}\n")
+            sys.exit(1)
 
     try:
         client = _build_client(args)

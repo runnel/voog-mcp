@@ -7,26 +7,26 @@ Four tools:
                                      by typed tools.
   - ``voog_ecommerce_api_read``   — readOnlyHint=true GET-only passthrough
                                      for Ecommerce v1 endpoints.
-  - ``voog_admin_api_call``       — full-method passthrough (POST/PUT/PATCH/
-                                     DELETE/GET); GET is DEPRECATED in v1.4,
-                                     removed in v1.5. Use voog_admin_api_read.
-  - ``voog_ecommerce_api_call``   — full-method passthrough for Ecommerce v1;
-                                     GET DEPRECATED, see read tool.
+  - ``voog_admin_api_call``       — WRITE passthrough (POST/PUT/PATCH/
+                                     DELETE). GET was removed in v1.5.
+  - ``voog_ecommerce_api_call``   — write passthrough for Ecommerce v1.
 
 The split closes S3 (v4 audit): conservative annotations
 (``destructiveHint=True``) on the write-capable tools cause MCP hosts to
 surface confirmation prompts on every call — for read-only traffic that's
-alarm fatigue. The new read tools advertise ``readOnlyHint=true`` and
-hosts can skip the prompt.
+alarm fatigue. The read tools advertise ``readOnlyHint=true`` and hosts can
+skip the prompt.
 
-GET deprecation channels (v1.4):
-  1. ``warnings.warn(..., DeprecationWarning)`` — visible to CLI / tests /
-     stderr (Python process channel).
-  2. MCP TextContent summary prefix ``DEPRECATED: ...`` — visible to the
-     MCP host and the LLM (MCP transport channel).
-
-Both channels are required because ``warnings.warn`` alone is invisible to
-MCP hosts. v1.5 hard-removes GET from the *call* tools.
+GET removal (v1.5, announced in the v1.4 changelog): the ``*_call`` tools
+no longer accept ``method='GET'``. Keeping it meant every read through the
+generic surface carried ``destructiveHint=True`` and asked the operator to
+approve a request that changes nothing — the alarm fatigue the split
+existed to end. v1.4 shipped the deprecation on two channels
+(``DeprecationWarning`` for the Python side, a ``DEPRECATED:`` response
+prefix for the MCP side) for one release; the schema enum now omits GET and
+the handler answers a GET with a migration message naming the ``*_read``
+tool, because a conforming host rejects it at the schema and a
+non-conforming one must not get a silent 405 from Voog instead.
 
 Path validation rejects three obvious foot-guns:
   - Empty path or path without a leading ``/`` (would build an invalid URL).
@@ -36,33 +36,26 @@ Path validation rejects three obvious foot-guns:
     them is cheap defence-in-depth).
 """
 
-import warnings
-
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
 from voog.mcp.tools._helpers import _decode_until_stable, strip_site
 
-ALLOWED_METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
+# Write methods accepted by the ``*_call`` passthrough tools. GET is
+# deliberately absent as of v1.5 — see the module docstring.
+ALLOWED_METHODS = ("POST", "PUT", "PATCH", "DELETE")
 
-# Deprecation banners shipped on the GET branch of the legacy *_call tools.
-# v1.5 removes GET entirely from these tools — callers should migrate to
-# the corresponding *_read tool.
-_ADMIN_GET_DEPRECATION_MSG = (
-    "voog_admin_api_call(method='GET', ...) is deprecated; "
-    "use voog_admin_api_read. GET support removed in v1.5."
-)
-_ECOM_GET_DEPRECATION_MSG = (
-    "voog_ecommerce_api_call(method='GET', ...) is deprecated; "
-    "use voog_ecommerce_api_read. GET support removed in v1.5."
-)
-_ADMIN_GET_DEPRECATION_PREFIX = (
-    "DEPRECATED: this tool will lose GET support in v1.5; use voog_admin_api_read instead.\n\n"
-)
-_ECOM_GET_DEPRECATION_PREFIX = (
-    "DEPRECATED: this tool will lose GET support in v1.5; use voog_ecommerce_api_read instead.\n\n"
-)
+# Methods the ``*_call`` tools used to accept, mapped to the tool that
+# replaced them. A caller that still sends one gets this instead of a
+# generic "method must be one of …", because the useful information is
+# *where the capability moved*, not what is left.
+_REMOVED_METHOD_TARGET = {
+    "GET": {
+        "admin": "voog_admin_api_read",
+        "ecommerce": "voog_ecommerce_api_read",
+    }
+}
 
 
 def get_tools() -> list[Tool]:
@@ -144,13 +137,16 @@ def get_tools() -> list[Tool]:
         Tool(
             name="voog_admin_api_call",
             description=(
-                "Generic Admin API passthrough. Forward an HTTP request to "
-                "https://<host>/admin/api<path> using the configured site's "
-                "API token. method ∈ {GET, POST, PUT, PATCH, DELETE}; body "
+                "Generic Admin API WRITE passthrough. Forward an HTTP request "
+                "to https://<host>/admin/api<path> using the configured site's "
+                "API token. method ∈ {POST, PUT, PATCH, DELETE}; body "
                 "is JSON-serialised on POST/PUT/PATCH. Use this when no typed "
                 "tool covers the endpoint (orders, forms, tickets, elements, "
                 "tags, media_sets, webhooks, etc.). Conservative annotations "
                 "(destructiveHint=true) — Claude will confirm before calling.\n"
+                "\n"
+                "For READS use voog_admin_api_read — this tool no longer "
+                "accepts method='GET' (removed in v1.5).\n"
                 "\n"
                 "⚠️ `PUT /media_sets/{id}` is replace-not-merge: the `assets` "
                 "array you send REPLACES the gallery — any asset omitted is "
@@ -159,8 +155,11 @@ def get_tools() -> list[Tool]:
                 "only hand-roll a media_sets PUT when you have the COMPLETE "
                 "asset list. Same foot-gun as product `variants`.\n"
                 "\n"
-                "method='GET' is DEPRECATED in v1.4 — use voog_admin_api_read "
-                "instead; GET support is removed in v1.5."
+                "⚠️ Ordered `assets` arrays (`/media_sets/{id}`, ecommerce "
+                "`/products/{id}`) are applied only PARTIALLY by roughly half "
+                "of single PUTs — 200 either way. Write, read the order back, "
+                "and repeat if it disagrees, or use the typed tools "
+                "(media_set_set_assets, product_set_images) which do that."
             ),
             inputSchema={
                 "type": "object",
@@ -211,7 +210,7 @@ def get_tools() -> list[Tool]:
         Tool(
             name="voog_ecommerce_api_call",
             description=(
-                "Generic Ecommerce v1 API passthrough. Forward an HTTP "
+                "Generic Ecommerce v1 API WRITE passthrough. Forward an HTTP "
                 "request to https://<host>/admin/api/ecommerce/v1<path>. "
                 "Same shape as voog_admin_api_call, different base URL. "
                 "Supports ?include=... and ?language_code=... per Voog "
@@ -220,9 +219,8 @@ def get_tools() -> list[Tool]:
                 "delivery_provider_configs, templates, bulk product "
                 "actions, products imports, etc.\n"
                 "\n"
-                "method='GET' is DEPRECATED in v1.4 — use "
-                "voog_ecommerce_api_read instead; GET support is removed "
-                "in v1.5.\n"
+                "For READS use voog_ecommerce_api_read — this tool no longer "
+                "accepts method='GET' (removed in v1.5).\n"
                 "\n"
                 "PUT gotchas (Voog ecommerce v1 quirks — typed tools "
                 "handle these for you, passthrough does not):\n"
@@ -230,7 +228,10 @@ def get_tools() -> list[Tool]:
                 'the `{"assets": [{"id": N}, ...]}` shape. Sending the '
                 "POST-shape `asset_ids: [N, ...]` on PUT silently drops "
                 "all but the hero image. Prefer `product_set_images` for "
-                "image attachment; it handles the shape internally.\n"
+                "image attachment; it handles the shape internally. The "
+                "array ORDER is also applied only partially by about half "
+                "of single PUTs (200 either way) — read `asset_ids` back "
+                "and repeat the PUT until it matches.\n"
                 "  2. On `PUT /products/{id}`, the `variants` array is "
                 "destructive: Voog deletes every variant not present in "
                 "the array — even variants with a stable `id`. Always "
@@ -323,22 +324,10 @@ def call_tool(
                 arguments, client, base=client.ecommerce_url, label="ecommerce"
             )
         if name == "voog_admin_api_call":
-            return _passthrough_call(
-                arguments,
-                client,
-                base=client.base_url,
-                label="admin",
-                deprecation_msg=_ADMIN_GET_DEPRECATION_MSG,
-                deprecation_prefix=_ADMIN_GET_DEPRECATION_PREFIX,
-            )
+            return _passthrough_call(arguments, client, base=client.base_url, label="admin")
         if name == "voog_ecommerce_api_call":
             return _passthrough_call(
-                arguments,
-                client,
-                base=client.ecommerce_url,
-                label="ecommerce",
-                deprecation_msg=_ECOM_GET_DEPRECATION_MSG,
-                deprecation_prefix=_ECOM_GET_DEPRECATION_PREFIX,
+                arguments, client, base=client.ecommerce_url, label="ecommerce"
             )
 
     return error_response(f"Unknown tool: {name}")
@@ -377,21 +366,26 @@ def _passthrough_read(
 
 
 def _passthrough_call(
-    arguments: dict,
-    client: VoogClient,
-    *,
-    base: str,
-    label: str,
-    deprecation_msg: str,
-    deprecation_prefix: str,
+    arguments: dict, client: VoogClient, *, base: str, label: str
 ) -> list[TextContent] | CallToolResult:
-    """Full-method passthrough; GET branch emits two-channel deprecation."""
+    """Write-method passthrough (POST/PUT/PATCH/DELETE)."""
     method = (arguments.get("method") or "").upper()
     path = arguments.get("path") or ""
     body = arguments.get("body")
     params = arguments.get("params")
 
     if method not in ALLOWED_METHODS:
+        moved_to = _REMOVED_METHOD_TARGET.get(method, {}).get(label)
+        if moved_to:
+            # A host that does not enforce the schema enum would otherwise
+            # send GET straight through to a write-annotated tool. Name the
+            # replacement rather than just listing what survives.
+            return error_response(
+                f"voog_{label}_api_call: method='GET' was removed in v1.5 — "
+                f"use {moved_to} instead (same site/path/params arguments, "
+                "read-only annotations so MCP hosts can skip the "
+                "destructive-action prompt)."
+            )
         return error_response(
             f"voog_{label}_api_call: method must be one of {ALLOWED_METHODS} (got {method!r})"
         )
@@ -410,11 +404,6 @@ def _passthrough_call(
             f"OR embed them in path, not both"
         )
 
-    is_get = method == "GET"
-    if is_get:
-        # Python-side channel — visible to CLI / tests / stderr.
-        warnings.warn(deprecation_msg, DeprecationWarning, stacklevel=2)
-
     try:
         # PR #124 review: forward `params` on every method. POST/PUT/PATCH
         # branches used to drop it (pre-existing pre-1.4); Phase 1a added
@@ -423,9 +412,7 @@ def _passthrough_call(
         # string" a first-class pattern, so passthrough must forward it
         # too. Without this, voog_admin_api_call(method="POST", path=...,
         # body=..., params={"include": ...}) silently loses the include.
-        if method == "GET":
-            data = client.get(path, base=base, params=params)
-        elif method == "DELETE":
+        if method == "DELETE":
             data = client.delete(path, base=base, params=params)
         elif method == "POST":
             data = client.post(path, body, base=base, params=params)
@@ -436,11 +423,7 @@ def _passthrough_call(
     except Exception as e:
         return error_response(f"voog_{label}_api_call {method} {path} failed: {e}")
 
-    summary = f"🔌 {method} {path} ({label} api) → ok"
-    if is_get:
-        # MCP-transport channel — visible to MCP host + LLM.
-        summary = deprecation_prefix + summary
-    return success_response(data, summary=summary)
+    return success_response(data, summary=f"🔌 {method} {path} ({label} api) → ok")
 
 
 def _validate_path(path: str) -> str | None:

@@ -100,6 +100,7 @@ class TestUploadBehaviour(unittest.TestCase):
             "id": 77,
             "filename": "photo.jpg",
             "status": "done",
+            "width": 150,
             "height": 200,
             "sizes": [{"width": 113, "height": 150, "filename": "photo_medium.webp"}],
         }

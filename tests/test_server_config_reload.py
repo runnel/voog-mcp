@@ -41,12 +41,12 @@ class TestClientFactoryReload(unittest.TestCase):
         return ClientFactory(cfg, env or {}, config_path=self.config_path)
 
     def test_site_added_after_startup_becomes_visible(self):
-        factory = self._factory({"alpha": "alpha.example.com"})
+        factory = self._factory({"alpha": "alpha.voogtest.net"})
         self.assertEqual([s["name"] for s in factory.list_sites()], ["alpha"])
 
         _write_config(
             self.config_path,
-            {"alpha": "alpha.example.com", "beta": "beta.example.com"},
+            {"alpha": "alpha.voogtest.net", "beta": "beta.voogtest.net"},
         )
         # Without reload the new site stays invisible — that is the bug.
         self.assertEqual([s["name"] for s in factory.list_sites()], ["alpha"])
@@ -58,29 +58,29 @@ class TestClientFactoryReload(unittest.TestCase):
         self.assertEqual(sorted(s["name"] for s in factory.list_sites()), ["alpha", "beta"])
 
     def test_removed_site_reported_and_dropped(self):
-        factory = self._factory({"alpha": "a.example.com", "beta": "b.example.com"})
-        _write_config(self.config_path, {"alpha": "a.example.com"})
+        factory = self._factory({"alpha": "a.voogtest.net", "beta": "b.voogtest.net"})
+        _write_config(self.config_path, {"alpha": "a.voogtest.net"})
         with patch("voog.mcp.server.find_env_file", return_value=None):
             delta = factory.reload()
         self.assertEqual(delta["removed"], ["beta"])
         self.assertEqual(delta["sites"], ["alpha"])
 
     def test_cached_client_is_dropped_so_a_new_host_takes_effect(self):
-        factory = self._factory({"alpha": "old.example.com"}, env={})
+        factory = self._factory({"alpha": "old.voogtest.net"}, env={})
         with patch("voog.mcp.server.resolve_site_token", return_value="t"):
             first = factory.for_site("alpha")
-            self.assertEqual(first.host, "old.example.com")
+            self.assertEqual(first.host, "old.voogtest.net")
 
-            _write_config(self.config_path, {"alpha": "new.example.com"})
+            _write_config(self.config_path, {"alpha": "new.voogtest.net"})
             with patch("voog.mcp.server.find_env_file", return_value=None):
                 factory.reload()
             second = factory.for_site("alpha")
-        self.assertEqual(second.host, "new.example.com")
+        self.assertEqual(second.host, "new.voogtest.net")
         self.assertIsNot(first, second)
 
     def test_broken_config_leaves_the_working_one_in_place(self):
         # A reload must never be able to break a running session.
-        factory = self._factory({"alpha": "a.example.com"})
+        factory = self._factory({"alpha": "a.voogtest.net"})
         self.config_path.write_text("{not json", encoding="utf-8")
         with self.assertRaises((ConfigError, ValueError)):
             factory.reload()
@@ -106,7 +106,7 @@ class TestReloadDoesNotResetTheBudget(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.config_path = Path(self._tmp.name) / "voog.json"
-        _write_config(self.config_path, {"alpha": "a.example.com"})
+        _write_config(self.config_path, {"alpha": "a.voogtest.net"})
         cfg = load_global_config(self.config_path)
         self.factory = ClientFactory(cfg, {}, config_path=self.config_path)
 
@@ -161,7 +161,7 @@ class TestReloadToolSurface(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.config_path = Path(self._tmp.name) / "voog.json"
-        _write_config(self.config_path, {"alpha": "a.example.com"})
+        _write_config(self.config_path, {"alpha": "a.voogtest.net"})
         cfg = load_global_config(self.config_path)
         self.factory = ClientFactory(cfg, {}, config_path=self.config_path)
 
@@ -188,9 +188,9 @@ class TestReloadToolSurface(unittest.TestCase):
 
     def test_removing_one_site_of_several_still_works(self):
         # The guard must only catch "everything vanished", not a normal edit.
-        _write_config(self.config_path, {"alpha": "a.example.com", "beta": "b.example.com"})
+        _write_config(self.config_path, {"alpha": "a.voogtest.net", "beta": "b.voogtest.net"})
         with patch("voog.mcp.server.find_env_file", return_value=None):
             self.factory.reload()
-            _write_config(self.config_path, {"alpha": "a.example.com"})
+            _write_config(self.config_path, {"alpha": "a.voogtest.net"})
             delta = self.factory.reload()
         self.assertEqual(delta["removed"], ["beta"])

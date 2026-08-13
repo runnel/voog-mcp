@@ -44,6 +44,7 @@ from pathlib import Path
 from mcp.types import CallToolResult, TextContent, Tool
 
 from voog._concurrency import parallel_map, propagate_tool_context
+from voog._ordering import put_ordered_with_readback
 from voog._upload_validation import _validate_upload_url
 from voog.client import VoogClient
 from voog.errors import error_response, success_response
@@ -72,7 +73,17 @@ def get_tools() -> list[Tool]:
                 "Refuses to replace existing images unless force=true. "
                 "If any single upload fails, the product is NOT updated — "
                 "successful uploads are surfaced in `uploaded` for manual "
-                "re-linking."
+                "re-linking.\n"
+                "\n"
+                "Gallery ORDER is applied by re-reading it back and repeating "
+                "the PUT: Voog lands the requested order only about half the "
+                "time on the first write (200 either way). If the order still "
+                "has not taken, the call comes back as an ERROR carrying "
+                "`order_verified: false` and the `stored_asset_ids` Voog "
+                "actually holds. In that case every image IS linked and only "
+                "the sequence is wrong — do NOT re-run this tool to fix it, "
+                "that re-uploads every file as a new asset. Re-send just the "
+                "order via voog_ecommerce_api_call PUT /products/{id}."
             ),
             inputSchema={
                 "type": "object",
@@ -233,12 +244,22 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
 
     new_asset_ids = [u["asset_id"] for u in uploaded]
 
-    # Voog gotcha: PUT envelope is `assets:[{id:n}]`, not `asset_ids`
+    # Voog gotcha 1: PUT envelope is `assets:[{id:n}]`, not `asset_ids`
     # (that's POST-only). Sending `asset_ids` on PUT silently keeps only
     # the first/hero image — gallery images vanish without an error.
     # See feedback_voog_assets_vs_asset_ids memory.
-    try:
-        client.put(
+    #
+    # Voog gotcha 2 (v1.5): one PUT does not reliably apply the ORDER.
+    # Measured on the kolm-koma-2026 test site 2026-08-13 — 12 trials of a
+    # random 7-asset order — 6 of 12 single PUTs came back with one or two
+    # adjacent pairs transposed, returning 200 the whole time. A second
+    # identical PUT produced the requested order in all 12. This tool's
+    # contract is "first file becomes the main image, rest are gallery", so
+    # a silently shuffled gallery breaks the one promise it makes.
+    # Same failure and same remedy as media_set_set_assets; the loop lives
+    # in voog._ordering so the two cannot drift.
+    def _put_assets():
+        return client.put(
             f"/products/{product_id}",
             {
                 "image_id": new_asset_ids[0],
@@ -246,31 +267,90 @@ def _product_set_images(arguments: dict, client: VoogClient) -> list[TextContent
             },
             base=client.ecommerce_url,
         )
-    except Exception as e:
+
+    def _read_order():
+        product = client.get(f"/products/{product_id}", base=client.ecommerce_url)
+        return list(product.get("asset_ids") or [])
+
+    outcome = put_ordered_with_readback(
+        put=_put_assets,
+        read_order=_read_order,
+        wanted=new_asset_ids,
+    )
+
+    details = {
+        "product_id": product_id,
+        "old_asset_ids": old_asset_ids,
+        "uploaded": uploaded,
+        "failed": failed,
+    }
+
+    if outcome.error is not None:
+        # A write raised. Whether the product was touched depends on
+        # WHICH write raised: the retry loop means an earlier attempt may
+        # already have applied the images. Saying "NOT updated" in that
+        # case sends the operator to re-link assets that are linked, and a
+        # re-run of this tool re-uploads every file as a fresh asset.
+        if outcome.target_modified:
+            return error_response(
+                f"product_set_images: product {product_id} WAS updated "
+                f"({outcome.writes_applied} of {outcome.attempts} write(s) applied), "
+                f"then a follow-up write failed: {outcome.error}. The images are "
+                "linked; the ORDER may be wrong. Do NOT re-run this tool to fix "
+                "the order — it would upload every file again as new assets. "
+                "Verify with product_get and, if needed, re-send just the order "
+                "via voog_ecommerce_api_call PUT /products/{id} with "
+                '{"assets": [{"id": N}, ...]}.',
+                details={**details, "new_asset_ids": new_asset_ids},
+            )
         return error_response(
-            f"product_set_images: uploads OK but product {product_id} update "
-            f"failed: {e}. Assets exist in Voog's library — re-link manually.",
-            details={
-                "product_id": product_id,
-                "old_asset_ids": old_asset_ids,
-                "uploaded": uploaded,
-                "failed": failed,
-            },
+            f"product_set_images: uploads OK but product {product_id} was NOT "
+            f"updated: {outcome.error}. Assets exist in Voog's library — re-link "
+            "manually or delete them via DELETE /assets/{id}.",
+            details=details,
+        )
+
+    payload = {
+        **details,
+        "new_asset_ids": new_asset_ids,
+        "order_verified": outcome.verified,
+    }
+    if not outcome.verified:
+        # Membership is right; the order is not — or could not be read. Both
+        # are reported as errors, matching media_set_set_assets: `isError` is
+        # the signal an LLM caller reliably branches on, and a ⚠️ buried in a
+        # success payload gets skimmed past.
+        payload["stored_asset_ids"] = outcome.final
+        payload["order_read_back"] = not outcome.read_failed
+        if outcome.read_failed:
+            # Nothing is known about the stored order. Do not claim the
+            # images are correctly linked — the read-back is also the only
+            # thing that would have caught a wrong-envelope PUT.
+            return error_response(
+                f"product_set_images: product {product_id} was written "
+                f"({outcome.writes_applied} write(s)), but reading it back to "
+                "confirm the images and their order FAILED, so neither is "
+                "verified. Check with product_get before assuming the gallery "
+                "is right. Do NOT re-run this tool blindly — it would upload "
+                "every file again as new assets.",
+                details=payload,
+            )
+        return error_response(
+            f"product_set_images: product {product_id} holds the right "
+            f"{len(new_asset_ids)} image(s), but Voog did not apply the requested "
+            f"ORDER after {outcome.attempts} attempt(s). Wanted {new_asset_ids}, "
+            f"Voog holds {outcome.final}. Every image IS linked — only the "
+            "sequence is wrong. Do NOT re-run this tool to fix it (that "
+            "re-uploads every file as a new asset); re-send the order via "
+            "voog_ecommerce_api_call PUT /products/{id} with "
+            '{"assets": [{"id": N}, ...]}, or fix it in the Voog admin UI.',
+            details=payload,
         )
 
     summary = (
         f"🖼️ product {product_id}: {len(new_asset_ids)} image(s) set (main: id:{new_asset_ids[0]})"
     )
-    return success_response(
-        {
-            "product_id": product_id,
-            "old_asset_ids": old_asset_ids,
-            "new_asset_ids": new_asset_ids,
-            "uploaded": uploaded,
-            "failed": failed,
-        },
-        summary=summary,
-    )
+    return success_response(payload, summary=summary)
 
 
 def _upload_asset(path: Path, client: VoogClient) -> dict:

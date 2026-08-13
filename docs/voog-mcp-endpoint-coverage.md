@@ -23,8 +23,8 @@ update this doc when a tool is added or a new endpoint quirk is discovered.
 | Layouts | (resource only) | `layout_rename`, `layout_create`, `layout_update`, `layout_delete`, `asset_replace`, `layouts_pull`, `layouts_push` | `PUT /layouts/{id}` accepts `body` + `title` only. `layouts_pull`/`layouts_push` are bulk filesystem sync — clone all layouts + assets into a directory, edit locally, push back. |
 | Layout assets | (resource only) | `layout_asset_create`, `layout_asset_update`, `layout_asset_upload`, `layout_asset_delete` | PUT `data` only — `filename` is read-only (use `asset_replace`). Text `data` crosses a JSON boundary, so literal `\uXXXX` escapes arrive decoded (#138): deploy tracked files with `layouts_push`, which reads from disk. `layout_asset_upload` is the BINARY route (multipart `POST /layout_assets`) for favicons, icons and fonts. |
 | Texts | `text_get` | `text_update`, `page_add_content`, `article_add_content` | Page and article content bodies live here. Fresh pages/articles return `[]` from `/contents` until edit-mode trigger. Both add-content tools refuse a duplicate area name unless `force=true` — repeated names are legitimate on some article layouts. |
-| Media library | (resource only) | `asset_upload` | 3-step protocol (`POST /assets` → PUT bytes → PUT confirm). Reuses a same-named asset by default (Voog auto-suffixes duplicates rather than overwriting). Waits for the async resizes via the API — never probe a derivative URL, a too-early request earns a CDN-cached 403. Build srcsets from the returned `sizes`, and check `sizes_complete`. |
-| Media sets | (resource only) | `media_set_get`, `media_set_update_asset_titles`, `media_set_set_assets` | `PUT /media_sets/{id}` is replace-not-merge — an omitted asset is unlinked (#120). `media_set_set_assets` sets the full ordered list and refuses to drop a current asset without `force=true`. |
+| Media library | `media_set_get` (galleries), otherwise resource only | `asset_upload` | 3-step protocol (`POST /assets` → PUT bytes → PUT confirm). Reuses a same-named asset by default (Voog auto-suffixes duplicates rather than overwriting). Waits for the async resizes via the API — never probe a derivative URL, a too-early request earns a CDN-cached 403. Build srcsets from the returned `sizes`, and check `sizes_complete`. **Derivative caps apply to the LONG SIDE, not the height** (v1.5): a resize exists exactly when `max(width, height) > cap` for cap ∈ 150/600/1280/2048, and the produced file sits on the cap with the other side following the aspect ratio. Verified against all 1032 images in the kolm-koma-2026 library, 2026-08-13. |
+| Media sets | (resource only) | `media_set_get`, `media_set_update_asset_titles`, `media_set_set_assets` | `PUT /media_sets/{id}` is replace-not-merge — an omitted asset is unlinked (#120). `media_set_set_assets` sets the full ordered list and refuses to drop a current asset without `force=true`. Needs an explicit 1-based `position` per asset — array order alone is not a signal here — plus write-read-retry (v1.4.4). |
 | Redirects | `redirects_list` | `redirect_add`, `redirect_update`, `redirect_delete` | redirect_type ∈ {301, 302, 307, 410}. |
 | Languages | `languages_list` | `language_create`, `language_delete` | `language_delete` requires `force=true`. `language_move` / `language_enable_autodetect` deferred — niche; use passthrough. |
 | Nodes | `nodes_list`, `node_get` | `node_update`, `node_move`, `node_relocate` | `node_move` uses `?parent_id=N&position=M` query params (not body). `node_relocate` accepts one of `before`/`after`/`parent_node_id`. `node_create`/`node_delete` deferred — not documented by Voog. |
@@ -45,7 +45,7 @@ update this doc when a tool is added or a new endpoint quirk is discovered.
 | Tags | `tags_list`, `tag_get` | `tag_delete` | `GET /tags[,/{id}]`. Tags auto-created when articles reference them; explicit create/update via passthrough. `tag_delete` requires `force=true`. |
 | Search | `voog_search` | — | `GET /admin/api/search?q=...&scope=...`. Returns flat hit list with `kind`. Indexing must be enabled site-side; MD5 sentinel detects when it isn't. PUBLIC content only; fresh edits + drafts not visible. |
 | Me (account discovery) | `voog_list_my_sites` | — | `GET /admin/api/me/sites`. `token_env=` first-class (secret stays in env); `token=` fallback. Site-scoped — array length 1 always. |
-| **Everything else** | `voog_admin_api_call(method, path, ...)` | `voog_ecommerce_api_call(method, path, ...)` | Generic passthrough — same auth, same timeout, no envelope assumed. Use for orders, carts, discounts, gateways, shipping_methods, forms, tickets, media_sets, templates, bulk update, imports. |
+| **Everything else** | `voog_admin_api_read`, `voog_ecommerce_api_read` | `voog_admin_api_call`, `voog_ecommerce_api_call` | Generic passthrough — same auth, same timeout, no envelope assumed. Use for forms, tickets, templates, imports and anything else without a typed tool. **Reads go to the `*_read` tools** (`readOnlyHint=true`, so MCP hosts may skip the destructive-action prompt); the `*_call` tools are write-only — `method='GET'` was deprecated in v1.4 and **removed in v1.5**, and passing it returns an error naming the read tool. |
 
 ## Endpoint × verb matrix
 
@@ -64,6 +64,10 @@ Per v1.4 design spec — every phase from v1.4 onward uses this column shape so 
 | `/search` | ✓ (`voog_search`) | — | — | — | — | Scope enum `pages\|articles\|elements\|products\|all`; MD5 sentinel detects indexing-off — v1.4 S5/MD5. |
 | `/tags` | ✓ (`tags_list`) | — | — | — | — | Read-only listing — v1.4 S12. |
 | `/tags/{id}` | ✓ (`tag_get`) | — | — | — | ✓ (`tag_delete`, force-gated) | Tags auto-created when referenced; explicit create/update via passthrough — v1.4 S12. |
+| `/assets` | ✓ (via `asset_upload`'s reuse lookup) | ✓ (`asset_upload`) | ✓ (`asset_upload` — bytes + confirm) | — | — | 3-step protocol. Derivative caps are LONG-SIDE caps (v1.5). |
+| `/layout_assets` | ✓ (`layouts_pull` — detail GET per editable asset; the LIST response carries no `data`) | ✓ (`layout_asset_create` text, `layout_asset_upload` binary/multipart) | ✓ (`layout_asset_update`, `asset_replace`, `layouts_push`) | — | ✓ (`layout_asset_delete`) | `filename` is read-only on PUT. Text `data` crosses a JSON boundary — deploy tracked files via `layouts_push` (#138). |
+| `/media_sets/{id}` | ✓ (`media_set_get`) | — | ✓ (`media_set_set_assets`, `media_set_update_asset_titles`) | — | — | Replace-not-merge. Explicit 1-based `position` + write-read-retry required (v1.4.4). `POST /media_sets` returns 500 — a media_set must already exist. |
+| **Generic passthrough** | ✓ (`voog_admin_api_read`, `voog_ecommerce_api_read`) | ✓ (`voog_admin_api_call`, `voog_ecommerce_api_call`) | ✓ (same) | ✓ (same) | ✓ (same) | Read/write split — v1.4 S3. The `*_call` tools are **write-only as of v1.5**: `method='GET'` is removed and returns an error naming the matching `*_read` tool. |
 
 | `/products` (bulk) | — | — | ✓ (`products_bulk_action`, v1.4 P4 E3) — `{actions, target_ids}` shape | — | ✓ (`product_delete`, force-gated; `product_duplicate` via POST .../duplicate) | Empirical: no batch-size cap up to 1001 target_ids. |
 | `/categories` | ✓ (`categories_list`, `category_get`) | ✓ (`category_create`) | ✓ (`category_update`) | — | ✓ (`category_delete`, force-gated) | Envelope `{category: {...}}`. Writable: name, slug, parent_id. v1.4 P4 E4. |
@@ -73,9 +77,9 @@ Per v1.4 design spec — every phase from v1.4 onward uses this column shape so 
 | `/shipping_methods` | ✓ (`shipping_methods_list`) | — | — | — | — | Read-only this phase. v1.4 P4 E7. |
 | `/gateways` | ✓ (`gateways_list`) | — | — | — | — | Read-only this phase. v1.4 P4 E7. |
 
-(Rows for `/webhooks`, `/redirect_rules`, `/nodes`, `/site`, `/texts`, `/content_partials`, `/languages`, `/layout_assets` added in subsequent v1.4 phases.)
+(Rows for `/webhooks`, `/redirect_rules`, `/nodes`, `/site`, `/texts`, `/content_partials` and `/languages` still to be added; every tool that exists is named somewhere in this document — `tests/test_coverage_doc.py` fails the build otherwise.)
 
-Last verified against Voog API: 2026-05-27.
+Last verified against Voog API: 2026-08-13.
 
 ## Envelope conventions
 
@@ -121,4 +125,4 @@ module centralises these so CLI and MCP cannot drift.
 
 ---
 
-_Last verified against Voog API: 2026-05-27._
+_Last verified against Voog API: 2026-08-13._

@@ -1,0 +1,702 @@
+{
+ "_source": "kolm-koma-2026.voog.com media library (GET /assets, all pages)",
+ "_captured": "2026-08-13",
+ "_why": "Locks Voog derivative production to max(width,height) > cap. The pre-1.5 height-only rule disagreed with live data on half the library.",
+ "_population": {
+  "images_in_library": 1032,
+  "long_side_rule_matches": 1032,
+  "height_only_rule_matches": 503
+ },
+ "assets": [
+  {
+   "id": 25508719,
+   "filename": "hele3.JPG",
+   "width": 583,
+   "height": 442,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 114
+    }
+   ]
+  },
+  {
+   "id": 25508653,
+   "filename": "test 4.jpg",
+   "width": 600,
+   "height": 600,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25508634,
+   "filename": "test 2.jpg",
+   "width": 600,
+   "height": 600,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25508645,
+   "filename": "text 1.jpg",
+   "width": 600,
+   "height": 600,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25508678,
+   "filename": "Capture6.JPG",
+   "width": 693,
+   "height": 466,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 403
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 101
+    }
+   ]
+  },
+  {
+   "id": 25495850,
+   "filename": "3.1.jpg",
+   "width": 747,
+   "height": 900,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "block",
+     "width": 498,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 125,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25496518,
+   "filename": "pexels-pixasquare-1115804.jpg",
+   "width": 900,
+   "height": 900,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25496501,
+   "filename": "pexels-pixasquare-1123982.jpg",
+   "width": 733,
+   "height": 1100,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "block",
+     "width": 400,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 100,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25496311,
+   "filename": "foto - jo nurm.jpg",
+   "width": 1100,
+   "height": 1100,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25495956,
+   "filename": "NII 2.jpg",
+   "width": 1280,
+   "height": 853,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 400
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 100
+    }
+   ]
+  },
+  {
+   "id": 25518386,
+   "filename": "kk-hero-0fe428b5c60a695a-1280.webp",
+   "width": 1280,
+   "height": 853,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 400
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 100
+    }
+   ]
+  },
+  {
+   "id": 25496502,
+   "filename": "_KH_2006.jpg",
+   "width": 853,
+   "height": 1280,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "block",
+     "width": 400,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 100,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25509016,
+   "filename": "4-view-morning.jpg",
+   "width": 1280,
+   "height": 1280,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25591230,
+   "filename": "asend-3.jpg",
+   "width": 1280,
+   "height": 763,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 358
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 90
+    }
+   ]
+  },
+  {
+   "id": 25501944,
+   "filename": "ringmaja-situatsiooniskeem.jpg",
+   "width": 1288,
+   "height": 830,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "large",
+     "width": 1280,
+     "height": 825
+    },
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 387
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 97
+    }
+   ]
+  },
+  {
+   "id": 25512740,
+   "filename": "KAART.jpg",
+   "width": 1200,
+   "height": 1297,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "large",
+     "width": 1184,
+     "height": 1280
+    },
+    {
+     "thumbnail": "block",
+     "width": 555,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 139,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25512185,
+   "filename": "taara 2.jpg",
+   "width": 1920,
+   "height": 1080,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "large",
+     "width": 1280,
+     "height": 720
+    },
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 338
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 85
+    }
+   ]
+  },
+  {
+   "id": 25513356,
+   "filename": "032_029.jpg",
+   "width": 1280,
+   "height": 1920,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "large",
+     "width": 853,
+     "height": 1280
+    },
+    {
+     "thumbnail": "block",
+     "width": 400,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 100,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25519549,
+   "filename": "Barcklay_07.jpg",
+   "width": 1920,
+   "height": 1920,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "large",
+     "width": 1280,
+     "height": 1280
+    },
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25511045,
+   "filename": "haljala_skeem_3.png",
+   "width": 1920,
+   "height": 1920,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "large",
+     "width": 1280,
+     "height": 1280
+    },
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25505540,
+   "filename": "RAATUSE_01.jpg",
+   "width": 2000,
+   "height": 2000,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "large",
+     "width": 1280,
+     "height": 1280
+    },
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25510195,
+   "filename": "7.jpeg",
+   "width": 2048,
+   "height": 1152,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "large",
+     "width": 1280,
+     "height": 720
+    },
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 338
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 85
+    }
+   ]
+  },
+  {
+   "id": 25512498,
+   "filename": "TonuTunnel_KolmKoma_Decora_GTUN5417.jpg",
+   "width": 1536,
+   "height": 2048,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "large",
+     "width": 960,
+     "height": 1280
+    },
+    {
+     "thumbnail": "block",
+     "width": 450,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 113,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25518412,
+   "filename": "kk-hero-407b7801bcf943c8-2048.webp",
+   "width": 2048,
+   "height": 1536,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "large",
+     "width": 1280,
+     "height": 960
+    },
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 450
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 113
+    }
+   ]
+  },
+  {
+   "id": 25510920,
+   "filename": "asend.png",
+   "width": 1920,
+   "height": 2075,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "huge",
+     "width": 1895,
+     "height": 2048
+    },
+    {
+     "thumbnail": "large",
+     "width": 1184,
+     "height": 1280
+    },
+    {
+     "thumbnail": "block",
+     "width": 555,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 139,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25513659,
+   "filename": "001-1.jpg",
+   "width": 2275,
+   "height": 1280,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "huge",
+     "width": 2048,
+     "height": 1152
+    },
+    {
+     "thumbnail": "large",
+     "width": 1280,
+     "height": 720
+    },
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 338
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 85
+    }
+   ]
+  },
+  {
+   "id": 25499659,
+   "filename": "esipilt-05.jpg",
+   "width": 2400,
+   "height": 1600,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "huge",
+     "width": 2048,
+     "height": 1365
+    },
+    {
+     "thumbnail": "large",
+     "width": 1280,
+     "height": 853
+    },
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 400
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 100
+    }
+   ]
+  },
+  {
+   "id": 25505547,
+   "filename": "RAATUSE_05.jpg",
+   "width": 2000,
+   "height": 2667,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "huge",
+     "width": 1536,
+     "height": 2048
+    },
+    {
+     "thumbnail": "large",
+     "width": 960,
+     "height": 1280
+    },
+    {
+     "thumbnail": "block",
+     "width": 450,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 113,
+     "height": 150
+    }
+   ]
+  },
+  {
+   "id": 25501948,
+   "filename": "ringmaja-plaan-1-korrus.png",
+   "width": 4000,
+   "height": 1524,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "huge",
+     "width": 2048,
+     "height": 780
+    },
+    {
+     "thumbnail": "large",
+     "width": 1280,
+     "height": 488
+    },
+    {
+     "thumbnail": "block",
+     "width": 600,
+     "height": 229
+    },
+    {
+     "thumbnail": "medium",
+     "width": 150,
+     "height": 57
+    }
+   ]
+  },
+  {
+   "id": 25509501,
+   "filename": "Tartu Decora hardware store_2.jpg",
+   "width": 4160,
+   "height": 6064,
+   "status": "done",
+   "type": "image",
+   "sizes": [
+    {
+     "thumbnail": "huge",
+     "width": 1405,
+     "height": 2048
+    },
+    {
+     "thumbnail": "large",
+     "width": 878,
+     "height": 1280
+    },
+    {
+     "thumbnail": "block",
+     "width": 412,
+     "height": 600
+    },
+    {
+     "thumbnail": "medium",
+     "width": 103,
+     "height": 150
+    }
+   ]
+  }
+ ]
+}
